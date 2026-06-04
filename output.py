@@ -8,6 +8,7 @@ Produces:
 import json
 import logging
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 import config
@@ -77,6 +78,8 @@ def _fetch_top_bidders(notice_id: str) -> list[dict]:
 def _serialise(obj):
     if isinstance(obj, date):
         return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
     raise TypeError(f"Not serialisable: {type(obj)}")
 
 
