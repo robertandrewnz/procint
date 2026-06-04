@@ -1,0 +1,51 @@
+firm_name,sectors,size,headquarters,notes
+Downer NZ,infrastructure|FM|utilities,major,Auckland,Major infrastructure contractor; national roading and facilities management presence
+Fulton Hogan,infrastructure|utilities,major,Christchurch,Leading civil construction and roading; strong South Island base
+Fletcher Construction,infrastructure,major,Auckland,Flagship NZ construction firm; dominates large civil and vertical build
+AECOM NZ,infrastructure|advisory|ICT,large,Auckland,International engineering and advisory; strong government pipeline
+WSP New Zealand,infrastructure|advisory|FM,large,Wellington,Engineering consultancy; public sector infrastructure advisory
+Beca,advisory|infrastructure|ICT,large,Auckland,Largest NZ-owned engineering consultancy; broad public sector reach
+GHD NZ,infrastructure|advisory,large,Auckland,International advisory; water, transport, environment sectors
+Jacobs NZ,infrastructure|advisory|defence,large,Wellington,Strong defence and infrastructure advisory; government relationships
+Aurecon NZ,infrastructure|advisory,large,Wellington,Engineering and advisory; utilities and transport focus
+Stantec NZ,infrastructure|advisory,medium,Auckland,Infrastructure planning and advisory; growing NZ presence
+Datacom,ICT,large,Auckland,Dominant NZ ICT integrator; large government ICT and managed services contracts
+Spark Business,ICT|utilities,major,Auckland,Telco and ICT services; major government connectivity supplier
+Intergen,ICT|advisory,medium,Wellington,Microsoft-focused systems integrator; public sector ERP and digital
+Empired,ICT,medium,Auckland,ICT services and digital transformation; government focus
+Fujitsu NZ,ICT,large,Wellington,ICT managed services and outsourcing; long-standing government relationships
+Leidos NZ,defence|ICT|security,large,Wellington,US-parent defence and ICT; NZDF and intelligence community work
+L3Harris NZ,defence|security|ICT,large,Wellington,Defence electronics and communications; NZDF supplier
+Babcock NZ,defence|FM,large,Wellington,Defence support services; naval and NZDF facilities management
+Electra,utilities|FM,medium,Levin,Electrical infrastructure and facilities services; central NZ
+Vector,utilities,major,Auckland,Electricity distribution; major infrastructure asset owner
+Watercare,utilities,large,Auckland,Auckland water and wastewater; procurement of professional services
+Spotless (Programmed),FM,large,Auckland,National FM and cleaning; government buildings and hospitals
+OCS NZ,FM,large,Auckland,Cleaning and FM services; government and health sectors
+Jones Lang LaSalle (JLL),FM|advisory|professional_services,large,Auckland,Property management and FM advisory; public sector property
+CBRE NZ,FM|advisory,large,Auckland,Commercial property and FM; growing public sector FM advisory
+Cushman & Wakefield NZ,FM|advisory,medium,Auckland,Property advisory and FM; public sector real estate
+Deloitte NZ,advisory|professional_services|ICT,major,Wellington,Big-four advisory; strong government strategy and procurement advisory
+KPMG NZ,advisory|professional_services,large,Wellington,Big-four; government audit, advisory, and risk
+PwC NZ,advisory|professional_services,large,Auckland,Big-four; government strategy and transformation
+EY NZ,advisory|professional_services,large,Auckland,Big-four; government performance improvement and advisory
+MartinJenkins,advisory|professional_services,medium,Wellington,Boutique NZ public sector advisory; policy and strategy
+The Workshop,advisory,small,Wellington,Boutique public sector advisory; policy and organisational design
+Sapere Research Group,advisory|professional_services,medium,Wellington,Economics and regulatory advisory; public sector focus
+Tonkin + Taylor,infrastructure|advisory,large,Auckland,Environmental and geotechnical engineering; public sector infrastructure
+Opus International (WSP),infrastructure|advisory,large,Wellington,Infrastructure design and advisory (now WSP brand in NZ)
+G4S NZ,security,large,Auckland,Physical security and guarding; government and critical infrastructure
+Wilson Security,security,medium,Auckland,Security guarding; government facilities
+Armourguard,security,medium,Auckland,Security and cash-in-transit; broad NZ coverage
+Kritical Infrastructure,security|ICT,small,Wellington,Cyber and physical security advisory; defence-adjacent
+Unison Networks,utilities,medium,Hastings,Electricity distribution; Hawke's Bay and central NZ
+Chorus,utilities|ICT,major,Wellington,National broadband infrastructure; government connectivity
+Medilink,health,medium,Auckland,Health logistics and supply; public hospital sector
+Compass Health,health,large,Wellington,Primary health services; PHO and DHB relationships
+Pacific Radiology,health,medium,Christchurch,Radiology and diagnostic services; public hospital outsourcing
+Orion Health,health|ICT,large,Auckland,Health IT platforms; public sector digital health
+Quantaco,professional_services|advisory,small,Auckland,Hospitality and business advisory; niche consulting
+Generate Accounting,professional_services,small,Wellington,Accounting and financial advisory; small government work
+Anthony Harper,professional_services,medium,Auckland,Commercial law; government procurement legal services
+Bell Gully,professional_services,large,Auckland,Top-tier NZ law firm; government legal advisory
+Chapman Tripp,professional_services,large,Wellington,Top-tier NZ law firm; public sector legal and regulatory
