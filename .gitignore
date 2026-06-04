@@ -1,0 +1,20 @@
+# Credentials — never commit
+.env
+*.env.local
+
+# Pipeline logs and daily output
+pipeline_*.log
+output/
+
+# Renamed/duplicate files
+*.example copy
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# macOS
+.DS_Store
