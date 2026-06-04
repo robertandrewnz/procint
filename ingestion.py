@@ -71,13 +71,17 @@ def _fetch_html_playwright(url: str) -> str:
 def _parse_date(text: Optional[str]) -> Optional[date]:
     if not text:
         return None
-    text = text.strip()
-    for fmt in ("%d/%m/%Y", "%d %b %Y", "%Y-%m-%d", "%d-%b-%Y"):
+    # Strip timezone annotation, e.g. "12:00 PM 5 Jun 2026 (Pacific/Auckland UTC+12:00)"
+    text = re.sub(r"\s*\(.*?\)", "", text).strip()
+    # Strip leading time component, e.g. "12:00 PM 5 Jun 2026" → "5 Jun 2026"
+    text = re.sub(r"^\d{1,2}:\d{2}\s*(?:AM|PM)?\s*", "", text, flags=re.IGNORECASE).strip()
+    from datetime import datetime
+    for fmt in ("%d %b %Y", "%d/%m/%Y", "%Y-%m-%d", "%d-%b-%Y", "%d %B %Y"):
         try:
-            from datetime import datetime
             return datetime.strptime(text, fmt).date()
         except ValueError:
             continue
+    logger.debug("Could not parse date: %r", text)
     return None
 
 
@@ -85,60 +89,62 @@ def _extract_notices_from_html(html: str, base_url: str) -> list[dict]:
     """
     Parse GETS search results HTML into a list of notice dicts.
 
-    GETS renders notices in a <table> with class 'result-table' or similar.
-    The selectors here are based on the public GETS HTML structure as observed;
-    they may need adjustment if the site is updated.
+    Confirmed live structure (2026-06):
+      <table class="treetbl">
+        <tr class="tender [blueRow|greyRow]" id="tender-XXXXXXXX">
+          td[0] — notice ID (numeric)
+          td[1] — reference number
+          td[2] — title (contains the <a> link)
+          td[3] — notice type (RFP / RFT / etc.)
+          td[4] — close date/time
+          td[5] — agency name
+        </tr>
+        ...
     """
     soup = BeautifulSoup(html, "lxml")
     notices = []
 
-    # Primary: table-based results
-    rows = soup.select("table.result-table tbody tr, #tenderResults tbody tr")
-    if not rows:
-        # Fallback: any <tr> inside a results container
-        rows = soup.select(".tender-list tr, .results-list tr")
+    # Rows are <tr class="tender ..."> with id="tender-XXXXXXXX"
+    rows = soup.select("tr.tender[id^='tender-']")
+    logger.debug("Found %d tender rows in HTML", len(rows))
 
     for row in rows:
         cells = row.find_all("td")
-        if len(cells) < 3:
+        if len(cells) < 6:
             continue
 
-        link_tag = row.find("a", href=True)
+        # Notice ID is the numeric suffix of the row's id attribute
+        row_id = row.get("id", "")
+        notice_id = row_id.replace("tender-", "").strip()
+        if not notice_id:
+            continue
+
+        # Title cell (td[2]) contains the link to the detail page
+        title_cell = cells[2]
+        link_tag = title_cell.find("a", href=True)
         if not link_tag:
             continue
 
         href = link_tag["href"]
-        notice_url = href if href.startswith("http") else urljoin(base_url, href)
+        notice_url = href if href.startswith("http") else urljoin(base_url + "/", href)
 
-        # Extract GETS notice ID from URL (e.g. ?noticeId=12345 or /Notices/12345)
-        notice_id_match = re.search(r"[Nn]otice[Ii]d=(\d+)|/Notices?/(\d+)", notice_url)
-        if not notice_id_match:
-            # Use URL hash as fallback ID
-            notice_id = re.sub(r"[^a-zA-Z0-9]", "_", notice_url[-40:])
-        else:
-            notice_id = notice_id_match.group(1) or notice_id_match.group(2)
-
-        title = link_tag.get_text(strip=True)
-        cell_texts = [c.get_text(strip=True) for c in cells]
-
-        # Column order on GETS: Title | Agency | Category | Close Date (approximate)
-        agency = cell_texts[1] if len(cell_texts) > 1 else None
-        category = cell_texts[2] if len(cell_texts) > 2 else None
-        close_date_raw = cell_texts[3] if len(cell_texts) > 3 else None
-        open_date_raw = cell_texts[4] if len(cell_texts) > 4 else None
+        title       = link_tag.get_text(strip=True)
+        notice_type = cells[3].get_text(strip=True)   # RFP, RFT, EOI, etc.
+        close_raw   = cells[4].get_text(strip=True)
+        agency      = cells[5].get_text(strip=True)
 
         notices.append(
             {
-                "notice_id": notice_id,
-                "source_url": notice_url,
-                "title": title,
-                "agency": agency,
-                "category_raw": category,
-                "estimated_value": None,  # populated from detail page if needed
-                "open_date": _parse_date(open_date_raw),
-                "close_date": _parse_date(close_date_raw),
-                "description": None,
-                "raw_html": None,
+                "notice_id":       notice_id,
+                "source_url":      notice_url,
+                "title":           title,
+                "agency":          agency,
+                "category_raw":    notice_type,
+                "estimated_value": None,             # fetched from detail page
+                "open_date":       None,             # not present on list page
+                "close_date":      _parse_date(close_raw),
+                "description":     None,
+                "raw_html":        None,
             }
         )
 
@@ -228,6 +234,7 @@ def run_ingestion() -> int:
     """
     logger.info("Starting GETS ingestion")
     new_count = 0
+    first_page = True
 
     for page_url in _get_search_pages():
         logger.debug("Fetching page: %s", page_url)
@@ -235,6 +242,14 @@ def run_ingestion() -> int:
         html = _fetch_html_requests(page_url)
         if html is None:
             html = _fetch_html_playwright(page_url)
+
+        # Dump the first page HTML for selector inspection
+        if first_page:
+            debug_path = "debug_gets.html"
+            with open(debug_path, "w", encoding="utf-8") as f:
+                f.write(html)
+            logger.info("Dumped first-page HTML to %s (%d bytes)", debug_path, len(html))
+            first_page = False
 
         notices = _extract_notices_from_html(html, config.GETS_BASE_URL)
 
