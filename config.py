@@ -1,3 +1,4 @@
+from typing import Optional
 """
 All tunable pipeline parameters. Adjust here without touching module code.
 """
@@ -75,7 +76,7 @@ SECTOR_KEYWORDS: dict[str, list[str]] = {
 }
 
 # ── Value bands ───────────────────────────────────────────────────────────────
-VALUE_BANDS: list[tuple[str, float | None, float | None]] = [
+VALUE_BANDS: list[tuple[str, Optional[float], Optional[float]]] = [
     ("under_100k",   None,      100_000),
     ("100k_500k",    100_000,   500_000),
     ("500k_2m",      500_000,   2_000_000),

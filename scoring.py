@@ -4,6 +4,7 @@ Strategic significance scoring module.
 Reads parsed_notices, produces scored_notices rows with a composite 1–10 score.
 """
 import logging
+from typing import Optional
 
 import config
 import db
@@ -21,7 +22,7 @@ def score_sector(sector_tag: str) -> float:
     return config.SECTOR_PRIORITY.get(sector_tag, config.SECTOR_PRIORITY["other"])
 
 
-def score_complexity(evaluation_criteria: str | None, description: str | None) -> float:
+def score_complexity(evaluation_criteria: Optional[str], description: Optional[str]) -> float:
     text = " ".join(filter(None, [evaluation_criteria, description])).lower()
     hits = sum(1 for phrase in config.COMPLEXITY_PHRASES if phrase.lower() in text)
     # Normalise: 0 hits → 0.2, 1 hit → 0.5, 2+ hits → 0.75+, cap at 1.0
@@ -32,7 +33,7 @@ def score_complexity(evaluation_criteria: str | None, description: str | None) -
     return min(0.75 + (hits - 2) * 0.1, 1.0)
 
 
-def score_urgency(days_until_close: int | None) -> float:
+def score_urgency(days_until_close: Optional[int]) -> float:
     if days_until_close is None:
         return config.URGENCY_DEFAULT
     for threshold, score in config.URGENCY_THRESHOLDS:
@@ -64,7 +65,7 @@ def compute_composite(
 def build_reasoning(
     sector_tag: str,
     value_band: str,
-    days_until_close: int | None,
+    days_until_close: Optional[int],
     s_value: float,
     s_sector: float,
     s_complexity: float,

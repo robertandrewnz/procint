@@ -6,6 +6,7 @@ Reads raw_notices, produces structured parsed_notices rows.
 import logging
 import re
 from datetime import date, datetime
+from typing import Optional, Tuple
 
 import config
 import db
@@ -37,7 +38,7 @@ _VALUE_MULTIPLIERS = {
 }
 
 
-def _parse_value(raw: str | None) -> float | None:
+def _parse_value(raw: Optional[str]) -> Optional[float]:
     if not raw:
         return None
     raw = raw.replace(",", "").replace("$", "").replace("NZD", "").strip()
@@ -60,7 +61,7 @@ def _parse_value(raw: str | None) -> float | None:
     return None
 
 
-def assign_value_band(raw: str | None) -> tuple[str, float | None, float | None]:
+def assign_value_band(raw: Optional[str]) -> Tuple[str, Optional[float], Optional[float]]:
     value = _parse_value(raw)
     if value is None:
         return config.VALUE_BAND_UNKNOWN, None, None
@@ -74,7 +75,7 @@ def assign_value_band(raw: str | None) -> tuple[str, float | None, float | None]
 
 # ── Duration parsing ──────────────────────────────────────────────────────────
 
-def extract_duration(description: str | None) -> str | None:
+def extract_duration(description: Optional[str]) -> Optional[str]:
     if not description:
         return None
     patterns = [
@@ -102,7 +103,7 @@ NZ_REGIONS = [
 ]
 
 
-def extract_geographic_scope(description: str | None, title: str | None) -> str | None:
+def extract_geographic_scope(description: Optional[str], title: Optional[str]) -> Optional[str]:
     text = " ".join(filter(None, [description, title])).lower()
     found = [r.title() for r in NZ_REGIONS if r in text]
     if not found:
@@ -123,7 +124,7 @@ CRITERIA_PATTERNS = [
 ]
 
 
-def extract_evaluation_criteria(description: str | None) -> str | None:
+def extract_evaluation_criteria(description: Optional[str]) -> Optional[str]:
     if not description:
         return None
     for pat in CRITERIA_PATTERNS:
@@ -135,7 +136,7 @@ def extract_evaluation_criteria(description: str | None) -> str | None:
 
 # ── Days until close ──────────────────────────────────────────────────────────
 
-def days_until_close(close_date: date | None) -> int | None:
+def days_until_close(close_date: Optional[date]) -> Optional[int]:
     if close_date is None:
         return None
     delta = (close_date - date.today()).days

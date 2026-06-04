@@ -3,6 +3,7 @@ Database connection pool and helper utilities.
 """
 import logging
 from contextlib import contextmanager
+from typing import Optional
 
 import psycopg2
 import psycopg2.extras
@@ -12,7 +13,7 @@ import config
 
 logger = logging.getLogger(__name__)
 
-_pool: ThreadedConnectionPool | None = None
+_pool: Optional[ThreadedConnectionPool] = None
 
 
 def get_pool() -> ThreadedConnectionPool:
@@ -50,7 +51,7 @@ def fetchall(sql: str, params=None) -> list[dict]:
             return [dict(r) for r in cur.fetchall()]
 
 
-def fetchone(sql: str, params=None) -> dict | None:
+def fetchone(sql: str, params=None) -> Optional[dict]:
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(sql, params)

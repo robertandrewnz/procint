@@ -10,6 +10,7 @@ calls Claude to produce:
 """
 import json
 import logging
+from typing import Optional
 
 import anthropic
 
@@ -18,7 +19,7 @@ import db
 
 logger = logging.getLogger(__name__)
 
-_client: anthropic.Anthropic | None = None
+_client: Optional[anthropic.Anthropic] = None
 
 
 def _get_client() -> anthropic.Anthropic:
@@ -72,7 +73,7 @@ def _build_prompt(notice: dict) -> str:
 
 # ── Claude call ───────────────────────────────────────────────────────────────
 
-def _enrich_notice(notice: dict) -> dict | None:
+def _enrich_notice(notice: dict) -> Optional[dict]:
     client = _get_client()
     prompt = _build_prompt(notice)
 

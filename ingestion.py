@@ -10,6 +10,7 @@ Stores each new notice in raw_notices. Already-seen notice_ids are skipped.
 import logging
 import re
 from datetime import date
+from typing import Optional
 from urllib.parse import urljoin, urlencode
 
 import requests
@@ -30,7 +31,7 @@ HEADERS = {
 }
 
 
-def _fetch_html_requests(url: str, params: dict | None = None) -> str | None:
+def _fetch_html_requests(url: str, params: Optional[dict] = None) -> Optional[str]:
     try:
         resp = requests.get(
             url, params=params, headers=HEADERS, timeout=config.REQUEST_TIMEOUT
@@ -67,7 +68,7 @@ def _fetch_html_playwright(url: str) -> str:
 
 # ── Parsing helpers ───────────────────────────────────────────────────────────
 
-def _parse_date(text: str | None) -> date | None:
+def _parse_date(text: Optional[str]) -> Optional[date]:
     if not text:
         return None
     text = text.strip()
