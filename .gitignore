@@ -2,8 +2,9 @@
 .env
 *.env.local
 
-# Pipeline logs and daily output
+# Pipeline logs, debug dumps, and daily output
 pipeline_*.log
+debug_gets.html
 output/
 
 # Renamed/duplicate files
