@@ -1,11 +1,18 @@
-from typing import Optional
 """
 All tunable pipeline parameters. Adjust here without touching module code.
 """
 import os
-from dotenv import load_dotenv
+from pathlib import Path
+from typing import Optional
+from dotenv import dotenv_values
 
-load_dotenv()
+# Load .env relative to this file and inject into os.environ explicitly.
+# Using dotenv_values() + manual injection avoids a python-dotenv 1.x bug
+# where load_dotenv() exports empty strings for quoted values containing '--'.
+_env_path = Path(__file__).parent / ".env"
+for _k, _v in dotenv_values(_env_path).items():
+    if _v is not None and _v != "":
+        os.environ[_k] = _v
 
 # ── Database ─────────────────────────────────────────────────────────────────
 DATABASE_URL: str = os.environ["DATABASE_URL"]
