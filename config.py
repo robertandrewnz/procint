@@ -177,5 +177,37 @@ MAX_COMPETITOR_ASSESSMENTS: int = int(os.getenv("MAX_COMPETITOR_ASSESSMENTS", "1
 # Layer 2 output section title
 LAYER2_SECTION_TITLE: str = "Market Intelligence"
 
+# ── Layer 3 — Executive artefacts & client delivery ──────────────────────────
+
+# Artefact output root (subdirs: {client_slug}/{date}/)
+ARTEFACTS_DIR: str = os.getenv("ARTEFACTS_DIR", "output/artefacts")
+
+# Model for Layer 3 (longer-form synthesis — can be overridden per client)
+CLAUDE_MODEL_L3: str = os.getenv("CLAUDE_MODEL_L3", CLAUDE_MODEL)
+CLAUDE_MAX_TOKENS_L3: int = int(os.getenv("CLAUDE_MAX_TOKENS_L3", "4096"))
+
+# Portal auth (single shared password per deployment)
+PORTAL_PASSWORD: str = os.getenv("PORTAL_PASSWORD", "changeme")
+PORTAL_HOST: str = os.getenv("PORTAL_HOST", "127.0.0.1")
+PORTAL_PORT: int = int(os.getenv("PORTAL_PORT", "5000"))
+PORTAL_SECRET_KEY: str = os.getenv("PORTAL_SECRET_KEY", "change-this-secret-key")
+
+# SMTP for weekly briefing emails
+SMTP_HOST: str = os.getenv("SMTP_HOST", "")
+SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER: str = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM: str = os.getenv("SMTP_FROM", "")
+BRIEFING_RECIPIENTS: str = os.getenv("BRIEFING_RECIPIENTS", "")  # comma-separated
+
+# Demo package branding (for cold-outreach samples)
+DEMO_FIRM_NAME: str = os.getenv("DEMO_FIRM_NAME", "Procurement Win AI")
+DEMO_CONTACT_EMAIL: str = os.getenv("DEMO_CONTACT_EMAIL", "")
+DEMO_CONTACT_PHONE: str = os.getenv("DEMO_CONTACT_PHONE", "")
+DEMO_WEBSITE: str = os.getenv("DEMO_WEBSITE", "")
+
+# How many competitors to show in pursuit packages
+PURSUIT_COMPETITOR_LIMIT: int = int(os.getenv("PURSUIT_COMPETITOR_LIMIT", "8"))
+
 # ── Logging ───────────────────────────────────────────────────────────────────
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
