@@ -40,8 +40,9 @@ SECTOR_KEYWORDS: dict[str, list[str]] = {
     "FM": [
         "facilities", "facility management", "cleaning", "maintenance", "property",
         "building services", "FM", "grounds", "caretaking", "HVAC",
-        "road", "roads", "roading", "marking", "mowing", "landscaping",
-        "rubbish", "waste collection", "parks",
+        # Note: road/roading/marking are intentionally NOT here — those terms belong
+        # to the infrastructure sector. Including them here would match generic FM
+        # firms (OCS, ISS, Sodexo) against specialist roading contracts.
     ],
     "infrastructure": [
         "infrastructure", "construction", "roading", "roads", "road", "highway",

@@ -51,22 +51,76 @@ def _extract_keywords(text: str) -> frozenset:
     return frozenset(w for w in words if w not in _STOP_WORDS)
 
 
+def _check_exclusions(notice_text_lower: str, bidder: dict) -> bool:
+    """
+    Hard-exclude a bidder if any of their exclusion keywords appear in the
+    notice text (substring match, case-insensitive). Runs before relevance
+    scoring so irrelevant bidders are eliminated entirely rather than scoring
+    low and potentially passing a low threshold.
+    """
+    for kw in bidder.get("_exclude_keywords", []):
+        if kw and kw in notice_text_lower:
+            return True
+    return False
+
+
+def _compute_idf(all_bidders: list[dict]) -> dict[str, float]:
+    """
+    Compute IDF weights across all bidder profiles.
+
+    IDF(term) = log((N+1) / (df+1)) + 1  (Laplace-smoothed)
+
+    High IDF = rare term (specific to few bidders) = high information value.
+    Low IDF  = common term (e.g. "maintenance") = low discriminative power.
+    """
+    import math
+    N = len(all_bidders)
+    df: dict[str, int] = {}
+    for bidder in all_bidders:
+        sector_vocab = " ".join(
+            " ".join(config.SECTOR_KEYWORDS.get(s, []))
+            for s in bidder.get("_sectors", [])
+        )
+        bidder_text = " ".join(filter(None, [
+            bidder.get("firm_name") or "",
+            bidder.get("notes") or "",
+            sector_vocab,
+        ]))
+        for kw in _extract_keywords(bidder_text):
+            df[kw] = df.get(kw, 0) + 1
+    return {kw: math.log((N + 1) / (freq + 1)) + 1.0 for kw, freq in df.items()}
+
+
 def _keyword_relevance(
-    notice: dict, bidder: dict
+    notice: dict,
+    bidder: dict,
+    idf_weights: dict[str, float],
 ) -> tuple[float, list[str]]:
     """
-    Returns (score 0.0–1.0, matched_terms).
+    IDF-weighted cosine similarity between notice text and bidder profile.
 
-    Score is |intersection| / sqrt(|notice_kws| × |bidder_kws|) —
-    the cosine-similarity analogue for binary bag-of-words vectors.
-    A score of 0.06 on a 50-word notice means ~3 meaningful overlapping terms.
+    Returns (score 0.0–1.0, matched_terms sorted by specificity).
+
+    Uses binary TF * IDF weighting so domain-specific terms like "roading"
+    (rare across bidder profiles → high IDF) outweigh generic terms like
+    "maintenance" (common → low IDF). This ensures Downer scores higher than
+    Honeywell for a road maintenance notice even if both match on "maintenance".
+
+    Exclusion check fires first: if any exclusion keyword appears in the notice
+    text the function returns (0.0, []) regardless of keyword overlap.
     """
+    import math
+
     notice_text = " ".join(filter(None, [
         notice.get("title") or "",
         (notice.get("description") or "")[:2000],
     ]))
+    notice_text_lower = notice_text.lower()
 
-    # Build bidder vocabulary from notes + all sector keyword lists
+    # Hard exclusion — bidder explicitly disqualified for this notice type
+    if _check_exclusions(notice_text_lower, bidder):
+        return 0.0, []
+
     sector_vocab = " ".join(
         " ".join(config.SECTOR_KEYWORDS.get(s, []))
         for s in bidder.get("_sectors", [])
@@ -87,11 +141,22 @@ def _keyword_relevance(
     if not matched:
         return 0.0, []
 
-    score = len(matched) / (len(notice_kws) ** 0.5 * len(bidder_kws) ** 0.5)
+    def w(kw: str) -> float:
+        return idf_weights.get(kw, 1.0)
+
+    # IDF-weighted cosine similarity (binary TF)
+    numerator    = sum(w(kw) ** 2 for kw in matched)
+    notice_norm  = sum(w(kw) ** 2 for kw in notice_kws)
+    bidder_norm  = sum(w(kw) ** 2 for kw in bidder_kws)
+
+    if notice_norm == 0 or bidder_norm == 0:
+        return 0.0, []
+
+    score = numerator / (math.sqrt(notice_norm) * math.sqrt(bidder_norm))
     score = min(round(score, 4), 1.0)
 
-    # Return the most informative matched terms (longer words tend to be more specific)
-    top_terms = sorted(matched, key=lambda w: -len(w))[:8]
+    # Return matched terms ordered by IDF weight (most specific first)
+    top_terms = sorted(matched, key=lambda kw: -w(kw))[:8]
     return score, top_terms
 
 
@@ -228,6 +293,11 @@ def load_bidders(csv_path: str = config.BIDDER_CSV_PATH) -> list[dict]:
         reader = csv.DictReader(f)
         for row in reader:
             row["_sectors"] = [s.strip() for s in row.get("sectors", "").split("|") if s.strip()]
+            row["_exclude_keywords"] = [
+                k.strip().lower()
+                for k in row.get("exclude_keywords", "").split("|")
+                if k.strip()
+            ]
             bidders.append(row)
 
     logger.info("Loaded %d bidders from %s", len(bidders), csv_path)
@@ -237,14 +307,22 @@ def load_bidders(csv_path: str = config.BIDDER_CSV_PATH) -> list[dict]:
 # ── Core matching ─────────────────────────────────────────────────────────────
 
 def score_bidders_for_notice(
-    notice: dict, all_bidders: list[dict]
+    notice: dict,
+    all_bidders: list[dict],
+    idf_weights: dict[str, float],
 ) -> list[dict]:
     """
     Return a ranked list of credible bidders for a notice.
 
-    Each returned dict includes: firm_name, sector, size, strategic_importance,
-    intelligence_maturity, relevance_score, match_type, reasoning (list[str]).
-    company_context and context_confidence are added later by enrich_bidder_context().
+    Matching pipeline per bidder:
+      1. Hard exclusion — if any exclude_keyword appears in notice text, skip.
+      2. IDF-weighted cosine similarity between notice text and bidder profile.
+      3. Threshold gate — exact-sector matches use BIDDER_MIN_RELEVANCE;
+         cross-sector matches require BIDDER_CROSS_SECTOR_MIN_RELEVANCE.
+      4. Rank by (exact > cross) → specificity score desc → importance → size.
+
+    Shows fewer than TOP_N_BIDDERS_PER_NOTICE if fewer pass the threshold —
+    never pads with weak matches.
     """
     notice_sector = notice.get("sector_tag") or "other"
     value_band = notice.get("value_band") or "unknown"
@@ -254,9 +332,11 @@ def score_bidders_for_notice(
         firm_sectors = firm.get("_sectors", [])
         exact = _is_exact_sector_match(notice_sector, firm_sectors)
 
-        score, matched_terms = _keyword_relevance(notice, firm)
+        score, matched_terms = _keyword_relevance(notice, firm, idf_weights)
 
-        # Apply threshold gates
+        # Apply threshold gates — exclusion is already handled inside _keyword_relevance
+        if score == 0.0:
+            continue
         if exact:
             if score < config.BIDDER_MIN_RELEVANCE:
                 continue
@@ -494,6 +574,9 @@ def run_bidder_inference() -> int:
         (config.PRIORITY_THRESHOLD,),
     )
 
+    idf_weights = _compute_idf(all_bidders)
+    logger.info("IDF weights computed over %d bidder profiles", len(all_bidders))
+
     enrichment_cap = config.MAX_ENRICHMENT_NOTICES
     logger.info(
         "%d high-priority notices require bidder inference "
@@ -503,7 +586,7 @@ def run_bidder_inference() -> int:
     count = 0
 
     for rank, notice in enumerate(notices):
-        bidders = score_bidders_for_notice(notice, all_bidders)
+        bidders = score_bidders_for_notice(notice, all_bidders, idf_weights)
 
         if not bidders:
             logger.debug("No credible bidders found for notice %s", notice["notice_id"])
