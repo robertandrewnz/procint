@@ -4,6 +4,7 @@
 
 # Pipeline logs, debug dumps, and daily output
 pipeline_*.log
+layer2_*.log
 debug_gets.html
 output/
 
