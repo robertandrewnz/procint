@@ -35,10 +35,18 @@ import output
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Procint Layer 1 pipeline")
+    p = argparse.ArgumentParser(description="Procint Layer 1 + optional Layer 2 pipeline")
     p.add_argument("--skip-ingestion",  action="store_true", help="Skip GETS scrape")
     p.add_argument("--skip-enrichment", action="store_true", help="Skip Claude enrichment")
     p.add_argument("--skip-bidders",    action="store_true", help="Skip bidder inference")
+    p.add_argument("--layer2",          action="store_true",
+                   help="Run Layer 2 intelligence pipeline after Layer 1 completes")
+    p.add_argument("--skip-awards",     action="store_true",
+                   help="(Layer 2) Skip contract award scraping")
+    p.add_argument("--skip-profiles",   action="store_true",
+                   help="(Layer 2) Skip Claude agency profile generation")
+    p.add_argument("--company",         type=str, default=None,
+                   help="(Layer 2) Firm name for competitor intelligence")
     return p.parse_args()
 
 
@@ -74,12 +82,32 @@ def main() -> None:
 
     elapsed = (datetime.now() - start).total_seconds()
     logger.info("=" * 60)
-    logger.info("Pipeline complete in %.1fs", elapsed)
+    logger.info("Layer 1 complete in %.1fs", elapsed)
 
-    json_path, md_path = results.get("Output", (None, None))
-    if md_path:
-        logger.info("Watchlist: %s", md_path)
+    out = results.get("Output")
+    if isinstance(out, tuple):
+        for p in out:
+            if p and str(p).endswith(".html"):
+                logger.info("Watchlist (HTML): %s", p)
+            elif p and str(p).endswith(".md"):
+                logger.info("Watchlist  (MD):  %s", p)
+    elif out:
+        logger.info("Watchlist: %s", out)
     logger.info("=" * 60)
+
+    # ── Optional Layer 2 ─────────────────────────────────────────────────────
+    if args.layer2:
+        logger.info("--- Layer 2: Intelligence synthesis ---")
+        try:
+            import layer2_pipeline
+            layer2_pipeline.main(
+                skip_awards=args.skip_awards,
+                skip_profiles=args.skip_profiles,
+                company_name=args.company,
+            )
+        except Exception as exc:
+            logger.exception("Layer 2 pipeline failed: %s", exc)
+            # Layer 2 failure does not exit — Layer 1 output is still valid
 
 
 if __name__ == "__main__":
