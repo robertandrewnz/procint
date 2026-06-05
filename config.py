@@ -148,7 +148,7 @@ PRIORITY_THRESHOLD: float = float(os.getenv("PRIORITY_THRESHOLD", "5.0"))
 
 # ── Output ────────────────────────────────────────────────────────────────────
 OUTPUT_DIR: str = "output"
-TOP_N_WATCHLIST: int = 10
+TOP_N_WATCHLIST: int = int(os.getenv("TOP_N_WATCHLIST", "25"))
 TOP_N_BIDDERS_PER_NOTICE: int = 3
 
 # ── Bidder data ───────────────────────────────────────────────────────────────

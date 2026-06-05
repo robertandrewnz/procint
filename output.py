@@ -236,6 +236,109 @@ def _sector_badge(sector: str) -> str:
     return f'<span class="sector-badge" style="background:{colour}22;color:{colour};border-color:{colour}44;">{label}</span>'
 
 
+def _recommended_actions(item: dict) -> list[str]:
+    """
+    Generate 2-4 plain-language recommended actions for a prospective bidder.
+    Heuristic fallback used when Claude enrichment has not run.
+    """
+    actions = []
+    dtc = item.get("days_until_close")
+    sector = item.get("sector_tag") or "other"
+    value_band = item.get("value_band") or "unknown"
+    notice_type = (item.get("category_raw") or "").upper()
+    agency = item.get("agency") or "the agency"
+
+    # Urgency-driven action
+    if dtc is not None and dtc <= 3:
+        actions.append(
+            f"Immediate decision required — close date is in {dtc} day{'s' if dtc != 1 else ''}. "
+            "Assess bid/no-bid today and assign resources if proceeding."
+        )
+    elif dtc is not None and dtc <= 7:
+        actions.append(
+            f"Fast-track internal go/no-go — only {dtc} days to close. "
+            "Pull any prior relationship context with this agency immediately."
+        )
+    elif dtc is not None and dtc <= 21:
+        actions.append(
+            f"Initiate go/no-bid assessment this week. {dtc} days to close leaves limited time "
+            "for teaming discussions or site visits."
+        )
+    else:
+        actions.append(
+            "Register interest on GETS to signal market presence and receive any addenda or clarification notices."
+        )
+
+    # Notice-type action
+    if "EOI" in notice_type or "EXPRESSION" in notice_type:
+        actions.append(
+            "This is an Expression of Interest — submit a capability statement focused on relevant past performance "
+            "rather than pricing. Use it to shape the RFP scope by highlighting your firm's differentiators."
+        )
+    elif "ROI" in notice_type or "REGISTRATION" in notice_type:
+        actions.append(
+            "This is a Registration of Interest — submit to be included in the shortlist for the formal RFP stage. "
+            "Focus on capability, track record, and understanding of the agency's objectives."
+        )
+    elif "RFP" in notice_type:
+        actions.append(
+            "Full RFP — review evaluation criteria carefully and weight your response accordingly. "
+            "Consider teaming if capability gaps exist."
+        )
+
+    # Sector-specific action
+    sector_actions = {
+        "infrastructure": (
+            f"Contact {agency} project or procurement team to clarify scope, site access, and any "
+            "pre-qualification requirements not stated in the notice."
+        ),
+        "FM": (
+            "Review incumbent contract history via GETS award notices and OIA if needed. "
+            "Understand existing service levels before pricing mobilisation risk."
+        ),
+        "ICT": (
+            "Identify whether this is a panel arrangement or standalone contract — "
+            "check All-of-Government (AoG) alignment and whether a GETS panel already covers this scope."
+        ),
+        "defence": (
+            "Confirm security clearance requirements early — NZDF and intelligence contracts "
+            "often require NZ citizenship for key personnel and facility clearances that affect teaming options."
+        ),
+        "health": (
+            "Verify Health NZ procurement pathway — some health contracts must be channelled through "
+            "national supply agreements or PHARMAC panels. Confirm this notice is outside those frameworks."
+        ),
+        "advisory": (
+            "Review the agency's recent strategy documents and relevant Treasury/SSC guidance "
+            "to demonstrate alignment with current government priorities in your proposal."
+        ),
+        "utilities": (
+            "Check whether this falls under a Commerce Commission regulated procurement process "
+            "or standard GETS pathway — regulated network businesses have additional disclosure obligations."
+        ),
+        "security": (
+            "Confirm whether this requires a Private Security Personnel and Private Investigators Act "
+            "licence and any vetting or clearance requirements for deployed staff."
+        ),
+    }
+    if sector in sector_actions:
+        actions.append(sector_actions[sector])
+
+    # Value-scale action
+    if value_band in ("2m_10m", "10m_plus"):
+        actions.append(
+            "Given the contract scale, assess teaming or sub-contracting options early. "
+            "Large government contracts often require demonstrated consortium capability or local content commitments."
+        )
+    elif value_band == "unknown":
+        actions.append(
+            "Estimated value is not stated — request a pre-bid briefing or review the agency's "
+            "annual procurement plan to calibrate the likely scale before committing bid resources."
+        )
+
+    return actions[:4]  # cap at 4
+
+
 def _bidder_row(b: dict) -> str:
     imp = b.get("strategic_importance", "low")
     mat = b.get("intelligence_maturity", "weak")
@@ -279,6 +382,12 @@ def _notice_card(rank: int, item: dict, bidders: list[dict]) -> str:
     bidders_html = "".join(_bidder_row(b) for b in bidders) if bidders else \
         '<div class="bidder-row"><span class="bidder-meta">No bidder data</span></div>'
 
+    actions = _recommended_actions(item)
+    actions_html = "".join(
+        f'<div class="action-item"><span class="action-num">{i+1}</span><span class="action-text">{a}</span></div>'
+        for i, a in enumerate(actions)
+    )
+
     return f"""
   <div class="card">
     <div class="card-header">
@@ -318,14 +427,18 @@ def _notice_card(rank: int, item: dict, bidders: list[dict]) -> str:
     </div>
 
     <div class="card-body">
-      <div class="col-left">
+      <div class="col-intel">
         <div class="section-label">Intelligence summary</div>
         {summary_html}
         {framing_html}
         <div class="section-label" style="margin-top:1rem;">Red flags</div>
         <div class="flags-list">{flags_html}</div>
       </div>
-      <div class="col-right">
+      <div class="col-actions">
+        <div class="section-label">Recommended actions</div>
+        <div class="actions-list">{actions_html}</div>
+      </div>
+      <div class="col-bidders">
         <div class="section-label">Likely bidders</div>
         <div class="bidders-list">{bidders_html}</div>
       </div>
@@ -553,19 +666,52 @@ _HTML_TEMPLATE = """\
     }}
     .meta-value a:hover {{ text-decoration: underline; }}
 
-    /* ── Card body ── */
+    /* ── Card body — three columns ── */
     .card-body {{
       display: flex;
       gap: 0;
     }}
-    .col-left {{
-      flex: 1.6;
+    .col-intel {{
+      flex: 1.8;
       padding: 1.25rem 1.5rem;
       border-right: 1px solid var(--border);
     }}
-    .col-right {{
+    .col-actions {{
+      flex: 1.4;
+      padding: 1.25rem 1.5rem;
+      border-right: 1px solid var(--border);
+    }}
+    .col-bidders {{
       flex: 1;
       padding: 1.25rem 1.5rem;
+    }}
+
+    /* ── Recommended actions ── */
+    .actions-list {{ display: flex; flex-direction: column; gap: 0.65rem; }}
+    .action-item {{
+      display: flex;
+      align-items: flex-start;
+      gap: 0.6rem;
+    }}
+    .action-num {{
+      flex-shrink: 0;
+      width: 1.3rem;
+      height: 1.3rem;
+      border-radius: 50%;
+      background: #4f9cf918;
+      border: 1px solid #4f9cf940;
+      color: var(--accent);
+      font-size: 0.65rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 0.1rem;
+    }}
+    .action-text {{
+      font-size: 0.8rem;
+      color: var(--text);
+      line-height: 1.6;
     }}
 
     .section-label {{
@@ -651,6 +797,55 @@ _HTML_TEMPLATE = """\
       white-space: nowrap;
     }}
 
+    /* ── Explainer panel ── */
+    .explainer {{
+      max-width: 1100px;
+      margin: 0 auto 2rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.5rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+      gap: 1.5rem;
+    }}
+    .explainer-section h3 {{
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.6rem;
+    }}
+    .explainer-section p {{
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.6;
+    }}
+    .score-breakdown {{
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      margin-top: 0.2rem;
+    }}
+    .score-dim {{
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }}
+    .score-dim-bar {{
+      flex: 1;
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }}
+    .score-dim-fill {{ height: 100%; border-radius: 2px; background: var(--accent); }}
+    .score-dim-label {{ min-width: 4.5rem; }}
+    .score-dim-weight {{ min-width: 1.5rem; text-align: right; color: #4f9cf9aa; }}
+
     /* ── Footer ── */
     .report-footer {{
       max-width: 1100px;
@@ -674,6 +869,47 @@ _HTML_TEMPLATE = """\
     <div class="report-meta">
       <strong>{notice_count}</strong>
       opportunities · {run_date}
+    </div>
+  </div>
+
+  <div class="explainer">
+    <div class="explainer-section">
+      <h3>What this is</h3>
+      <p>A daily watchlist of active NZ government procurement notices from GETS (gets.govt.nz), scored and ranked for strategic relevance to advisory and professional services firms. Notices are ingested each morning and enriched with AI analysis. Use it to prioritise bid/no-bid decisions and outreach.</p>
+    </div>
+    <div class="explainer-section">
+      <h3>How scores are calculated</h3>
+      <p>Each notice is scored 1–10 across four dimensions, then combined into a composite weighted score.</p>
+      <div class="score-breakdown">
+        <div class="score-dim">
+          <span class="score-dim-label">Contract value</span>
+          <div class="score-dim-bar"><div class="score-dim-fill" style="width:75%"></div></div>
+          <span class="score-dim-weight">30%</span>
+        </div>
+        <div class="score-dim">
+          <span class="score-dim-label">Sector priority</span>
+          <div class="score-dim-bar"><div class="score-dim-fill" style="width:75%"></div></div>
+          <span class="score-dim-weight">30%</span>
+        </div>
+        <div class="score-dim">
+          <span class="score-dim-label">Eval complexity</span>
+          <div class="score-dim-bar"><div class="score-dim-fill" style="width:50%"></div></div>
+          <span class="score-dim-weight">20%</span>
+        </div>
+        <div class="score-dim">
+          <span class="score-dim-label">Days to close</span>
+          <div class="score-dim-bar"><div class="score-dim-fill" style="width:50%"></div></div>
+          <span class="score-dim-weight">20%</span>
+        </div>
+      </div>
+    </div>
+    <div class="explainer-section">
+      <h3>Sector priorities</h3>
+      <p>Sectors are ranked by strategic relevance: <strong style="color:#4f9cf9">FM</strong> and <strong style="color:#f97316">Infrastructure</strong> score highest (0.95/0.90), followed by <strong style="color:#ef4444">Defence</strong>, <strong style="color:#fb923c">Utilities</strong>, and <strong style="color:#fb923c">Security</strong> (0.90/0.85), then <strong style="color:#a78bfa">ICT</strong> (0.80), <strong style="color:#34d399">Advisory</strong> (0.70), and other professional services. Adjust weights in config.py to reflect your firm's priorities.</p>
+    </div>
+    <div class="explainer-section">
+      <h3>How to use this report</h3>
+      <p>Review the <strong>close date badge</strong> first — red means ≤7 days. Read the <strong>AI summary</strong> and <strong>red flags</strong> to inform go/no-bid. Use <strong>recommended actions</strong> as a starting checklist. Check <strong>likely bidders</strong> to assess competitive field before committing resources.</p>
     </div>
   </div>
 
