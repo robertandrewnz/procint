@@ -40,10 +40,14 @@ SECTOR_KEYWORDS: dict[str, list[str]] = {
     "FM": [
         "facilities", "facility management", "cleaning", "maintenance", "property",
         "building services", "FM", "grounds", "caretaking", "HVAC",
+        "road", "roads", "roading", "marking", "mowing", "landscaping",
+        "rubbish", "waste collection", "parks",
     ],
     "infrastructure": [
-        "infrastructure", "construction", "roading", "roads", "highway", "bridge",
-        "water", "wastewater", "stormwater", "pipeline", "structural", "civil",
+        "infrastructure", "construction", "roading", "roads", "road", "highway",
+        "bridge", "water", "wastewater", "stormwater", "pipeline", "structural",
+        "civil", "pavement", "sealing", "marking", "kerb", "drainage", "earthworks",
+        "rehabilitation", "renewal", "reseal", "carriageway",
     ],
     "ICT": [
         "ICT", "information technology", "software", "cloud", "cyber", "digital",
@@ -141,11 +145,30 @@ PRIORITY_THRESHOLD: float = float(os.getenv("PRIORITY_THRESHOLD", "5.0"))
 
 # ── Output ────────────────────────────────────────────────────────────────────
 OUTPUT_DIR: str = "output"
-TOP_N_WATCHLIST: int = 10
+TOP_N_WATCHLIST: int = int(os.getenv("TOP_N_WATCHLIST", "25"))
 TOP_N_BIDDERS_PER_NOTICE: int = 3
+
+# Cap on how many notices (sorted by score desc) receive Claude API bidder
+# context enrichment per daily run. Notices outside this cap get rule-based
+# bidder inference only. Keeps API cost and runtime predictable.
+MAX_ENRICHMENT_NOTICES: int = int(os.getenv("MAX_ENRICHMENT_NOTICES", "20"))
+
+# Score threshold for the daily HTML/MD/JSON watchlist output.
+# Lower than PRIORITY_THRESHOLD so more notices appear in the report,
+# but only notices above PRIORITY_THRESHOLD receive Claude notice enrichment
+# and only the top MAX_ENRICHMENT_NOTICES receive Claude bidder context.
+WATCHLIST_THRESHOLD: float = float(os.getenv("WATCHLIST_THRESHOLD", "4.0"))
 
 # ── Bidder data ───────────────────────────────────────────────────────────────
 BIDDER_CSV_PATH: str = "data/bidders.csv"
+
+# Minimum keyword-relevance score (0–1) for a bidder to be included.
+# Exact-sector matches use the lower bar; cross-sector requires the higher bar.
+BIDDER_MIN_RELEVANCE: float = float(os.getenv("BIDDER_MIN_RELEVANCE", "0.06"))
+BIDDER_CROSS_SECTOR_MIN_RELEVANCE: float = float(os.getenv("BIDDER_CROSS_SECTOR_MIN_RELEVANCE", "0.18"))
+
+# Top-N bidders per notice to enrich with a Claude company-context summary.
+BIDDER_CLAUDE_CONTEXT_TOP_N: int = int(os.getenv("BIDDER_CLAUDE_CONTEXT_TOP_N", "3"))
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

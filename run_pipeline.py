@@ -76,9 +76,11 @@ def main() -> None:
     logger.info("=" * 60)
     logger.info("Pipeline complete in %.1fs", elapsed)
 
-    json_path, md_path = results.get("Output", (None, None))
+    json_path, md_path, html_path = results.get("Output", (None, None, None))
+    if html_path:
+        logger.info("Watchlist (HTML): %s", html_path)
     if md_path:
-        logger.info("Watchlist: %s", md_path)
+        logger.info("Watchlist  (MD):  %s", md_path)
     logger.info("=" * 60)
 
 
