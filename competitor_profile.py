@@ -280,7 +280,7 @@ def _render_profile_html(data: dict, client_name: Optional[str] = None,
                 adv = f'<span style="color:var(--amber);">Even ({comp_wins} each)</span>'
             h2h_rows += (
                 f"<tr><td>{_safe(row.get('posting_agency', ''))[:50]}</td>"
-                f"<td>{_safe(adv)}</td>"
+                f"<td>{adv}</td>"
                 f"<td>{_fmt_value(row.get('comp_value'))}</td>"
                 f"<td>{_fmt_value(row.get('cli_value') or 0)}</td></tr>"
             )
