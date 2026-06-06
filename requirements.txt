@@ -5,3 +5,7 @@ psycopg2-binary>=2.9.9
 python-dotenv>=1.0.0
 requests>=2.31.0
 lxml>=5.2.0
+rapidfuzz>=3.6.0
+flask>=3.0.0
+pdfkit>=1.0.0
+schedule>=1.2.0
