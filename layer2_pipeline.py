@@ -209,8 +209,109 @@ _MI_STYLE = """
     .renewal-parties { color: var(--muted); font-size: .72rem; }
 
     .mi-empty { font-size: .8rem; color: var(--muted); font-style: italic; }
+
+    /* Sector distribution chart */
+    .sector-dist-list { display: flex; flex-direction: column; gap: .55rem; }
+    .sector-dist-row {
+      display: grid;
+      grid-template-columns: 9rem 1fr 4.5rem;
+      align-items: center;
+      gap: .6rem;
+      font-size: .78rem;
+    }
+    .sector-dist-label {
+      font-weight: 600;
+      color: var(--text);
+      text-align: right;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sector-dist-track {
+      height: 8px;
+      background: var(--border);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .sector-dist-fill {
+      height: 100%;
+      border-radius: 99px;
+      transition: width .3s ease;
+    }
+    .sector-dist-meta {
+      font-size: .72rem;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .sector-dist-total {
+      font-size: .72rem;
+      color: var(--muted);
+      margin-top: .6rem;
+      text-align: right;
+    }
   </style>
 """
+
+
+_SECTOR_COLOURS = {
+    "FM":                   "#1a5276",
+    "infrastructure":       "#7d6608",
+    "ICT":                  "#6c3483",
+    "advisory":             "#1a6b3a",
+    "health":               "#922b21",
+    "defence":              "#1a3a4a",
+    "utilities":            "#0e6655",
+    "security":             "#784212",
+    "professional_services":"#2e4057",
+    "other":                "#6c757d",
+}
+
+
+def _sector_distribution_html() -> str:
+    """
+    Build a bar-chart panel showing sector breakdown of today's scored notices.
+    Each bar represents sector_count / total_notices (not sector_count / sector_count).
+    """
+    rows = db.fetchall(
+        """
+        SELECT p.sector_tag, COUNT(*) AS cnt
+          FROM parsed_notices p
+          JOIN scored_notices s ON s.notice_id = p.notice_id
+         GROUP BY p.sector_tag
+         ORDER BY cnt DESC
+        """
+    )
+    if not rows:
+        return '<p class="mi-empty">No notice data available yet.</p>'
+
+    total = sum(int(r["cnt"]) for r in rows)
+    max_cnt = int(rows[0]["cnt"]) if rows else 1
+
+    bars = []
+    for r in rows:
+        sector = r["sector_tag"] or "other"
+        cnt = int(r["cnt"])
+        # Percentage of ALL notices (the correct calculation)
+        pct_of_total = cnt / total * 100
+        # Bar width scaled to max sector (so the top sector fills the track)
+        bar_width = cnt / max_cnt * 100
+        colour = _SECTOR_COLOURS.get(sector, "#6c757d")
+        label = sector.replace("_", " ").upper()
+        bars.append(
+            f'<div class="sector-dist-row">'
+            f'<div class="sector-dist-label">{label}</div>'
+            f'<div class="sector-dist-track">'
+            f'<div class="sector-dist-fill" style="width:{bar_width:.1f}%;background:{colour};"></div>'
+            f'</div>'
+            f'<div class="sector-dist-meta">{cnt} &nbsp;({pct_of_total:.1f}%)</div>'
+            f'</div>'
+        )
+
+    return (
+        '<div class="sector-dist-list">'
+        + "".join(bars)
+        + f'</div><div class="sector-dist-total">{total} notices total &mdash; % of all notices ingested today</div>'
+    )
 
 
 def _flag_row_html(flag: dict) -> str:
@@ -245,6 +346,9 @@ def _build_market_intelligence_html(
     run_date: date,
 ) -> str:
     """Build the complete Market Intelligence HTML section."""
+
+    # Sector distribution (computed once here, used in HTML below)
+    sector_dist_html = _sector_distribution_html()
 
     # Split flags by type
     renewals   = [f for f in flags if f["flag_type"] == "approaching_renewal"]
@@ -346,6 +450,15 @@ def _build_market_intelligence_html(
       <span class="mi-card-title">Knowledge Graph</span>
     </div>
     <div class="mi-card-body">{stats_html}</div>
+  </div>
+
+  <!-- Sector distribution -->
+  <div class="mi-card" style="margin-bottom:1.25rem;">
+    <div class="mi-card-header">
+      <span class="mi-card-icon">&#9644;</span>
+      <span class="mi-card-title">Sector Distribution — Today&#x2019;s Notices</span>
+    </div>
+    <div class="mi-card-body">{sector_dist_html}</div>
   </div>
 
   <div class="mi-grid">
