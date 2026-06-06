@@ -1,0 +1,27 @@
+{
+  "clients": {
+    "admin": {
+      "password_hash": "$2b$12$P8o11GhwD8Q2NxgBQNMuVedOxlx1PfyUg3EwdIh20L/NOo1XTUfTO",
+      "display_name": "BidEdge Admin",
+      "email": "robertandrewnz@gmail.com",
+      "is_admin": true,
+      "sectors": [],
+      "artefact_slug": "bidedge_admin"
+    },
+    "robert": {
+      "password_hash": "$2b$12$a9ntO6z4JzamuBafRxnP/u3D/TwWOKsssF7aJobhcwAVqVW8i3GnS",
+      "display_name": "Robert Nesbitt",
+      "email": "robertandrewnz@gmail.com",
+      "is_admin": false,
+      "sectors": [
+        "FM",
+        "infrastructure"
+      ],
+      "artefact_slug": "robert_nesbitt"
+    }
+  },
+  "settings": {
+    "admin_email": "robertandrewnz@gmail.com",
+    "site_name": "Groundwork by BidEdge"
+  }
+}
