@@ -227,12 +227,28 @@ def detect_sector_spikes() -> list[dict]:
         (lookback, lookback),
     )
 
+    # Total notices across ALL sectors — used as the denominator so the
+    # percentage reflects share of the market, not share of that sector
+    # (dividing by the same sector's total would always approach 100%).
+    total_all = db.fetchone(
+        """
+        SELECT COUNT(*) AS n
+          FROM parsed_notices p
+          JOIN raw_notices r ON r.notice_id = p.notice_id
+         WHERE r.fetched_at >= NOW() - (%s || ' days')::INTERVAL
+        """,
+        (lookback,),
+    )
+    total_all_n = int((total_all or {}).get("n") or 1)
+
     flags = []
     for r in rows:
-        pct = round(100 * r["recent_count"] / r["total_count"])
+        # Percentage of ALL notices in the window, not percentage of this sector
+        pct = round(100 * r["recent_count"] / total_all_n)
         description = (
-            f"Sector spike: {r['sector_tag']} accounts for {r['recent_count']} notices "
-            f"in the last {lookback} days ({pct}% of all {r['sector_tag']} notices). "
+            f"Sector spike: {r['sector_tag']} accounts for {r['recent_count']} of "
+            f"{total_all_n} notices in the last {lookback} days "
+            f"({pct}% of all notices). "
             f"Unusual market activity — investigate drivers."
         )
         flag = _store_flag(

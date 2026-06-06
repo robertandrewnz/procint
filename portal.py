@@ -313,7 +313,8 @@ h1,h2,h3{line-height:1.3;color:var(--text);}
 /* Flag rows */
 .fr{display:flex;gap:.75rem;align-items:flex-start;padding:.65rem 1rem;
     border-radius:6px;background:var(--surf2);margin-bottom:.5rem;
-    border:1px solid var(--border);font-size:.82rem;}
+    border:1px solid var(--border);font-size:.82rem;min-width:0;}
+.fr>span:last-child{min-width:0;word-wrap:break-word;overflow-wrap:break-word;}
 .fs{flex-shrink:0;font-size:.62rem;font-weight:700;padding:.15rem .4rem;
     border-radius:3px;text-transform:uppercase;}
 .fsh{background:rgba(224,85,85,.2);color:var(--red);}
@@ -697,7 +698,7 @@ def gw_home():
         css_map = {"high": "fsh", "medium": "fsm", "low": "fsl"}
         flags_html += (f'<div class="fr">'
                        f'<span class="fs {css_map.get(sev,"fsl")}">{sev}</span>'
-                       f'<span>{fl.get("description","")[:130]}</span></div>')
+                       f'<span style="line-height:1.5;">{fl.get("description","")}</span></div>')
     if not flags_html:
         flags_html = '<p style="color:var(--muted);font-size:.82rem;">No active market signals.</p>'
 
