@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 _PDF_PRINT_CSS = """
 @page {
     size: A4;
-    margin: 18mm 18mm 22mm 18mm;
+    margin: 14mm 14mm 18mm 14mm;
     @bottom-center {
         content: counter(page) " / " counter(pages);
         font-size: 8pt;
@@ -53,23 +53,25 @@ body {
 /* Hide screen-only elements */
 .sidebar, .demo-footer-bar { display: none !important; }
 
-/* Main content: full width, no offset */
+/* Main content: full width with internal padding so text clears box edges */
 .main {
     display: block !important;
-    padding: 0 !important;
+    padding: 12pt 16pt !important;
     max-width: 100% !important;
     width: 100% !important;
+    box-sizing: border-box !important;
 }
 
-/* Cover block */
-.cover { position: static !important; }
-.cover-meta { display: block !important; margin-bottom: 1rem; }
+/* Cover: give it room to breathe */
+.cover { position: static !important; padding: 0 0 16pt; }
+.cover-meta { display: block !important; margin-bottom: 8pt; }
 .meta-chip { display: inline-block; margin-right: 6pt; margin-bottom: 4pt; }
 
 /* Verdict banner — was flex, now block with inline score */
 .verdict {
     display: block !important;
-    padding: 12pt 14pt;
+    padding: 14pt 16pt;
+    margin-bottom: 16pt;
 }
 .verdict .prob-ring {
     display: inline-block;
@@ -98,6 +100,7 @@ body {
 .card-header {
     display: block !important;
     position: static !important;
+    padding: 12pt 16pt !important;
 }
 .card-header-main { display: block; margin-bottom: 6pt; }
 .card-title-row   { display: block !important; margin-bottom: 4pt; }
@@ -105,25 +108,25 @@ body {
 .score-bar-track  { width: 120pt; }
 
 /* Meta row — was flex, now inline-block cells */
-.card-meta-row { display: block !important; padding: 6pt 0; }
+.card-meta-row { display: block !important; padding: 8pt 16pt; }
 .meta-item {
     display: inline-block !important;
-    padding: 0 12pt 0 0 !important;
+    padding: 0 16pt 0 0 !important;
     border-right: none !important;
     vertical-align: top;
     margin-bottom: 4pt;
 }
 
-/* Card body — was 3-column flex, now stacked */
-.card-body    { display: block !important; }
+/* Card body — was 3-column flex, now stacked with padding */
+.card-body    { display: block !important; padding: 0 16pt 8pt !important; }
 .col-intel    { display: block !important; width: 100% !important;
-                border-right: none !important; padding: 0 0 10pt !important; }
+                border-right: none !important; padding: 0 0 12pt !important; }
 .col-actions  { display: block !important; width: 100% !important;
-                border-right: none !important; padding: 0 0 10pt !important;
-                border-top: 1pt solid #2a3344; padding-top: 10pt !important; }
+                border-right: none !important; padding: 12pt 0 !important;
+                border-top: 1pt solid #2a3344; }
 .col-bidders  { display: block !important; width: 100% !important;
-                padding: 0 0 10pt !important;
-                border-top: 1pt solid #2a3344; padding-top: 10pt !important; }
+                padding: 12pt 0 0 !important;
+                border-top: 1pt solid #2a3344; }
 
 /* Action items */
 .action-item  { display: block !important; padding: 6pt 0; }
@@ -144,8 +147,8 @@ body {
 /* Suppressed positioning */
 .card-header, .cover, .report-header { position: static !important; }
 
-/* Section title */
-.section { page-break-before: auto; margin-bottom: 16pt; }
+/* Section spacing */
+.section { page-break-before: auto; margin-bottom: 16pt; padding: 0 16pt; }
 .section-title { font-size: 13pt; margin-bottom: 8pt; }
 .section-number { font-size: 9pt; }
 .cover-title { font-size: 20pt; line-height: 1.3; }
