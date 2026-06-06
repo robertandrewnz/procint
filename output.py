@@ -726,7 +726,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     </div>
     <div class="explainer-section">
       <h3>Sector priorities</h3>
-      <p>FM and Infrastructure score highest (0.95/0.90), followed by Defence, Utilities, Security (0.90/0.85), ICT (0.80), Advisory (0.70), and other professional services. Adjust weights in config.py.</p>
+      <p>All sectors weighted equally by default. Scores are driven by contract value, urgency, and evaluation complexity. Sector preference can be configured per client to re-rank results.</p>
     </div>
     <div class="explainer-section">
       <h3>How to use this report</h3>
