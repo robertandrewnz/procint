@@ -218,7 +218,7 @@ PORTAL_SECRET_KEY: str = os.getenv("PORTAL_SECRET_KEY", "change-this-secret-key"
 # SMTP for weekly briefing emails
 SMTP_HOST: str = os.getenv("SMTP_HOST", "")
 SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER: str = os.getenv("SMTP_USER", "")
+SMTP_USER: str = os.getenv("SMTP_USERNAME", os.getenv("SMTP_USER", ""))
 SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
 SMTP_FROM: str = os.getenv("SMTP_FROM", "")
 BRIEFING_RECIPIENTS: str = os.getenv("BRIEFING_RECIPIENTS", "")  # comma-separated
