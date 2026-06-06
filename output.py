@@ -92,19 +92,20 @@ def _fetch_watchlist() -> list[dict]:
 def _fetch_top_bidders(notice_id: str) -> list[dict]:
     return db.fetchall(
         """
-        SELECT firm_name, size, strategic_importance, intelligence_maturity
+        SELECT firm_name, size, strategic_importance, intelligence_maturity,
+               relevance_score, match_type, reasoning, company_context, context_confidence
         FROM   bidder_pool
         WHERE  notice_id = %s
         ORDER  BY
+            CASE match_type
+                WHEN 'mbie_evidence' THEN 0
+                ELSE 1
+            END,
+            COALESCE(relevance_score, 0) DESC,
             CASE strategic_importance
                 WHEN 'high'   THEN 1
                 WHEN 'medium' THEN 2
                 ELSE               3
-            END,
-            CASE intelligence_maturity
-                WHEN 'strong'   THEN 1
-                WHEN 'moderate' THEN 2
-                ELSE                 3
             END
         LIMIT %s
         """,
@@ -345,19 +346,69 @@ def _recommended_actions(item: dict) -> list[str]:
     return actions[:4]  # cap at 4
 
 
-def _bidder_row(b: dict) -> str:
+def _bidder_card(b: dict) -> str:
+    """Render one bidder card with evidence bullets."""
     imp = b.get("strategic_importance", "low")
     mat = b.get("intelligence_maturity", "weak")
-    imp_col = IMPORTANCE_COLOURS.get(imp, "#94a3b8")
-    mat_col = MATURITY_COLOURS.get(mat, "#94a3b8")
+    imp_col = IMPORTANCE_COLOURS.get(imp, "#6c757d")
+    mat_col = MATURITY_COLOURS.get(mat, "#6c757d")
     size = (b.get("size") or "—").capitalize()
-    return f"""
-          <div class="bidder-row">
-            <span class="bidder-name">{b['firm_name']}</span>
-            <span class="bidder-meta">{size}</span>
-            <span class="bidder-pill" style="color:{imp_col};border-color:{imp_col}44;">▲ {imp}</span>
-            <span class="bidder-pill" style="color:{mat_col};border-color:{mat_col}44;">◎ {mat}</span>
-          </div>"""
+    match_type = b.get("match_type") or "csv_inferred"
+    confidence = b.get("context_confidence") or "unknown"
+
+    # Evidence source badge
+    if match_type == "mbie_evidence":
+        src_badge = ('<span class="bidder-src-badge bidder-src-mbie">'
+                     '&#10003; MBIE historical</span>')
+    elif match_type in ("exact", "cross_sector"):
+        src_badge = ('<span class="bidder-src-badge bidder-src-inferred">'
+                     '&#9675; Sector inference</span>')
+    else:
+        src_badge = ""
+
+    # Company context (Claude-generated profile)
+    context = b.get("company_context") or ""
+    if context and confidence != "not_run":
+        conf_flag = (" &#9888;" if confidence == "low" else "")
+        context_html = (f'<div class="bidder-context">{context}{conf_flag}</div>')
+    else:
+        context_html = ""
+
+    # Reasoning / evidence bullets — pipe-separated in DB
+    reasoning_raw = b.get("reasoning") or ""
+    bullets = [r.strip() for r in reasoning_raw.split("|") if r.strip()]
+    if bullets:
+        bullet_html = "".join(
+            f'<div class="bidder-bullet">&#x2022; {bullet}</div>'
+            for bullet in bullets[:3]
+        )
+        reasoning_html = f'<div class="bidder-reasoning">{bullet_html}</div>'
+    elif match_type == "mbie_evidence":
+        reasoning_html = ('<div class="bidder-reasoning">'
+                          '<div class="bidder-bullet">&#x2022; MBIE award history match</div>'
+                          '</div>')
+    else:
+        reasoning_html = ""
+
+    return (
+        f'<div class="bidder-card">'
+        f'<div class="bidder-header">'
+        f'<span class="bidder-name">{b["firm_name"]}</span>'
+        f'{src_badge}'
+        f'</div>'
+        f'<div class="bidder-pills">'
+        f'<span class="bidder-pill" style="color:{imp_col};border-color:{imp_col}44;">&#9650; {imp}</span>'
+        f'<span class="bidder-pill" style="color:{mat_col};border-color:{mat_col}44;">&#9711; {mat}</span>'
+        f'<span class="bidder-meta">{size}</span>'
+        f'</div>'
+        f'{context_html}'
+        f'{reasoning_html}'
+        f'</div>'
+    )
+
+
+# Keep old name as alias so any external callers still work
+_bidder_row = _bidder_card
 
 
 def _notice_card(rank: int, item: dict, bidders: list[dict]) -> str:
@@ -385,7 +436,7 @@ def _notice_card(rank: int, item: dict, bidders: list[dict]) -> str:
         f'<div class="flag-item"><span class="flag-icon">⚠</span>{f}</div>' for f in flags
     ) if flags else '<div class="flag-item no-flags">No red flags identified</div>'
 
-    bidders_html = "".join(_bidder_row(b) for b in bidders) if bidders else \
+    bidders_html = "".join(_bidder_card(b) for b in bidders) if bidders else \
         '<div class="bidder-row"><span class="bidder-meta">No bidder data</span></div>'
 
     actions = _recommended_actions(item)
@@ -603,6 +654,12 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     .bidder-no-context {{ font-size:.72rem; color:#9aa5b4; font-style:italic;
       margin-bottom:.25rem; border-top:1px solid var(--border);
       padding-top:.3rem; margin-top:.3rem; }}
+    .bidder-pills {{ display:flex; align-items:center; gap:.4rem;
+      flex-wrap:wrap; margin:.3rem 0 .4rem; }}
+    .bidder-src-badge {{ font-size:.62rem; font-weight:600; padding:.12rem .45rem;
+      border-radius:4px; letter-spacing:.03em; flex-shrink:0; }}
+    .bidder-src-mbie     {{ background:#eafaf1; color:var(--green); border:1px solid #a9dfbf; }}
+    .bidder-src-inferred {{ background:var(--navy-l); color:var(--navy); border:1px solid #b0bcd4; }}
 
     /* Report footer */
     .report-footer {{ max-width:1200px; margin:2rem auto 0; padding-top:1rem;
