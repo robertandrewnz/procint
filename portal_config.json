@@ -5,7 +5,7 @@
       "display_name": "BidEdge Admin",
       "email": "robertandrewnz@gmail.com",
       "is_admin": true,
-      "sectors": [],
+      "preferred_sectors": [],
       "artefact_slug": "bidedge_admin"
     },
     "robert": {
@@ -13,7 +13,7 @@
       "display_name": "Robert Nesbitt",
       "email": "robertandrewnz@gmail.com",
       "is_admin": false,
-      "sectors": [
+      "preferred_sectors": [
         "FM",
         "infrastructure"
       ],

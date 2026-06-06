@@ -890,9 +890,11 @@ def generate_pursuit_package(
     output_dir: Optional[Path] = None,
     is_demo: bool = False,
     demo_watermark: str = "",
+    preferred_sectors: Optional[list[str]] = None,
 ) -> Path:
     """
     Generate a pursuit intelligence package for a given notice and client.
+    preferred_sectors: client's sector focus (e.g. ['ICT','security']).
     Returns path to the generated HTML file.
     """
     logger.info("Generating pursuit package: notice=%s client=%s", notice_id, client_name)
@@ -914,6 +916,7 @@ def generate_pursuit_package(
 
     context = {
         "client_name": client_name,
+        "preferred_sectors": preferred_sectors or [],
         "notice": dict(notice),
         "enrichment": {
             "summary": notice.get("summary"),
@@ -959,11 +962,17 @@ if __name__ == "__main__":
     p.add_argument("notice_id", help="GETS notice ID")
     p.add_argument("client_name", help="Client company name")
     p.add_argument("--output-dir", help="Output directory (optional)")
+    p.add_argument(
+        "--sectors",
+        help="Client preferred sectors e.g. ICT,security. Used for context framing.",
+    )
     args = p.parse_args()
+    sectors = [s.strip() for s in args.sectors.split(",")] if args.sectors else None
 
     out = generate_pursuit_package(
         args.notice_id,
         args.client_name,
         Path(args.output_dir) if args.output_dir else None,
+        preferred_sectors=sectors,
     )
     print(f"Generated: {out}")

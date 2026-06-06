@@ -11,7 +11,7 @@ import logging
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple
 
 import config
 import db
@@ -58,8 +58,20 @@ MATURITY_COLOURS = {
 
 # ── Data assembly ─────────────────────────────────────────────────────────────
 
-def _fetch_watchlist() -> list[dict]:
-    return db.fetchall(
+def _fetch_watchlist(preferred_sectors: Optional[list[str]] = None) -> list[dict]:
+    """
+    Fetch and rank the watchlist.
+
+    When preferred_sectors is None/empty the ranking is sector-neutral: all
+    sectors score equally so contract value, urgency, and complexity drive
+    order.  When preferred_sectors is provided, notices in those sectors are
+    boosted to the top using compute_composite_for_client().
+    """
+    from scoring import compute_composite_for_client  # avoid circular import at module level
+
+    # Fetch a wider pool than TOP_N so client re-ranking has enough to work with.
+    pool_limit = config.TOP_N_WATCHLIST * 4
+    rows = db.fetchall(
         """
         SELECT
             r.notice_id,
@@ -72,6 +84,9 @@ def _fetch_watchlist() -> list[dict]:
             p.days_until_close,
             p.geographic_scope,
             s.composite_score,
+            s.score_value,
+            s.score_complexity,
+            s.score_urgency,
             s.score_reasoning,
             e.summary,
             e.red_flags,
@@ -85,8 +100,22 @@ def _fetch_watchlist() -> list[dict]:
         ORDER  BY s.composite_score DESC
         LIMIT  %s
         """,
-        (config.PRIORITY_THRESHOLD, config.TOP_N_WATCHLIST),
+        (config.WATCHLIST_THRESHOLD, pool_limit),
     )
+
+    # Recalculate composite for each notice using client sector preference
+    for row in rows:
+        row["client_score"] = compute_composite_for_client(
+            float(row.get("score_value") or 0),
+            float(row.get("score_complexity") or 0),
+            float(row.get("score_urgency") or 0),
+            row.get("sector_tag") or "other",
+            preferred_sectors,
+        )
+
+    # Re-rank by client score and return top N
+    rows.sort(key=lambda r: r["client_score"], reverse=True)
+    return rows[: config.TOP_N_WATCHLIST]
 
 
 def _fetch_top_bidders(notice_id: str) -> list[dict]:
@@ -739,13 +768,16 @@ def write_html(watchlist: list[dict], output_dir: Path, run_date: date) -> Path:
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
-def run_output() -> Tuple[Path, Path, Path]:
-    logger.info("Generating prioritisation output")
+def run_output(preferred_sectors: Optional[list[str]] = None) -> Tuple[Path, Path, Path]:
+    logger.info(
+        "Generating prioritisation output (sectors=%s)",
+        ",".join(preferred_sectors) if preferred_sectors else "neutral",
+    )
     run_date = date.today()
     output_dir = Path(config.OUTPUT_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    watchlist = _fetch_watchlist()
+    watchlist = _fetch_watchlist(preferred_sectors=preferred_sectors)
     logger.info("%d notices in watchlist", len(watchlist))
 
     json_path = write_json(watchlist, output_dir, run_date)
@@ -753,3 +785,18 @@ def run_output() -> Tuple[Path, Path, Path]:
     html_path = write_html(watchlist, output_dir, run_date)
 
     return json_path, md_path, html_path
+
+
+if __name__ == "__main__":
+    import argparse
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(message)s")
+    p = argparse.ArgumentParser(description="Generate the daily watchlist output")
+    p.add_argument(
+        "--sectors",
+        help="Comma-separated preferred sectors, e.g. ICT,security. "
+             "Omit for sector-neutral ranking (all sectors weighted equally).",
+    )
+    args = p.parse_args()
+    sectors = [s.strip() for s in args.sectors.split(",")] if args.sectors else None
+    j, m, h = run_output(preferred_sectors=sectors)
+    print(f"JSON: {j}\nMD:   {m}\nHTML: {h}")

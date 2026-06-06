@@ -40,31 +40,48 @@ _SECTOR_COLOURS = {
 # ── Data assembly ─────────────────────────────────────────────────────────────
 
 def _top_opportunities(sectors: Optional[list[str]] = None, limit: int = 5) -> list[dict]:
-    """Top scored notices active in the last 7 days."""
-    sector_filter = ""
-    params = [config.PRIORITY_THRESHOLD, limit]
-    if sectors:
-        placeholders = ",".join(["%s"] * len(sectors))
-        sector_filter = f"AND p.sector_tag IN ({placeholders})"
-        params = [config.PRIORITY_THRESHOLD] + sectors + [limit]
+    """
+    Top scored notices, re-ranked by client sector preference.
 
-    return db.fetchall(
-        f"""
+    When sectors is provided the function re-scores each notice using the
+    client-aware composite (preferred sectors boosted, others demoted) and
+    returns the top `limit` results — so a cybersecurity firm sees ICT/security
+    at the top even if FM scored higher in the pipeline.
+
+    When sectors is None, all sectors score equally (sector-neutral).
+    """
+    from scoring import compute_composite_for_client
+
+    # Pull a wider pool so re-ranking has room to surface preferred sectors
+    pool_limit = limit * 6
+    rows = db.fetchall(
+        """
         SELECT r.notice_id, r.title, r.agency, r.source_url, r.close_date,
                p.sector_tag, p.value_band, p.days_until_close,
-               s.composite_score,
+               s.composite_score, s.score_value, s.score_complexity, s.score_urgency,
                e.summary, e.strategic_framing, e.red_flags
           FROM raw_notices r
           JOIN parsed_notices p ON p.notice_id = r.notice_id
           JOIN scored_notices s ON s.notice_id = r.notice_id
           LEFT JOIN enriched_notices e ON e.notice_id = r.notice_id
          WHERE s.composite_score >= %s
-           {sector_filter}
-         ORDER BY s.composite_score DESC, p.days_until_close ASC NULLS LAST
+         ORDER BY s.composite_score DESC
          LIMIT %s
         """,
-        params,
+        (config.PRIORITY_THRESHOLD, pool_limit),
     )
+
+    for row in rows:
+        row["client_score"] = compute_composite_for_client(
+            float(row.get("score_value") or 0),
+            float(row.get("score_complexity") or 0),
+            float(row.get("score_urgency") or 0),
+            row.get("sector_tag") or "other",
+            sectors,
+        )
+
+    rows.sort(key=lambda r: r["client_score"], reverse=True)
+    return rows[:limit]
 
 
 def _market_signals() -> list[dict]:

@@ -19,7 +19,41 @@ def score_value(value_band: str) -> float:
 
 
 def score_sector(sector_tag: str) -> float:
+    """Pipeline-time sector score (stored to DB). Uses hardcoded SECTOR_PRIORITY."""
     return config.SECTOR_PRIORITY.get(sector_tag, config.SECTOR_PRIORITY["other"])
+
+
+def client_sector_score(sector_tag: str, preferred_sectors: Optional[list[str]]) -> float:
+    """
+    Render-time sector score driven by client preference.
+
+    - No preference (None / []): all sectors score equally → sector-neutral ranking.
+    - Preference provided: preferred sectors score 1.0, all others score 0.2.
+      This surfaces the client's sectors at the top regardless of stored pipeline scores.
+    """
+    if not preferred_sectors:
+        return config.SECTOR_SCORE_NEUTRAL
+    return (
+        config.SECTOR_SCORE_PREFERRED
+        if sector_tag in preferred_sectors
+        else config.SECTOR_SCORE_OTHER
+    )
+
+
+def compute_composite_for_client(
+    score_value: float,
+    score_complexity: float,
+    score_urgency: float,
+    sector_tag: str,
+    preferred_sectors: Optional[list[str]],
+) -> float:
+    """
+    Recalculate a composite score for a given client preference at render time.
+    Uses stored value/complexity/urgency scores but substitutes a client-aware
+    sector score so preferred sectors rise in the ranking.
+    """
+    s_sector = client_sector_score(sector_tag, preferred_sectors)
+    return compute_composite(score_value, s_sector, score_complexity, score_urgency)
 
 
 def score_complexity(evaluation_criteria: Optional[str], description: Optional[str]) -> float:

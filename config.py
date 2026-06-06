@@ -117,7 +117,11 @@ VALUE_SCORE_MAP: dict[str, float] = {
     "unknown":     0.3,
 }
 
-# Sector strategic priority — out of 1.0
+# Sector strategic priority — used only during pipeline scoring (stored to DB).
+# These weights are intentionally kept for historical backward-compat; they are
+# NOT used at render/output time.  At output time, client preferred_sectors
+# determine sector scoring so each client sees their own sector ranked highest.
+# See scoring.client_sector_score() for the render-time logic.
 SECTOR_PRIORITY: dict[str, float] = {
     "FM":                   0.95,
     "infrastructure":       0.90,
@@ -130,6 +134,14 @@ SECTOR_PRIORITY: dict[str, float] = {
     "health":               0.55,
     "other":                0.30,
 }
+
+# ── Client-configurable sector scoring (render-time) ──────────────────────────
+# When no client sector preference is set, all sectors score equally (neutral).
+# When preferred_sectors is provided, matching sectors score PREFERRED and all
+# others score OTHER — making the client's sectors rise to the top.
+SECTOR_SCORE_NEUTRAL:   float = 0.65   # applied to ALL sectors when no preference set
+SECTOR_SCORE_PREFERRED: float = 1.00   # applied to sectors in client's preferred list
+SECTOR_SCORE_OTHER:     float = 0.20   # applied to non-preferred sectors
 
 # Urgency scoring: days-to-close → score (out of 1.0)
 URGENCY_THRESHOLDS: list[tuple[int, float]] = [

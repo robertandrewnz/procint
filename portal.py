@@ -82,8 +82,13 @@ class User(UserMixin):
         self.username      = username
         self.name          = data.get("display_name", username)
         self.email         = data.get("email", "")
-        self.is_admin_user = data.get("is_admin", False)
-        self.sectors       = data.get("sectors", [])
+        self.is_admin_user    = data.get("is_admin", False)
+        # Support both old key "sectors" and new key "preferred_sectors"
+        self.preferred_sectors = (
+            data.get("preferred_sectors")
+            or data.get("sectors")
+            or []
+        )
         self.slug          = data.get("artefact_slug") or _slug(data.get("display_name", username))
 
 @login_manager.user_loader
@@ -182,17 +187,36 @@ def _latest_watchlist() -> Optional[Path]:
     c = sorted(OUTPUT_DIR.glob("watchlist_*.html"), reverse=True)
     return c[0] if c else None
 
-def _watchlist_summary() -> dict:
+def _watchlist_summary(preferred_sectors: Optional[list[str]] = None) -> dict:
+    """
+    Return top notices re-ranked by client sector preference.
+    When preferred_sectors is None/empty all sectors score equally (neutral).
+    """
     try:
-        notices = db.fetchall("""
+        from scoring import compute_composite_for_client
+        # Pull a wider pool so re-ranking has room to surface preferred sectors
+        pool = db.fetchall("""
             SELECT r.notice_id, r.title, r.agency, r.close_date,
-                   p.sector_tag, p.days_until_close, s.composite_score
+                   p.sector_tag, p.days_until_close, s.composite_score,
+                   s.score_value, s.score_complexity, s.score_urgency
               FROM scored_notices s
               JOIN raw_notices r  ON r.notice_id = s.notice_id
               JOIN parsed_notices p ON p.notice_id = s.notice_id
              WHERE s.composite_score >= %s
-             ORDER BY s.composite_score DESC LIMIT 5
+             ORDER BY s.composite_score DESC LIMIT 50
         """, (config.PRIORITY_THRESHOLD,))
+
+        for row in pool:
+            row["client_score"] = compute_composite_for_client(
+                float(row.get("score_value") or 0),
+                float(row.get("score_complexity") or 0),
+                float(row.get("score_urgency") or 0),
+                row.get("sector_tag") or "other",
+                preferred_sectors,
+            )
+        pool.sort(key=lambda r: r["client_score"], reverse=True)
+        notices = pool[:5]
+
         flags = db.fetchall("""
             SELECT flag_type, description, severity FROM pattern_flags
              WHERE (expires_at IS NULL OR expires_at >= CURRENT_DATE)
@@ -205,10 +229,12 @@ def _watchlist_summary() -> dict:
         return {"top_notices": [dict(n) for n in notices],
                 "flags": [dict(f) for f in flags],
                 "total": total["n"] if total else 0,
-                "run_date": date.today().isoformat()}
+                "run_date": date.today().isoformat(),
+                "preferred_sectors": preferred_sectors or []}
     except Exception as exc:
         logger.error("watchlist_summary: %s", exc)
-        return {"top_notices": [], "flags": [], "total": 0, "run_date": ""}
+        return {"top_notices": [], "flags": [], "total": 0, "run_date": "",
+                "preferred_sectors": []}
 
 
 # ── CSS & layout ──────────────────────────────────────────────────────────────
@@ -642,7 +668,7 @@ def create_share():
 @app.route("/groundwork")
 @login_required
 def gw_home():
-    data    = _watchlist_summary()
+    data    = _watchlist_summary(preferred_sectors=current_user.preferred_sectors)
     top     = data.get("top_notices", [])
     flags   = data.get("flags", [])
     total   = data.get("total", 0)
@@ -652,6 +678,7 @@ def gw_home():
 
     notices_html = ""
     for i, n in enumerate(top, 1):
+        display_score = float(n.get("client_score") or n.get("composite_score") or 0)
         notices_html += (f'<div class="nr">'
                          f'<div class="nrank">{i}</div>'
                          f'<div class="nmain">'
@@ -661,7 +688,7 @@ def gw_home():
                          f'{_sector_badge(n.get("sector_tag",""))}'
                          f'{_dtc_badge(n.get("days_until_close"))}'
                          f'</div></div>'
-                         f'<div class="nscore">{float(n.get("composite_score",0)):.1f}<small>/10</small></div>'
+                         f'<div class="nscore">{display_score:.1f}<small>/10</small></div>'
                          f'</div>')
 
     flags_html = ""
@@ -675,8 +702,20 @@ def gw_home():
         flags_html = '<p style="color:var(--muted);font-size:.82rem;">No active market signals.</p>'
 
     wl_link = f'<a href="{url_for("gw_watchlist")}" class="btn bg-out sm">Full watchlist &rarr;</a>'
+    # Sector preference indicator
+    if current_user.preferred_sectors:
+        pills = "".join(
+            f'<span style="background:rgba(201,168,76,.15);color:var(--gold);'
+            f'border:1px solid rgba(201,168,76,.3);border-radius:4px;'
+            f'padding:.1rem .4rem;font-size:.7rem;font-weight:600;margin-right:.3rem;">'
+            f'{s}</span>'
+            for s in current_user.preferred_sectors
+        )
+        sector_note = f' &middot; Ranked for: {pills}'
+    else:
+        sector_note = ' &middot; <span style="font-size:.75rem;color:var(--muted);">Sector-neutral ranking</span>'
     body = (f'<div class="ptitle">Dashboard</div>'
-            f'<div class="psub">Good morning, {current_user.name} &middot; {run_date}</div>'
+            f'<div class="psub">Good morning, {current_user.name} &middot; {run_date}{sector_note}</div>'
             f'<div class="stats">'
             f'<div class="stat"><div class="sval">{total}</div><div class="slbl">Active opportunities</div></div>'
             f'<div class="stat"><div class="sval">{pursuits}</div><div class="slbl">Pursuit packages</div></div>'
@@ -932,8 +971,17 @@ def admin_client(username: str):
                 f'<th>Name</th><th>Date</th><th>Size</th><th></th>'
                 f'</tr></thead><tbody>{rows}</tbody></table>')
 
+    sector_pills = ""
+    for s in (u.preferred_sectors or []):
+        sector_pills += (f'<span style="background:rgba(201,168,76,.15);color:var(--gold);'
+                         f'border:1px solid rgba(201,168,76,.3);border-radius:4px;'
+                         f'padding:.1rem .4rem;font-size:.7rem;font-weight:600;margin-right:.3rem;">'
+                         f'{s}</span>')
+    sector_display = sector_pills or '<span style="color:var(--muted);font-size:.78rem;">Sector-neutral (all sectors equal)</span>'
+
     body = (f'<div class="ptitle">{u.name}</div>'
-            f'<div class="psub">@{username} &middot; {data.get("email","")}</div>'
+            f'<div class="psub">@{username} &middot; {data.get("email","")}'
+            f' &middot; Preferred sectors: {sector_display}</div>'
             f'<div class="card">'
             f'<div class="ch"><span class="ct">Generate Artefacts</span></div>'
             f'<div class="cb">'
@@ -973,14 +1021,21 @@ def admin_generate():
     notice_id = request.form.get("notice_id", "").strip()
     comp_name = request.form.get("competitor_name", "").strip()
     cfg       = _load_cfg()
-    cname     = cfg.get("clients", {}).get(username, {}).get("display_name", username)
+    client_data = cfg.get("clients", {}).get(username, {})
+    cname     = client_data.get("display_name", username)
+    # Respect client's sector preferences when generating artefacts
+    client_sectors = (
+        client_data.get("preferred_sectors")
+        or client_data.get("sectors")
+        or []
+    )
     try:
         if atype == "pursuit" and notice_id:
             from pursuit_package import generate_pursuit_package
-            generate_pursuit_package(notice_id, cname)
+            generate_pursuit_package(notice_id, cname, preferred_sectors=client_sectors or None)
         elif atype == "brief":
             from watch_brief import generate_watch_brief
-            generate_watch_brief(cname)
+            generate_watch_brief(cname, sectors=client_sectors or None)
         elif atype == "competitor" and comp_name:
             from competitor_profile import generate_competitor_profile
             generate_competitor_profile(comp_name, client_name=cname)
@@ -1019,8 +1074,8 @@ def admin_add_client():
             f'<input name="email" type="email" class="fc2"></div>'
             f'<div class="fg"><label class="fl">Password</label>'
             f'<input name="password" type="password" class="fc2" required></div>'
-            f'<div class="fg"><label class="fl">Sectors (comma-separated)</label>'
-            f'<input name="sectors" class="fc2" placeholder="FM, infrastructure"></div>'
+            f'<div class="fg"><label class="fl">Preferred sectors (comma-separated)</label>'
+            f'<input name="sectors" class="fc2" placeholder="ICT, security"></div>'
             f'<div class="fg"><label style="display:flex;align-items:center;gap:.5rem;'
             f'font-size:.82rem;cursor:pointer;">'
             f'<input name="is_admin" type="checkbox"> Admin access</label></div>'
@@ -1055,7 +1110,7 @@ def _add_user(username, password, display_name="", email="",
         "display_name":   display_name or username,
         "email":          email,
         "is_admin":       is_admin,
-        "sectors":        sectors or [],
+        "preferred_sectors": sectors or [],
         "artefact_slug":  _slug(display_name or username),
     }
     _save_cfg(cfg)
