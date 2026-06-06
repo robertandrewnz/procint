@@ -705,6 +705,10 @@ def score_bidders_for_notice(
 def _store_bidders(notice_id: str, bidders: list[dict]) -> None:
     for b in bidders:
         reasoning_str = " | ".join(b.get("reasoning") or [])
+        # Always store under the canonical name so ON CONFLICT deduplicates
+        # across raw MBIE variants (e.g. "FULTON HOGAN LIMITED" / "Fulton Hogan
+        # Canterbury" both collapse to "Fulton Hogan" before hitting the DB).
+        stored_name = b.get("canonical_name") or b["firm_name"]
         db.execute(
             """
             INSERT INTO bidder_pool
@@ -716,13 +720,15 @@ def _store_bidders(notice_id: str, bidders: list[dict]) -> None:
             ON CONFLICT (notice_id, firm_name) DO UPDATE SET
                 strategic_importance  = EXCLUDED.strategic_importance,
                 intelligence_maturity = EXCLUDED.intelligence_maturity,
-                relevance_score       = EXCLUDED.relevance_score,
+                relevance_score       = COALESCE(
+                    GREATEST(EXCLUDED.relevance_score, bidder_pool.relevance_score),
+                    EXCLUDED.relevance_score),
                 match_type            = EXCLUDED.match_type,
                 reasoning             = EXCLUDED.reasoning
             """,
             (
                 notice_id,
-                b["firm_name"],
+                stored_name,
                 b.get("sector"),
                 b.get("size"),
                 b.get("strategic_importance", "low"),

@@ -119,7 +119,18 @@ def _fetch_watchlist(preferred_sectors: Optional[list[str]] = None) -> list[dict
 
 
 def _fetch_top_bidders(notice_id: str) -> list[dict]:
-    return db.fetchall(
+    """
+    Return the top N deduplicated bidders for *notice_id*.
+
+    Fetches a wider pool from the DB (up to 30 rows) and applies canonical
+    deduplication in Python before applying the TOP_N_BIDDERS_PER_NOTICE cap.
+    This ensures name variants already stored in bidder_pool (e.g. from pipeline
+    runs before canonical storage was enforced) are collapsed at render time.
+    """
+    from canonical_suppliers import canonical_name, deduplicate_bidders
+
+    # Fetch a wider pool — enough to survive deduplication and still return N
+    pool = db.fetchall(
         """
         SELECT firm_name, size, strategic_importance, intelligence_maturity,
                relevance_score, match_type, reasoning, company_context, context_confidence
@@ -136,10 +147,23 @@ def _fetch_top_bidders(notice_id: str) -> list[dict]:
                 WHEN 'medium' THEN 2
                 ELSE               3
             END
-        LIMIT %s
+        LIMIT 30
         """,
-        (notice_id, config.TOP_N_BIDDERS_PER_NOTICE),
+        (notice_id,),
     )
+    # Attach canonical_name so deduplicate_bidders can group variants correctly.
+    # relevance_score must be a float for the score comparison inside dedup.
+    for row in pool:
+        row["canonical_name"] = canonical_name(row["firm_name"])
+        if row.get("relevance_score") is not None:
+            row["relevance_score"] = float(row["relevance_score"])
+
+    deduped = deduplicate_bidders(list(pool))
+    # Replace firm_name with the canonical form for display
+    for row in deduped:
+        row["firm_name"] = row["canonical_name"]
+
+    return deduped[: config.TOP_N_BIDDERS_PER_NOTICE]
 
 
 # ── JSON output ───────────────────────────────────────────────────────────────
