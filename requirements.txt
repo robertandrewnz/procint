@@ -7,5 +7,5 @@ requests>=2.31.0
 lxml>=5.2.0
 rapidfuzz>=3.6.0
 flask>=3.0.0
-pdfkit>=1.0.0
+weasyprint>=60.0
 schedule>=1.2.0
