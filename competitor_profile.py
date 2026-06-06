@@ -200,7 +200,28 @@ tbody tr:hover td { background:var(--surf2); }
 .win-bar-fill { height:100%; background:var(--gold); border-radius:4px; }
 .doc-footer { margin-top:3rem; padding-top:1rem;
   border-top:1px solid var(--border); font-size:.7rem; color:var(--muted);
-  display:flex; justify-content:space-between; }"""
+  display:flex; justify-content:space-between; }
+
+/* ── Tablet ≤768px ── */
+@media (max-width:768px) {
+  body { padding:1.5rem 1rem; }
+  .header { flex-direction:column; align-items:flex-start; gap:.5rem; }
+  .header-meta { text-align:left; }
+  .stat-grid { grid-template-columns:1fr 1fr; }
+  table { display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .doc-footer { flex-direction:column; gap:.3rem; }
+}
+
+/* ── Phone ≤480px ── */
+@media (max-width:480px) {
+  body { padding:1rem .75rem; font-size:13px; }
+  .header-name { font-size:1.2rem; }
+  .stat-grid { grid-template-columns:1fr 1fr; gap:.6rem; }
+  .stat-box { padding:.65rem .75rem; }
+  .stat-value { font-size:1.05rem; }
+  .win-bar { width:60px; }
+  td, th { padding:.4rem .5rem; font-size:.76rem; }
+}"""
 
 
 def _render_profile_html(data: dict, client_name: Optional[str] = None,
@@ -303,6 +324,7 @@ def _render_profile_html(data: dict, client_name: Optional[str] = None,
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Competitor Profile — {_safe(name)}</title>
 <style>{_PROFILE_CSS}</style>
 </head>

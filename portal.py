@@ -412,19 +412,87 @@ textarea.fc2{min-height:90px;resize:vertical;}
 .ll-sub{font-size:.68rem;font-weight:700;letter-spacing:.1em;
         text-transform:uppercase;color:var(--gold);margin-top:.2rem;}
 .lcard{background:var(--surf);border:1px solid var(--border);border-radius:10px;padding:2rem;}
-/* Responsive */
+/* ── Hamburger toggle (pure CSS, no JS) ── */
+#nav-toggle{display:none;}
+.hamburger{display:none;flex-direction:column;justify-content:center;gap:5px;
+           width:44px;height:44px;cursor:pointer;flex-shrink:0;
+           background:none;border:none;padding:10px;border-radius:6px;}
+.hamburger span{display:block;height:2px;background:var(--text);
+                border-radius:2px;transition:all .2s;}
+.hamburger:hover span{background:var(--gold);}
+.side-overlay{display:none;}
+
+/* ── Tablet ≤768px ── */
 @media(max-width:768px){
+  /* Nav */
+  .nav{padding:.65rem 1rem;gap:.75rem;}
+  .hamburger{display:flex;}
+  /* Sidebar: slide-in drawer */
   .shell{flex-direction:column;}
-  .side{width:100%;border-right:none;border-bottom:1px solid var(--border);
-        padding:.75rem 1rem;}
-  .side a{display:inline-flex;margin-right:.2rem;}
-  .side-sec{display:none;}
-  .main{padding:1.5rem 1rem;}
-  .tiers{grid-template-columns:1fr;}
+  .side{position:fixed;top:0;left:-240px;width:240px;height:100vh;
+        z-index:200;transition:left .22s ease;overflow-y:auto;
+        border-right:1px solid var(--border);}
+  #nav-toggle:checked ~ .shell .side{left:0;}
+  /* Overlay behind drawer */
+  .side-overlay{display:block;position:fixed;inset:0;
+                background:rgba(0,0,0,.45);z-index:199;
+                opacity:0;pointer-events:none;transition:opacity .22s;}
+  #nav-toggle:checked ~ .shell .side-overlay{opacity:1;pointer-events:auto;}
+  /* Main content full width */
+  .main{padding:1.25rem 1rem;width:100%;}
+  /* Homepage */
+  .tiers{grid-template-columns:1fr;padding:0 1rem;margin:2rem auto 3rem;}
+  .hero{padding:3.5rem 1.25rem 2.5rem;}
   .hero h1{font-size:2rem;}
+  .hero-sub{font-size:.92rem;}
+  .pub-nav{padding:.85rem 1.25rem;gap:1rem;}
+  /* Dashboard */
   .stats{grid-template-columns:1fr 1fr;}
   .fgrid{grid-template-columns:1fr;}
-  .nav{flex-wrap:wrap;gap:.5rem;padding:.75rem 1rem;}
+  /* Tables */
+  .dt{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  /* Notice rows */
+  .nmeta{flex-wrap:wrap;}
+  /* Grid that holds top notices + signals (1.6fr 1fr on desktop) */
+  div[style*="grid-template-columns:1.6fr"]{display:block!important;}
+}
+
+/* ── Phone ≤480px ── */
+@media(max-width:480px){
+  .nav{padding:.55rem .75rem;}
+  .nav-brand-name{font-size:.82rem;}
+  .main{padding:1rem .75rem;}
+  /* Stat cards: 2-up */
+  .stats{grid-template-columns:1fr 1fr;gap:.6rem;}
+  .sval{font-size:1.3rem;}
+  /* Notice rows */
+  .nr{padding:.75rem .9rem;gap:.65rem;}
+  .nrank{width:1.5rem;height:1.5rem;font-size:.65rem;}
+  .ntitle{font-size:.82rem;}
+  .nagency{font-size:.7rem;}
+  .nscore{font-size:1rem;}
+  /* Badges — keep readable, min 44px touch on links */
+  .badge{font-size:.6rem;padding:.22rem .5rem;}
+  a.badge, button.badge{min-height:44px;display:inline-flex;align-items:center;}
+  /* Buttons */
+  .btn{min-height:44px;padding:.5rem .9rem;}
+  .btn.sm{min-height:36px;padding:.35rem .7rem;}
+  /* Cards */
+  .cb{padding:.9rem;}
+  .ch{padding:.7rem .9rem;}
+  /* Forms */
+  .fc2{font-size:.86rem;padding:.55rem .75rem;}
+  /* File grid */
+  .fgrid{grid-template-columns:1fr;gap:.65rem;}
+  .fc{padding:.85rem 1rem;}
+  /* Dashboard psub wraps */
+  .psub{font-size:.78rem;line-height:1.5;}
+  .ptitle{font-size:1.1rem;}
+  /* Login card */
+  .lb{width:100%;}
+  .lcard{padding:1.25rem;}
+  /* Tiers on homepage */
+  .tiers{margin:1.5rem auto 2rem;padding:0 .75rem;}
 }
 </style>
 """
@@ -444,7 +512,10 @@ def _topnav(active: str = "") -> str:
                      f'<strong>{current_user.name}</strong>'
                      f'<a href="{url_for("logout")}" class="btn bg-ghost sm">Sign out</a>'
                      f'</div>')
+    ham_btn = (f'<label class="hamburger" for="nav-toggle" aria-label="Open menu">'
+               f'<span></span><span></span><span></span></label>')
     return (f'<nav class="nav">'
+            f'{ham_btn if current_user.is_authenticated else ""}'
             f'<div class="nav-brand">'
             f'<div class="nav-brand-name">Groundwork <span class="by">by BidEdge</span></div>'
             f'<div class="nav-brand-sub">Procurement Intelligence</div>'
@@ -482,12 +553,18 @@ def _page(title: str, body: str, active: str = "",
     for msg, cat in getattr(g, "_portal_flashes", []):
         css = "al-ok" if cat == "success" else "al-er"
         flashes += f'<div class="al {css}">{msg}</div>'
+    # Hamburger toggle: hidden checkbox drives pure-CSS sidebar open/close.
+    # Label (the ☰ button) lives in the nav; checkbox must precede .shell in DOM.
+    ham = '<input type="checkbox" id="nav-toggle">' if (sidebar and not public) else ""
+    # Overlay closes the drawer when tapped; label[for] toggles the checkbox off
+    overlay = ('<label class="side-overlay" for="nav-toggle" aria-label="Close menu"></label>'
+               if (sidebar and not public) else "")
     return (f'<!DOCTYPE html><html lang="en"><head>'
             f'<meta charset="UTF-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1">'
             f'<title>{title} — Groundwork by BidEdge</title>'
             f'{CSS}</head><body>'
-            f'{nav}{wrap_open}{side}{cont_open}{flashes}{body}'
+            f'{ham}{nav}{wrap_open}{overlay}{side}{cont_open}{flashes}{body}'
             f'{cont_close}{wrap_close}</body></html>')
 
 

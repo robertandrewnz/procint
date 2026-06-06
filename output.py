@@ -694,6 +694,61 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     .report-footer {{ max-width:1200px; margin:2rem auto 0; padding-top:1rem;
       border-top:1px solid var(--border); font-size:.72rem; color:var(--muted);
       display:flex; justify-content:space-between; }}
+
+    /* ── Mobile viewport meta & touch targets ── */
+    /* (viewport meta tag is in <head> above) */
+
+    /* ── Tablet ≤768px ── */
+    @media (max-width:768px) {{
+      body {{ padding:1rem .75rem; }}
+      .report-header {{ flex-direction:column; align-items:flex-start; gap:.5rem; }}
+      .report-meta {{ text-align:left; }}
+      .explainer {{ grid-template-columns:1fr 1fr; gap:1rem; padding:1rem; }}
+      .card-meta-row {{ flex-wrap:wrap; }}
+      .meta-item {{ flex:0 0 50%; border-right:none !important;
+        border-bottom:1px solid var(--border); padding:.5rem 1rem; }}
+      .meta-item:nth-last-child(-n+2) {{ border-bottom:none; }}
+      .card-body {{ flex-direction:column; }}
+      .col-intel   {{ border-right:none; border-bottom:1px solid var(--border); padding:1rem; }}
+      .col-actions {{ border-right:none; border-bottom:1px solid var(--border); padding:1rem; }}
+      .col-bidders {{ padding:1rem; }}
+      .report-footer {{ flex-direction:column; gap:.35rem; }}
+    }}
+
+    /* ── Phone ≤480px ── */
+    @media (max-width:480px) {{
+      body {{ padding:.75rem .5rem; font-size:13px; }}
+      .report-header {{ padding-bottom:.85rem; margin-bottom:1.25rem; }}
+      .brand-name {{ font-size:1rem; }}
+      .report-meta strong {{ font-size:1.1rem; }}
+
+      /* Explainer: collapse to single accordion-style column */
+      .explainer {{ grid-template-columns:1fr; gap:.65rem; padding:.75rem; }}
+      .explainer-section {{ border-bottom:1px solid var(--border); padding-bottom:.65rem; }}
+      .explainer-section:last-child {{ border-bottom:none; padding-bottom:0; }}
+
+      /* Card header */
+      .card-header {{ padding:.85rem .9rem; gap:.65rem; }}
+      .card-title {{ font-size:.88rem; }}
+      .score-number {{ font-size:1.4rem; }}
+      .score-bar-track {{ width:56px; }}
+
+      /* Meta row: 2-up then 2-up */
+      .meta-item {{ flex:0 0 50%; padding:.45rem .75rem; }}
+
+      /* Body columns */
+      .col-intel, .col-actions, .col-bidders {{ padding:.85rem .9rem; }}
+
+      /* Badges/tags: ensure 44px min touch height on links */
+      .badge {{ font-size:.65rem; padding:.25rem .6rem; }}
+      .card-title-row {{ gap:.4rem; }}
+
+      /* Bidder cards */
+      .bidder-card {{ padding:.55rem .75rem; }}
+
+      /* Score bar */
+      .score-block {{ min-width:60px; }}
+    }}
   </style>
 </head>
 <body>

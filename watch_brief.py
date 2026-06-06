@@ -274,7 +274,30 @@ tbody tr:hover td { background:var(--surf2); }
 .doc-footer { margin-top:2.5rem; padding-top:1rem;
   border-top:1px solid var(--border); font-size:.7rem; color:var(--muted);
   display:flex; justify-content:space-between; }
-.mi-empty { font-size:.82rem; color:var(--muted); font-style:italic; }"""
+.mi-empty { font-size:.82rem; color:var(--muted); font-style:italic; }
+
+/* ── Tablet ≤768px ── */
+@media (max-width:768px) {
+  body { padding:1.5rem 1rem; }
+  .brief-header { flex-direction:column; align-items:flex-start; gap:.5rem; }
+  .brief-meta { text-align:left; }
+  table { display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .doc-footer { flex-direction:column; gap:.3rem; }
+}
+
+/* ── Phone ≤480px ── */
+@media (max-width:480px) {
+  body { padding:1rem .75rem; font-size:13px; }
+  .brief-title { font-size:1.1rem; }
+  .opp-card { padding:.75rem .9rem; }
+  .opp-header { flex-direction:column; gap:.25rem; }
+  .opp-score { font-size:.95rem; }
+  .opp-title { font-size:.86rem; }
+  .signal-row { flex-wrap:wrap; }
+  .signal-sev { min-height:44px; display:flex; align-items:center; }
+  .insight { padding:.9rem 1rem; }
+  td, th { padding:.4rem .55rem; font-size:.78rem; }
+}"""
 
 
 def _sector_colour(sector: str) -> str:
@@ -378,6 +401,7 @@ def _render_brief_html(
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Watch Brief — {week_label}</title>
 <style>{_BRIEF_CSS}</style>
 </head>
