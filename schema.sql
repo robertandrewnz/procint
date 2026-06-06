@@ -55,13 +55,18 @@ CREATE TABLE IF NOT EXISTS enriched_notices (
 );
 
 CREATE TABLE IF NOT EXISTS bidder_pool (
-    id              SERIAL PRIMARY KEY,
-    notice_id       TEXT NOT NULL REFERENCES raw_notices(notice_id),
-    firm_name       TEXT NOT NULL,
-    sector          TEXT,
-    size            TEXT,
-    strategic_importance TEXT,   -- high / medium / low
-    intelligence_maturity TEXT,  -- strong / moderate / weak
+    id                   SERIAL PRIMARY KEY,
+    notice_id            TEXT NOT NULL REFERENCES raw_notices(notice_id),
+    firm_name            TEXT NOT NULL,
+    sector               TEXT,
+    size                 TEXT,
+    strategic_importance TEXT,          -- high / medium / low
+    intelligence_maturity TEXT,         -- strong / moderate / weak
+    relevance_score      NUMERIC(5,4),  -- 0.0000–1.0000 keyword cosine similarity
+    match_type           TEXT,          -- exact / cross_sector
+    reasoning            TEXT,          -- pipe-separated display bullets
+    company_context      TEXT,          -- Claude 2-sentence company profile
+    context_confidence   TEXT,          -- high / medium / low / unknown
     UNIQUE (notice_id, firm_name)
 );
 
