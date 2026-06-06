@@ -27,13 +27,94 @@ logger = logging.getLogger(__name__)
 
 # ── PDF generation ─────────────────────────────────────────────────────────────
 
+_PDF_PRINT_CSS = """
+@page {
+    size: A4;
+    margin: 18mm 18mm 22mm 18mm;
+    @bottom-center {
+        content: counter(page) " / " counter(pages);
+        font-size: 8pt;
+        color: #7d8fa8;
+        font-family: 'Inter', system-ui, sans-serif;
+    }
+}
+
+/* ── Reset flex layout for print ── */
+body {
+    display: block !important;
+    padding: 0 !important;
+    background: #0d1117 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+}
+
+/* Hide screen-only chrome */
+.sidebar           { display: none !important; }
+.demo-footer-bar   { display: none !important; }
+
+/* Main content fills the full page */
+.main {
+    display: block !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+}
+
+/* Suppress sticky/fixed positioning */
+.card-header, .cover { position: static !important; }
+
+/* SAMPLE watermark — subtle diagonal text via a CSS counter trick */
+/* weasyprint does not support fixed/absolute pseudo-elements reliably,
+   so we render it as a full-width centred block at the top of each page */
+body::before {
+    content: "SAMPLE";
+    display: block;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-35deg);
+    font-size: 100px;
+    font-weight: 900;
+    color: rgba(250, 204, 21, 0.06);
+    letter-spacing: 0.2em;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* Improve readability in print */
+.prose p, .summary-text, .pos-card-detail,
+.action-text, .flag-item, .bidder-context,
+.bidder-bullet, .opp-summary {
+    font-size: 10pt;
+    line-height: 1.65;
+}
+
+.section-title    { font-size: 12pt; }
+.section-number   { font-size: 9pt; }
+.card-title       { font-size: 11pt; }
+.cover-title      { font-size: 18pt; }
+.score-number     { font-size: 20pt; }
+.meta-label, .section-label { font-size: 8pt; }
+
+/* Avoid breaking sections across pages */
+.section          { page-break-inside: avoid; }
+.pos-card         { page-break-inside: avoid; }
+.action-item      { page-break-inside: avoid; }
+.verdict          { page-break-inside: avoid; }
+table             { page-break-inside: avoid; }
+tr                { page-break-inside: avoid; }
+
+/* Links */
+a { color: #4f9cf9; text-decoration: none; }
+"""
+
+
 def _html_to_pdf(html_path: Path, pdf_path: Path) -> bool:
     """
     Convert HTML to PDF via weasyprint.
-    Returns True on success, False if weasyprint not available.
-    Install: pip install weasyprint
-    Note: wkhtmltopdf was removed from Homebrew in 2023; weasyprint is the
-    recommended replacement — pure Python, better CSS support.
+    Injects print-optimised CSS directly into the HTML before rendering
+    to correctly override the flex layout and hide screen-only chrome.
+    Install: pip install weasyprint && brew install pango
     """
     try:
         from weasyprint import HTML, CSS  # type: ignore
@@ -42,34 +123,29 @@ def _html_to_pdf(html_path: Path, pdf_path: Path) -> bool:
         logger.warning("weasyprint not installed — skipping PDF. pip install weasyprint")
         return False
 
-    # Print-optimised CSS overrides: hide the sticky sidebar and demo footer bar,
-    # ensure the main content fills the full page width.
-    print_css = CSS(string="""
-        @page { size: A4; margin: 15mm 15mm 20mm 15mm; }
-        .sidebar { display: none !important; }
-        .demo-footer-bar { position: static !important; border-top: 1px solid #2a3344;
-                           padding: 6pt 0; font-size: 7pt; }
-        .main { padding-left: 0 !important; max-width: 100% !important;
-                padding-bottom: 0 !important; }
-        body { padding: 0 !important; }
-        a { color: #4f9cf9; text-decoration: none; }
-    """)
+    # Read HTML and inject print CSS into <head> so it takes precedence
+    html_content = html_path.read_text(encoding="utf-8")
+    print_style_tag = f"<style>{_PDF_PRINT_CSS}</style>\n</head>"
+    html_content = html_content.replace("</head>", print_style_tag, 1)
+
+    # Write a temporary PDF-optimised HTML file
+    tmp_path = pdf_path.with_suffix(".pdf_tmp.html")
+    tmp_path.write_text(html_content, encoding="utf-8")
 
     try:
         font_config = FontConfiguration()
-        html_doc = HTML(filename=str(html_path))
+        html_doc = HTML(filename=str(tmp_path))
         html_doc.write_pdf(
             target=str(pdf_path),
-            stylesheets=[print_css],
             font_config=font_config,
         )
-        logger.info("PDF generated: %s (%s)",
-                    pdf_path,
-                    _human_size(pdf_path.stat().st_size))
+        logger.info("PDF generated: %s (%s)", pdf_path, _human_size(pdf_path.stat().st_size))
         return True
     except Exception as exc:
         logger.warning("weasyprint conversion failed: %s", exc)
         return False
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def _human_size(n: int) -> str:
