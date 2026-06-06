@@ -17,6 +17,19 @@ Scoring:
   - total_wins:    total historical wins (sector-matched)                   (baseline)
   - recency:       years since last win (penalises stale history)
 
+Exclusion:
+  - SECTOR_EXCLUSION_MATRIX: hard rules — civil/roading firms can never appear
+    in ICT/health/legal/aerospace results, etc.
+  - Title keyword exclusion: checked against each firm's exclude_keywords column.
+  - Specialist notice detection: for notices in SPECIALIST_SECTORS (e.g. aerospace)
+    the candidate pool is filtered to firms with a matching specialist_flag; fewer
+    than config.SPECIALIST_MIN_BIDDERS credible matches → show whatever is found
+    rather than padding with irrelevant firms.
+
+Deduplication:
+  - canonical_suppliers.canonical_name() collapses name variants before ranking,
+    ensuring "Fulton Hogan Canterbury" and "Fulton Hogan" count as one firm.
+
 Layer 2 hooks:
   enrich_from_awards_history() — now implemented via MBIE data
   enrich_from_web()            — populated in Layer 2 Phase 2
@@ -30,8 +43,144 @@ from typing import Optional
 
 import config
 import db
+from canonical_suppliers import canonical_name, deduplicate_bidders
 
 logger = logging.getLogger(__name__)
+
+
+# ── Sector exclusion matrix ────────────────────────────────────────────────────
+# Maps a notice's effective sector → set of firm sector tags that are BANNED.
+# A firm is excluded if its sector list contains ANY banned tag.
+# Read: "if the notice is aerospace, exclude firms whose sectors include
+#        FM, infrastructure, roading, construction, …"
+
+SECTOR_EXCLUSION_MATRIX: dict[str, set[str]] = {
+    "aerospace": {
+        "FM", "infrastructure", "roading", "construction", "civil",
+        "security", "ICT", "health", "legal", "advisory",
+    },
+    "ICT": {
+        "FM", "infrastructure", "roading", "construction", "civil",
+        "aerospace", "health",
+    },
+    "cybersecurity": {
+        "FM", "infrastructure", "roading", "construction", "civil",
+        "aerospace", "health",
+    },
+    "health": {
+        "FM", "infrastructure", "roading", "construction", "civil",
+        "aerospace", "ICT",
+    },
+    "legal": {
+        "FM", "infrastructure", "roading", "construction", "civil",
+        "aerospace", "ICT", "health", "security",
+    },
+    "advisory": {
+        "FM", "infrastructure", "roading", "construction", "civil",
+        "aerospace",
+    },
+    "roading": {
+        "FM", "ICT", "health", "legal", "advisory",
+        "aerospace", "cybersecurity",
+    },
+    "infrastructure": {
+        "ICT", "health", "legal", "aerospace", "cybersecurity",
+    },
+    "construction": {
+        "ICT", "health", "legal", "aerospace", "cybersecurity",
+    },
+    "FM": {
+        "ICT", "health", "legal", "aerospace", "cybersecurity",
+        "roading", "construction",
+    },
+    "security": {
+        "roading", "construction", "civil", "aerospace",
+        "health", "ICT",
+    },
+}
+
+# ── Title-keyword exclusion triggers ──────────────────────────────────────────
+# If a notice title contains any of these phrases the named sector firms are hard-excluded.
+# This catches misclassified notices (e.g. aerospace notice tagged "infrastructure").
+
+TITLE_KEYWORD_SECTOR_EXCLUSIONS: list[tuple[list[str], set[str]]] = [
+    # Aerospace / defence keywords → exclude non-aerospace firms
+    (
+        ["aircraft", "airframe", "propulsion", "avionics", "rnzaf", "rnzn",
+         "aviation", "aerospace", "airworthiness", "rotary wing", "fixed wing",
+         "engine overhaul", "structural integrity"],
+        {"FM", "infrastructure", "roading", "construction", "civil",
+         "security", "ICT", "health", "legal", "advisory"},
+    ),
+    # Legal / solicitation keywords
+    (
+        ["legal services", "legal advice", "solicitor", "barrister", "counsel",
+         "law firm", "litigation", "conveyancing", "judicial"],
+        {"FM", "infrastructure", "roading", "construction", "civil",
+         "aerospace", "ICT", "health", "security"},
+    ),
+    # Medical / clinical keywords
+    (
+        ["clinical", "surgical", "pharmaceutical", "pathology", "radiology",
+         "diagnostic", "patient", "hospital", "medical device", "health information"],
+        {"FM", "infrastructure", "roading", "construction", "civil",
+         "aerospace", "ICT"},
+    ),
+    # Pure cyber / infosec keywords
+    (
+        ["penetration test", "pen test", "soc services", "security operations centre",
+         "siem", "cyber incident", "vulnerability assessment", "iso 27001",
+         "information security", "data governance"],
+        {"FM", "infrastructure", "roading", "construction", "civil",
+         "aerospace", "health"},
+    ),
+    # Road maintenance / civils keywords
+    (
+        ["road maintenance", "pavement", "seal coat", "chip seal", "pothole",
+         "roading network", "traffic management", "kerb and channel",
+         "bridge maintenance", "drainage works", "earthworks"],
+        {"ICT", "health", "legal", "aerospace", "cybersecurity"},
+    ),
+]
+
+# ── Specialist sectors ─────────────────────────────────────────────────────────
+# For notices that match these sectors the pool is pre-filtered to firms with
+# a matching specialist_flag. If fewer than SPECIALIST_MIN_BIDDERS survive,
+# the results are returned as-is rather than padding with irrelevant firms.
+
+SPECIALIST_SECTORS: set[str] = {"aerospace", "cybersecurity", "health", "legal"}
+
+SPECIALIST_FLAG_MAP: dict[str, str] = {
+    "aerospace":    "aerospace",
+    "cybersecurity": "cybersecurity",
+    "health":       "health_tech",
+    "legal":        "legal",
+}
+
+
+def _notice_is_specialist(notice: dict) -> Optional[str]:
+    """
+    Return the specialist_flag key if this notice is in a specialist sector,
+    or None if it's a general-market notice.
+    Checks both sector_tag and title keywords.
+    """
+    sector = (notice.get("sector_tag") or "").lower()
+    if sector in SPECIALIST_FLAG_MAP:
+        return SPECIALIST_FLAG_MAP[sector]
+    title = (notice.get("title") or "").lower()
+    AEROSPACE_KWS = ["aircraft", "airframe", "propulsion", "avionics", "rnzaf",
+                     "rnzn", "aviation", "aerospace", "airworthiness"]
+    if any(kw in title for kw in AEROSPACE_KWS):
+        return "aerospace"
+    CYBER_KWS = ["penetration test", "pen test", "soc services", "siem",
+                 "cyber incident", "vulnerability assessment", "iso 27001"]
+    if any(kw in title for kw in CYBER_KWS):
+        return "cybersecurity"
+    LEGAL_KWS = ["legal services", "legal advice", "solicitor", "barrister",
+                 "counsel", "law firm", "litigation"]
+    if any(kw in title for kw in LEGAL_KWS):
+        return "legal"
+    return None
 
 
 # ── MBIE data availability check ──────────────────────────────────────────────
@@ -166,6 +315,12 @@ def _mbie_bidders_for_notice(notice: dict) -> list[dict]:
     for r in results:
         del r["_sort_key"]
 
+    # Apply canonical deduplication before returning
+    results = deduplicate_bidders(results)
+    # Update firm_name to canonical form
+    for r in results:
+        r["firm_name"] = r.get("canonical_name") or r["firm_name"]
+
     return results
 
 
@@ -249,6 +404,34 @@ def _maturity_from_wins(total_wins: int, years_since: float) -> str:
     return "weak"
 
 
+# ── Shared exclusion helper ───────────────────────────────────────────────────
+
+def _firm_is_excluded(firm_sectors: list[str], notice: dict) -> bool:
+    """
+    Return True if this firm should be excluded from bidder results for this notice.
+
+    Two-pass check:
+    1. Sector exclusion matrix — based on notice sector_tag.
+    2. Title keyword triggers — catches misclassified notices (e.g. aerospace
+       notice tagged 'infrastructure' because GETS has no aerospace category).
+    """
+    notice_sector = (notice.get("sector_tag") or "other").lower()
+    title = (notice.get("title") or "").lower()
+
+    # Pass 1: sector matrix
+    banned_by_sector = SECTOR_EXCLUSION_MATRIX.get(notice_sector, set())
+    if banned_by_sector and any(fs in banned_by_sector for fs in firm_sectors):
+        return True
+
+    # Pass 2: title keyword triggers
+    for trigger_kws, banned_sectors in TITLE_KEYWORD_SECTOR_EXCLUSIONS:
+        if any(kw in title for kw in trigger_kws):
+            if any(fs in banned_sectors for fs in firm_sectors):
+                return True
+
+    return False
+
+
 # ── CSV-based fallback (original logic, kept as fallback) ─────────────────────
 
 SIZE_MATURITY_MAP = {
@@ -278,19 +461,36 @@ def load_bidders(csv_path: str = config.BIDDER_CSV_PATH) -> list[dict]:
     with open(path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
+            # Parse pipe-separated fields
             row["_sectors"] = [s.strip() for s in row.get("sectors", "").split("|") if s.strip()]
             row["_exclude_keywords"] = [
                 k.strip().lower()
                 for k in row.get("exclude_keywords", "").split("|")
                 if k.strip()
             ]
+            # canonical_name: fall back to firm_name if column absent
+            if not row.get("canonical_name"):
+                row["canonical_name"] = canonical_name(row.get("firm_name", ""))
+            # specialist_flags column (new schema)
+            # Already available as row["specialist_flags"] — used in _csv_bidders_for_notice
+            # mbie_confirmed: coerce to bool
+            row["mbie_confirmed"] = (row.get("mbie_confirmed") or "").strip().lower() in ("true", "1", "yes")
             bidders.append(row)
     logger.info("Loaded %d bidders from CSV (%s)", len(bidders), csv_path)
     return bidders
 
 
-def _csv_bidders_for_notice(notice: dict, all_bidders: list[dict]) -> list[dict]:
-    """CSV-based fallback matching. Returns results tagged as inferred."""
+def _csv_bidders_for_notice(
+    notice: dict,
+    all_bidders: list[dict],
+    specialist_flag: Optional[str] = None,
+) -> list[dict]:
+    """
+    CSV-based fallback matching. Returns results tagged as inferred.
+
+    If specialist_flag is set, only firms with that flag in specialist_flags
+    column pass through — this filters the pool to credible specialists only.
+    """
     sector = notice.get("sector_tag") or "other"
     value_band = notice.get("value_band") or "unknown"
     notice_text = (
@@ -300,20 +500,34 @@ def _csv_bidders_for_notice(notice: dict, all_bidders: list[dict]) -> list[dict]
     candidates = []
     for firm in all_bidders:
         firm_sectors = firm.get("_sectors", [])
-        # Exclusion check
-        excluded = any(
-            kw and kw in notice_text
-            for kw in firm.get("_exclude_keywords", [])
-        )
-        if excluded:
-            continue
 
-        exact = sector in firm_sectors
-        broad = not exact and any(
-            s in firm_sectors for s in _related_sectors(sector)
-        )
-        if not (exact or broad):
-            continue
+        # Specialist filter: check FIRST so specialist firms aren't dropped by
+        # the exclusion matrix (a misclassified notice may have a sector_tag
+        # that conflicts with the firm's real sector, e.g. RNZAF aerospace
+        # notice tagged 'infrastructure' would otherwise exclude Babcock via
+        # SECTOR_EXCLUSION_MATRIX["infrastructure"] ∋ "aerospace").
+        if specialist_flag:
+            firm_flags = [f.strip() for f in firm.get("specialist_flags", "").split("|") if f.strip()]
+            if specialist_flag not in firm_flags:
+                continue
+            # Passed specialist filter — skip sector exclusion matrix and
+            # sector-match check; the specialist_flag is sufficient evidence.
+            exact = True  # used in reasoning bullet below
+        else:
+            # Hard sector exclusion matrix + title keyword check
+            if _firm_is_excluded(firm_sectors, notice):
+                continue
+
+            # Explicit exclude_keywords on the firm (notice-text trigger)
+            if any(kw and kw in notice_text for kw in firm.get("_exclude_keywords", [])):
+                continue
+
+            exact = sector in firm_sectors
+            broad = not exact and any(
+                s in firm_sectors for s in _related_sectors(sector)
+            )
+            if not (exact or broad):
+                continue
 
         size = (firm.get("size") or "medium").lower()
         eligible = VALUE_IMPORTANCE_THRESHOLDS.get(value_band, set())
@@ -321,10 +535,14 @@ def _csv_bidders_for_notice(notice: dict, all_bidders: list[dict]) -> list[dict]
                      "medium" if size in eligible else "low"
         maturity = SIZE_MATURITY_MAP.get(size, "moderate")
 
-        bullets = [
-            f"[inferred] {('Direct' if exact else 'Related')} sector match on "
-            f"{sector.replace('_',' ')} — no MBIE win history found"
-        ]
+        if specialist_flag:
+            match_reason = f"[inferred] Specialist match ({specialist_flag}) — no MBIE win history found"
+        else:
+            match_reason = (
+                f"[inferred] {('Direct' if exact else 'Related')} sector match on "
+                f"{sector.replace('_',' ')} — no MBIE win history found"
+            )
+        bullets = [match_reason]
         if firm.get("notes"):
             bullets.append(f"[inferred] {firm['notes'][:80]}")
 
@@ -333,8 +551,12 @@ def _csv_bidders_for_notice(notice: dict, all_bidders: list[dict]) -> list[dict]
             {"high": 0, "medium": 1, "low": 2}.get(importance, 2),
             {"major": 0, "large": 1, "medium": 2, "small": 3, "micro": 4}.get(size, 2),
         )
+        # Prefer the canonical_name column already set in load_bidders(),
+        # fall back to runtime lookup
+        canon = firm.get("canonical_name") or canonical_name(firm["firm_name"])
         candidates.append({
             "firm_name":             firm["firm_name"],
+            "canonical_name":        canon,
             "sector":                firm.get("sectors"),
             "size":                  firm.get("size"),
             "strategic_importance":  importance,
@@ -350,6 +572,11 @@ def _csv_bidders_for_notice(notice: dict, all_bidders: list[dict]) -> list[dict]
     candidates.sort(key=lambda x: x["_rank"])
     for c in candidates:
         del c["_rank"]
+
+    # Deduplicate by canonical name
+    candidates = deduplicate_bidders(candidates)
+    for c in candidates:
+        c["firm_name"] = c.get("canonical_name") or c["firm_name"]
     return candidates
 
 
@@ -377,18 +604,76 @@ def score_bidders_for_notice(
 
     Uses MBIE win history as primary source. Falls back to CSV-based
     inference for suppliers not represented in the historical data.
-    Deduplicates between sources (MBIE result takes priority over CSV).
+    Applies:
+      - Hard sector exclusion matrix (before any MBIE result is accepted)
+      - Title keyword exclusion (catches misclassified notices)
+      - Canonical deduplication (collapses name variants per parent company)
+      - Specialist firm filtering (for aerospace/cyber/legal/health notices,
+        only firms with the matching specialist_flag are accepted from CSV;
+        fewer than MIN_BIDDERS credible matches → show what was found, no padding)
     """
+    specialist_flag = _notice_is_specialist(notice)
+    min_bidders = getattr(config, "SPECIALIST_MIN_BIDDERS", 1)
+
     results: list[dict] = []
-    mbie_names: set[str] = set()
+    mbie_canonical_names: set[str] = set()
+
+    # Build canonical name set for the specialist sector (used to filter MBIE below)
+    specialist_canonical_names: set[str] = set()
+    if specialist_flag:
+        if all_bidders is None:
+            _tmp = load_bidders()
+        else:
+            _tmp = all_bidders
+        for _b in _tmp:
+            _flags = [f.strip() for f in _b.get("specialist_flags", "").split("|") if f.strip()]
+            if specialist_flag in _flags:
+                specialist_canonical_names.add(
+                    (_b.get("canonical_name") or canonical_name(_b.get("firm_name", ""))).lower()
+                )
 
     if _mbie_available():
         mbie_results = _mbie_bidders_for_notice(notice)
-        results.extend(mbie_results)
-        mbie_names = {r["firm_name"] for r in mbie_results}
+
+        # Apply hard exclusion to MBIE results (MBIE ignores sector context)
+        filtered_mbie = []
+        for r in mbie_results:
+            # Reconstruct a pseudo-sector list from the match for exclusion check
+            # We use the sector stored on the result row
+            r_sectors = [s.strip() for s in (r.get("sector") or "").split("|") if s.strip()]
+            if not r_sectors and r.get("firm_name"):
+                # If no sector on MBIE row, skip exclusion — trust MBIE
+                filtered_mbie.append(r)
+            elif not _firm_is_excluded(r_sectors, notice):
+                filtered_mbie.append(r)
+            else:
+                logger.debug(
+                    "Excluded MBIE result %s from notice %s (sector exclusion matrix)",
+                    r.get("firm_name"), notice.get("notice_id"),
+                )
+                continue
+
+        # For specialist notices, further filter MBIE to firms we recognise as
+        # actual specialists (by canonical name lookup against CSV specialist set).
+        # This prevents generic ICT/advisory firms winning agency-match slots that
+        # should go to actual cybersecurity / legal / aerospace / health firms.
+        if specialist_flag and specialist_canonical_names:
+            pre_len = len(filtered_mbie)
+            filtered_mbie = [
+                r for r in filtered_mbie
+                if (r.get("canonical_name") or r["firm_name"]).lower() in specialist_canonical_names
+            ]
+            if pre_len != len(filtered_mbie):
+                logger.debug(
+                    "Specialist filter dropped %d non-specialist MBIE results for notice %s",
+                    pre_len - len(filtered_mbie), notice.get("notice_id"),
+                )
+
+        results.extend(filtered_mbie)
+        mbie_canonical_names = {r.get("canonical_name") or r["firm_name"] for r in filtered_mbie}
         logger.debug(
-            "MBIE returned %d bidders for notice %s",
-            len(mbie_results), notice.get("notice_id", "?"),
+            "MBIE returned %d bidders (after exclusion %d) for notice %s",
+            len(mbie_results), len(filtered_mbie), notice.get("notice_id", "?"),
         )
     else:
         logger.debug("MBIE data not available — using CSV fallback only")
@@ -397,10 +682,20 @@ def score_bidders_for_notice(
     if all_bidders is None:
         all_bidders = load_bidders()
 
-    csv_results = _csv_bidders_for_notice(notice, all_bidders)
+    csv_results = _csv_bidders_for_notice(notice, all_bidders, specialist_flag=specialist_flag)
     for r in csv_results:
-        if r["firm_name"] not in mbie_names:
+        canon = r.get("canonical_name") or r["firm_name"]
+        if canon not in mbie_canonical_names:
             results.append(r)
+
+    # For specialist notices: if we have very few results, that's correct —
+    # do NOT pad with general firms. Log so the operator knows.
+    if specialist_flag and len(results) < min_bidders:
+        logger.info(
+            "Specialist notice %s (%s): only %d credible bidder(s) found — "
+            "showing %d rather than padding with irrelevant firms",
+            notice.get("notice_id"), specialist_flag, len(results), len(results),
+        )
 
     return results
 

@@ -1,291 +1,545 @@
-firm_name,sectors,size,headquarters,notes
-Downer NZ,infrastructure|FM|utilities,major,Auckland,Major infrastructure contractor; national roading and facilities management presence
-Fulton Hogan,infrastructure|utilities,major,Christchurch,Leading civil construction and roading; strong South Island base
-Fletcher Construction,infrastructure,major,Auckland,Flagship NZ construction firm; dominates large civil and vertical build
-AECOM NZ,infrastructure|advisory|ICT,large,Auckland,International engineering and advisory; strong government pipeline
-WSP New Zealand,infrastructure|advisory|FM,large,Wellington,Engineering consultancy; absorbed Opus International; public sector infrastructure advisory
-Beca Group,advisory|infrastructure|ICT,large,Auckland,Largest NZ-owned engineering consultancy; broad public sector reach
-GHD NZ,infrastructure|advisory,large,Auckland,International advisory; water transport and environment sectors
-Jacobs NZ,infrastructure|advisory|defence,large,Wellington,Strong defence and infrastructure advisory; government relationships
-Aurecon NZ,infrastructure|advisory,large,Wellington,Engineering and advisory; utilities and transport focus
-Stantec NZ,infrastructure|advisory,medium,Auckland,Infrastructure planning and advisory; absorbed MWH and Cardno NZ
-Datacom,ICT,large,Auckland,Dominant NZ ICT integrator; large government ICT and managed services contracts
-Spark Business Group,ICT|utilities,major,Auckland,Telco and ICT services; major government connectivity supplier
-Theta,ICT|advisory,medium,Wellington,Microsoft-focused systems integrator formerly Intergen; public sector ERP and digital
-Capgemini NZ,ICT,large,Auckland,ICT services and digital transformation; acquired Empired NZ in 2021
-Fujitsu NZ,ICT,large,Wellington,ICT managed services and outsourcing; long-standing government relationships
-Leidos NZ,defence|ICT|security,large,Wellington,US-parent defence and ICT; NZDF and intelligence community work
-L3Harris NZ,defence|security|ICT,large,Wellington,Defence electronics and communications; NZDF supplier
-Babcock NZ,defence|FM,large,Wellington,Defence support services; naval and NZDF facilities management
-Programmed Facility Management,FM,large,Auckland,National FM and cleaning; operates Spotless brand in NZ
-OCS NZ,FM,large,Auckland,Cleaning and FM services; government and health sectors
-Jones Lang LaSalle NZ,FM|advisory|professional_services,large,Auckland,Property management and FM advisory; public sector property
-CBRE NZ,FM|advisory,large,Auckland,Commercial property and FM; growing public sector FM advisory
-Cushman & Wakefield NZ,FM|advisory,medium,Auckland,Property advisory and FM; public sector real estate
-Deloitte NZ,advisory|professional_services|ICT,major,Wellington,Big-four advisory; strong government strategy and procurement advisory
-KPMG NZ,advisory|professional_services,large,Wellington,Big-four; government audit advisory and risk
-PwC NZ,advisory|professional_services,large,Auckland,Big-four; government strategy and transformation
-EY NZ,advisory|professional_services,large,Auckland,Big-four; government performance improvement and advisory
-MartinJenkins,advisory|professional_services,medium,Wellington,Boutique NZ public sector advisory; policy and strategy
-The Workshop,advisory,small,Wellington,Boutique public sector advisory; policy and organisational design
-Sapere Research Group,advisory|professional_services,medium,Wellington,Economics and regulatory advisory; public sector focus
-Tonkin + Taylor,infrastructure|advisory,large,Auckland,Environmental and geotechnical engineering; public sector infrastructure
-G4S NZ,security,large,Auckland,Physical security and guarding; government and critical infrastructure
-Wilson Security,security,medium,Auckland,Security guarding; government facilities
-Armourguard Security,security,medium,Auckland,Security and cash-in-transit; broad NZ coverage
-Chorus NZ,utilities|ICT,major,Wellington,National fibre broadband; government UFB programme
-Orion Health,health|ICT,large,Auckland,Health IT platforms; public sector digital health
-Bell Gully,professional_services,large,Auckland,Top-tier NZ law firm; government legal advisory
-Chapman Tripp,professional_services,large,Wellington,Top-tier NZ law firm; public sector legal and regulatory
-Anthony Harper,professional_services,medium,Auckland,Commercial law; government procurement legal services
-Tetra Tech NZ,infrastructure|advisory,large,Auckland,Environmental and infrastructure engineering; absorbed Coffey NZ
-Boffa Miskell,infrastructure|advisory,medium,Auckland,Landscape architecture and resource management planning; public sector
-Pacific Radiology Group,health,medium,Christchurch,Radiology services; public hospital outsourcing
-Compass Health,health,large,Wellington,Primary health organisation; PHO and government health contracts
-Unison Networks,utilities|FM,medium,Hastings,Electrical infrastructure and facilities services; central NZ
-Vector NZ,utilities,major,Auckland,Electricity distribution; major infrastructure asset owner
-Watercare Services,utilities,large,Auckland,Auckland water and wastewater; procurement of professional services
-Colliers NZ,FM|advisory,large,Auckland,Commercial property advisory and management; government property
-Savills NZ,FM|advisory,medium,Auckland,Property advisory and management; government and Crown estate
-Knight Frank NZ,FM|advisory,medium,Auckland,Commercial property advisory; government property transactions
-ISS Facility Services NZ,FM,large,Auckland,Integrated facilities management; government buildings
-Sodexo NZ,FM|health,large,Auckland,Facilities management and catering; health and government
-McConnell Dowell Constructors,infrastructure,major,Auckland,Major civil and underground construction; government infrastructure
-CPB Contractors NZ,infrastructure,major,Auckland,Major civil construction; formerly Leighton Contractors NZ
-Hawkins Construction,infrastructure,medium,Christchurch,Commercial and civil construction; government buildings; Ngai Tahu Holdings subsidiary
-HEB Construction,infrastructure,medium,Wellington,Civil infrastructure and roading; strong government contracts
-Brian Perry Civil,infrastructure,medium,Auckland,Civil construction; part of Fletcher Building group
-Naylor Love Construction,infrastructure,medium,Dunedin,Commercial construction; strong South Island government presence
-LT McGuinness & Co,infrastructure,medium,Wellington,Wellington-focused civil and commercial construction
-Arrow International Group,infrastructure,medium,Auckland,Commercial construction and fitout; government offices and facilities
-Leighs Construction,infrastructure,medium,Christchurch,Commercial and civil construction; Canterbury government projects
-Cook Brothers Construction,infrastructure,medium,Christchurch,Commercial construction; South Island government work
-Watts & Hughes Construction,infrastructure,medium,Christchurch,Construction and civil; Canterbury government panel
-Calder Stewart Industries,infrastructure|FM,medium,Invercargill,Industrial and commercial construction and roofing; South Island
-Dominion Constructors,infrastructure,medium,Auckland,Commercial construction; Auckland council and government projects
-Southbase Construction,infrastructure,medium,Christchurch,Commercial construction; Canterbury government and health sector
-Ventia NZ,FM|infrastructure|utilities,large,Auckland,Integrated facilities and infrastructure services; formerly Broadspectrum
-Citycare Property,FM,medium,Christchurch,Facilities and property services; local government focus
-Haydn & Rollett,infrastructure,small,Christchurch,Canterbury civil and commercial construction
-Ganellen NZ,infrastructure,medium,Auckland,Commercial construction; Auckland council and Crown projects
-Mace NZ,advisory|infrastructure,medium,Auckland,Programme and project management; government capital works
-Rider Levett Bucknall NZ,advisory|infrastructure,medium,Auckland,Quantity surveying and project management; government capital works
-WT Partnership NZ,advisory|infrastructure,medium,Auckland,Quantity surveying; public sector capital programme advisory
-Turner & Townsend NZ,advisory|infrastructure,large,Auckland,Project management and cost management; government infrastructure
-RCP Ltd,advisory|infrastructure,medium,Auckland,Independent project management; major government capital projects
-Arup NZ,infrastructure|advisory,large,Wellington,Multidisciplinary engineering and design; transport and infrastructure
-Mott MacDonald NZ,infrastructure|advisory,large,Auckland,Engineering consultancy; water transport and environment
-Holmes Group,infrastructure,medium,Wellington,Structural and civil engineering; heritage and government buildings
-Fraser Thomas,infrastructure|advisory,medium,Auckland,Land development engineering survey and planning
-Calibre Consulting,infrastructure|advisory,medium,Auckland,Infrastructure and engineering advisory; public sector
-Pattle Delamore Partners,infrastructure|advisory,medium,Auckland,Water and environmental engineering; local government
-Riley Consultants,infrastructure|advisory,small,Auckland,Land surveying and planning; government land projects
-RPS Group NZ,infrastructure|advisory,medium,Auckland,Environmental and planning consultancy; resource management
-Morphum Environmental,advisory|infrastructure,small,Auckland,Environmental consulting; local government and Crown
-Barker & Associates,advisory,small,Auckland,Resource management planning; government consenting advice
-MRCagney,infrastructure|advisory,small,Auckland,Transport planning and economics; government transport strategy
-Abley Transportation Consultants,infrastructure|advisory,medium,Christchurch,Traffic and transport engineering; roading and public transport
-Traffic Design Group,infrastructure|advisory,medium,Auckland,Transport infrastructure planning and design
-Flow Transportation Specialists,infrastructure|advisory,small,Wellington,Transport planning advisory; Wellington government focus
-Wildlands Consultants,advisory,medium,Hamilton,Ecological and environmental consulting; DOC and regional councils
-Engeo NZ,infrastructure,small,Wellington,Geotechnical engineering; government infrastructure projects
-Harrison Grierson Consultants,infrastructure|advisory,medium,Auckland,Multi-discipline engineering surveying and planning; local government
-ARCADIS NZ,infrastructure|advisory,medium,Auckland,Engineering and environmental consultancy; water and infrastructure
-ERM New Zealand,advisory,medium,Auckland,Environmental and sustainability consulting; government and Crown
-Landpro NZ,infrastructure|advisory,small,Blenheim,Land surveying mapping and environmental; rural and regional government
-IBM New Zealand,ICT,large,Auckland,IT services and consulting; major government systems
-DXC Technology NZ,ICT,large,Wellington,IT outsourcing and managed services; government agency contracts
-Unisys New Zealand,ICT,large,Wellington,IT services and systems integration; government sector
-NTT New Zealand,ICT,large,Auckland,IT infrastructure and managed services; formerly Dimension Data NZ
-Assurity Consulting,ICT|advisory,medium,Wellington,Software testing agile and digital advisory; government ICT
-Fronde Systems Group,ICT,medium,Auckland,Cloud and managed services; government ICT transformation
-Datalink,ICT,medium,Auckland,Infrastructure and cloud services; government ICT
-Jade Software Corporation,ICT,medium,Christchurch,Custom software and managed services; government and justice sector
-Solnet Solutions,ICT,medium,Wellington,Digital and software development; public sector ICT
-Provoke Solutions,ICT,medium,Wellington,Digital strategy and development; government digital services
-Enlighten Designs,ICT,small,Dunedin,Digital design and development; public sector and health
-Catalyst IT,ICT,small,Wellington,Open source software development; government digital
-Kinetics Group,ICT,medium,Auckland,IT solutions and managed services; government ICT
-Accenture NZ,advisory|ICT,large,Auckland,Management and technology consulting; government transformation
-Oracle Corporation NZ,ICT,large,Auckland,Enterprise software and cloud; government licensing and systems
-TechnologyOne NZ,ICT,medium,Brisbane,Enterprise software; local government ERP and finance systems
-Civica NZ,ICT,medium,Wellington,Government software and managed services; local government focus
-SAP NZ,ICT,large,Auckland,Enterprise software; government ERP and analytics
-Tata Consultancy Services NZ,ICT,large,Auckland,IT services and outsourcing; government application management
-Infosys NZ,ICT,large,Auckland,IT consulting and outsourcing; government digital
-Kordia Solutions,ICT|utilities,medium,Auckland,Broadcast and telecommunications infrastructure; government comms
-Tait Communications,ICT|security,medium,Christchurch,Critical communications systems; NZ manufacturer; government and emergency services
-SilverStripe NZ,ICT,small,Wellington,CMS and web development; government digital platforms
-Planit Testing NZ,ICT,small,Wellington,Software testing and quality assurance; government ICT
-Esri NZ,ICT,small,Wellington,GIS software and services; local and central government
-Eagle Technology Group,ICT,small,Wellington,GIS and spatial data services; government and utilities
-Fujifilm Business Innovation NZ,ICT,large,Auckland,Document management and IT services; formerly Fuji Xerox NZ
-Ricoh NZ,ICT,medium,Auckland,Document solutions and managed print; government contracts
-Konica Minolta NZ,ICT,medium,Auckland,Document solutions and IT services; government panels
-Vocus NZ,ICT|utilities,medium,Auckland,Business fibre and network services; government connectivity
-One NZ,ICT|utilities,major,Auckland,Mobile and broadband; government connectivity; formerly Vodafone NZ
-2degrees Business,ICT|utilities,large,Auckland,Mobile and broadband services; government connectivity
-Microsoft New Zealand,ICT,major,Auckland,Cloud and software; major government licensing and Azure
-Cisco Systems NZ,ICT,large,Auckland,Networking and security infrastructure; government technology
-Dell Technologies NZ,ICT,large,Wellington,Hardware and services; government technology refresh
-Hewlett Packard Enterprise NZ,ICT,large,Wellington,Infrastructure and managed services; government data centre
-Sophos NZ,ICT|security,medium,Auckland,Cybersecurity products and managed services; government cyber
-Palo Alto Networks NZ,ICT|security,medium,Auckland,Network security; government and critical infrastructure
-Fortinet NZ,ICT|security,medium,Auckland,Network security infrastructure; government cyber
-Trend Micro NZ,ICT|security,medium,Auckland,Cybersecurity; government endpoint and cloud security
-Allen + Clarke,advisory,medium,Wellington,Policy and regulatory advisory; government-facing Wellington boutique
-Morrison Low Consultants,advisory,medium,Auckland,Local government management advisory; rates and infrastructure strategy
-Nous Group NZ,advisory,medium,Wellington,Management consulting; public sector strategy and transformation
-NZIER,advisory,medium,Wellington,Economics and public policy research; government commissioned work
-Infometrics,advisory,small,Wellington,Economic analysis and forecasting; government policy and planning
-Castalia Strategic Advisors,advisory,small,Wellington,Regulatory and infrastructure economics; utility pricing and government
-Concept Consulting Group,advisory,small,Wellington,Energy sector advisory; government energy policy
-BERL,advisory,small,Wellington,Business and economic research; government commissioned analysis
-Market Economics,advisory,small,Auckland,Economic and market analysis; government policy advice
-Covec,advisory,small,Wellington,Economic consultancy; government evaluation and policy analysis
-Boston Consulting Group NZ,advisory,large,Auckland,Strategy consulting; government transformation and policy
-McKinsey & Company NZ,advisory,large,Auckland,Strategy consulting; government sector and health advisory
-BDO New Zealand,professional_services,large,Auckland,Accounting and advisory; government audit and assurance
-Grant Thornton NZ,professional_services,large,Auckland,Accounting and advisory; government financial services
-Crowe NZ,professional_services,medium,Auckland,Audit and advisory; government and public sector assurance
-Moore New Zealand,professional_services,medium,Auckland,Accounting and advisory; public sector audit
-RSM New Zealand,professional_services,medium,Auckland,Accounting and advisory; government assurance
-Hayes Knight,professional_services,medium,Auckland,Accounting advisory; local government and SME public sector
-Findex NZ,professional_services,medium,Auckland,Accounting and business advisory; regional government
-PKF New Zealand,professional_services,medium,Wellington,Accounting and audit; government and not-for-profit
-Nexia New Zealand,professional_services,medium,Auckland,Accounting and audit; government assurance
-Staples Rodway,professional_services,medium,Auckland,Accounting and advisory; local government audit
-Russell McVeagh,professional_services,large,Auckland,Top-tier law firm; government and regulatory law
-Simpson Grierson,professional_services,large,Auckland,Top-tier law firm; public sector and infrastructure
-Buddle Findlay,professional_services,large,Wellington,Commercial law; government and regulatory advisory
-Minter Ellison Rudd Watts,professional_services,large,Auckland,Commercial law; government commercial and procurement
-DLA Piper NZ,professional_services,large,Auckland,International law firm; government and regulatory
-Hesketh Henry,professional_services,medium,Auckland,Commercial law; public sector and infrastructure
-Anderson Lloyd,professional_services,medium,Dunedin,Commercial law; South Island government and Crown
-Wynn Williams,professional_services,medium,Christchurch,Commercial law; Canterbury government and local authorities
-Duncan Cotterill,professional_services,medium,Christchurch,Commercial law; government and local government
-Cavell Leitch,professional_services,medium,Christchurch,Commercial law; Canterbury public sector
-McCaw Lewis,professional_services,medium,Hamilton,Commercial law; Waikato local government and Crown
-Tompkins Wake,professional_services,medium,Hamilton,Commercial law; Waikato and Bay of Plenty government
-Dentons Kensington Swan,professional_services,large,Wellington,International law firm; government and regulatory
-Lane Neave,professional_services,medium,Christchurch,Commercial law; South Island government and immigration
-Cooney Lees Morgan,professional_services,medium,Tauranga,Commercial law; Bay of Plenty local government
-Morrison Kent,professional_services,small,Wellington,Wellington law firm; public sector and property
-Rainey Collins,professional_services,small,Wellington,Wellington law firm; government advisory
-Gillespie Young Watson,professional_services,small,Lower Hutt,Wellington regional law firm; local government
-Quigg Partners,professional_services,small,Wellington,Wellington boutique law firm; specialist government law
-Brookfields,professional_services,medium,Auckland,Commercial law; Auckland government and property
-Thales NZ,defence|security|ICT,large,Wellington,Defence electronics and systems; NZDF contracts
-BAE Systems NZ,defence,medium,Wellington,Defence equipment and support; NZDF and government
-CAE New Zealand,defence,medium,Blenheim,Flight simulation and training; RNZAF training services
-Saab Technologies NZ,defence|ICT,medium,Wellington,Defence command and control systems; NZDF
-First Security Group,security,large,Auckland,NZ-owned security guarding; government facilities nationwide
-Paladin Security NZ,security,medium,Auckland,Security guarding services; government and commercial
-Chubb Fire & Security NZ,security,large,Auckland,Electronic security systems and guarding; government infrastructure
-ADT Security NZ,security,large,Auckland,Electronic security and monitoring; government facilities
-SECOM New Zealand,security,medium,Auckland,Security systems and services; government facilities
-Gallagher Group,security|ICT,large,Hamilton,NZ manufacturer of security and access control technology; government and corrections
-Honeywell NZ,security|FM|ICT,large,Auckland,Building technology security and automation; government infrastructure
-Johnson Controls NZ,security|FM,large,Auckland,Building management and security integration; government facilities
-Bupa NZ,health,large,Auckland,Aged residential care; government-funded health services
-Ryman Healthcare,health,major,Christchurch,Integrated retirement and aged care; government-funded services
-Oceania Healthcare,health,large,Auckland,Residential aged care and retirement; government contracts
-Arvida Group,health,large,Tauranga,Retirement villages and care; government-funded aged care
-Southern Cross Hospitals,health,large,Auckland,Private hospital network; public-private surgical contracts
-Healthcare of New Zealand,health,large,Wellington,Community healthcare services; government commissioned services
-Geneva Healthcare,health,medium,Auckland,Community health and disability support; government contracts
-Nurse Maude,health,medium,Christchurch,Community nursing and home care; Canterbury health contracts
-Lifemark Healthcare,health,medium,Auckland,Rehabilitation services; ACC and government contracts
-Ascot Hospital & Clinics,health,medium,Auckland,Private hospital; public-private specialist services
-ProCare Network,health,large,Auckland,Primary health organisation; Auckland health sector
-WellSouth Primary Health Network,health,medium,Dunedin,PHO; Otago and Southland primary health services
-Health Alliance NZ,health|ICT,medium,Auckland,Shared health services including ICT; Health NZ back office
-Baxter Healthcare NZ,health,medium,Auckland,Medical supplies and IV products; hospital procurement
-BD New Zealand,health,medium,Auckland,Medical devices and diagnostics; hospital and DHB supply
-Medtronic NZ,health,large,Auckland,Medical devices; cardiac neuro and vascular; hospital procurement
-Stryker NZ,health,large,Auckland,Medical devices; orthopaedic and surgical; hospital procurement
-Johnson & Johnson Medical NZ,health,large,Auckland,Medical devices and surgical products; hospital supply
-Abbott NZ,health,large,Auckland,Diagnostics and medical devices; hospital and laboratory
-Smith & Nephew NZ,health,medium,Auckland,Wound management and orthopaedics; DHB supply
-Boston Scientific NZ,health,medium,Auckland,Cardiovascular and endoscopy devices; hospital procurement
-B Braun New Zealand,health,medium,Auckland,Infusion systems and medical supplies; hospital and DHB
-3M New Zealand,health|FM|ICT,large,Auckland,Medical safety and industrial products; government supply
-Fresenius Medical Care NZ,health,medium,Auckland,Renal dialysis services and equipment; DHB contracts
-Mercury NZ,utilities,major,Auckland,Electricity generation and retail; renewable energy government contracts
-Meridian Energy,utilities,major,Wellington,Renewable electricity generation and retail; government energy supply
-Contact Energy,utilities,major,Wellington,Electricity and gas retail; government energy contracts
-Genesis Energy,utilities,major,Auckland,Electricity and gas retail; government energy contracts
-Manawa Energy,utilities,large,Tauranga,Hydro electricity generation; formerly TrustPower
-Wellington Water,utilities,medium,Wellington,Water services for Wellington region; government procurement
-Eastland Network,utilities,small,Gisborne,Electricity distribution; Gisborne and East Coast
-Network Tasman,utilities,small,Nelson,Electricity distribution; Nelson and Tasman
-The Lines Company,utilities,small,Te Kuiti,Electricity distribution; Waikato King Country
-Alpine Energy,utilities,small,Timaru,Electricity distribution; South Canterbury
-WEL Networks,utilities,medium,Hamilton,Electricity distribution; Waikato region
-Northpower,utilities|infrastructure,medium,Whangarei,Electricity distribution and contracting; Northland
-Counties Power,utilities,small,Pukekohe,Electricity distribution; south Auckland
-Top Energy,utilities,small,Kerikeri,Electricity distribution; Far North
-Waipa Networks,utilities,small,Te Awamutu,Electricity distribution; Waipa district
-PowerNet,utilities,small,Invercargill,Electricity distribution; Southland and Otago
-Marlborough Lines,utilities,small,Blenheim,Electricity distribution; Marlborough
-First Gas,utilities,large,Hamilton,Gas transmission and distribution; national gas network
-OtagoNet,utilities,small,Dunedin,Electricity distribution; Central Otago
-Compass Group NZ,FM|health,large,Auckland,Catering and facilities services for hospitals and government; distinct entity from Compass Health PHO
-Bureau Veritas NZ,advisory|professional_services,medium,Auckland,Inspection testing and certification; government compliance and infrastructure
-SGS New Zealand,advisory|professional_services,medium,Auckland,Testing inspection and certification; government supply chain and compliance
-Intertek NZ,advisory|professional_services,medium,Auckland,Testing inspection and certification; government infrastructure and product compliance
-Jasmax,advisory|infrastructure,medium,Auckland,Architecture and design; government buildings and civic infrastructure
-Warren and Mahoney,advisory|infrastructure,medium,Auckland,Architecture; justice health and civic government projects
-Architectus NZ,advisory|infrastructure,medium,Auckland,Architecture and urban design; government and education buildings
-Peddle Thorp,advisory|infrastructure,medium,Auckland,Architecture; health justice and government facilities
-Athfield Architects,advisory|infrastructure,medium,Wellington,Wellington architecture; civic and government buildings
-Stephenson & Turner NZ,advisory|infrastructure,medium,Auckland,Architecture and engineering; government buildings and heritage
-Salmond Reed Architects,advisory|infrastructure,small,Wellington,Heritage architecture; government conservation and restoration
-Studio Pacific Architecture,advisory|infrastructure,small,Wellington,Architecture; Wellington government and civic projects
-Adecco NZ,professional_services,large,Auckland,Workforce solutions and temporary staffing; government panels
-Hays NZ,professional_services,large,Auckland,Professional recruitment; government staffing panels
-Robert Half NZ,professional_services,medium,Auckland,Finance and technology recruitment; government contracting
-Randstad NZ,professional_services,large,Auckland,Workforce solutions; government staffing and HR services
-ManpowerGroup NZ,professional_services,large,Auckland,Workforce solutions; government staffing and managed services
-Drake New Zealand,professional_services,medium,Auckland,Recruitment and staffing; government panels
-Momentum Consulting NZ,professional_services,medium,Wellington,Wellington-based recruitment; public sector specialist
-Beyond Recruitment,professional_services,medium,Auckland,Professional recruitment; government and technology
-Madison Recruitment,professional_services,medium,Auckland,Professional recruitment; government and corporate
-Absolute IT,professional_services,medium,Auckland,IT recruitment; government ICT contracting
-Talent International NZ,professional_services,medium,Wellington,Technology and government recruitment; public sector
-OneStaff,professional_services,medium,Auckland,Industrial and commercial staffing; government workforce
-Chandler Macleod NZ,professional_services,large,Auckland,Recruitment and workforce management; government contracts
-Robert Walters NZ,professional_services,medium,Auckland,Executive and professional recruitment; government and public sector
-Michael Page NZ,professional_services,medium,Auckland,Professional recruitment; government and corporate
-Ogilvy NZ,advisory,medium,Auckland,Advertising and communications; government campaigns
-FCB New Zealand,advisory,medium,Auckland,Advertising; government public awareness campaigns
-DDB New Zealand,advisory,medium,Auckland,Advertising and digital; government social marketing
-Saatchi & Saatchi NZ,advisory,medium,Wellington,Advertising; government campaigns including health and road safety
-TBWA New Zealand,advisory,medium,Auckland,Advertising; government communications
-Special Group NZ,advisory,medium,Auckland,Creative advertising; government and public sector campaigns
-Mango Communications,advisory,small,Auckland,Public relations; government and public sector communications
-Pead PR,advisory,small,Auckland,Public relations; government and health communications
-Edelman New Zealand,advisory,medium,Auckland,Public relations and communications; government affairs
-Porter Novelli NZ,advisory,small,Wellington,Public relations; government health and social campaigns
-OMD New Zealand,advisory,medium,Auckland,Media planning and buying; government campaign media
-Mindshare NZ,advisory,medium,Auckland,Media buying and planning; government media contracts
-MediaCom NZ,advisory,medium,Auckland,Media planning; government advertising panels
-Starcom NZ,advisory,medium,Auckland,Media and communications planning; government media buying
-Wavemaker NZ,advisory,medium,Auckland,Media and growth strategy; government media
-Toll NZ,other,large,Auckland,Freight and logistics; government supply chain
-Linfox NZ,other,large,Auckland,Logistics and supply chain; government and defence
-DHL Supply Chain NZ,other,large,Auckland,Logistics and warehousing; government supply
-Freightways NZ,other,medium,Auckland,Courier and freight; government document and small parcel
-New Zealand Post,other,major,Wellington,Postal and courier services; government correspondence and payments
-Aramex NZ,other,medium,Auckland,Courier and freight; government parcel services
-Mainfreight NZ,other,major,Auckland,Freight and logistics; government and defence supply chain
-Hato Hone St John,health|other,large,Auckland,Ambulance and first aid training; government health emergency contracts
-ESR Ltd,advisory|health,medium,Wellington,Environmental science and research; government public health laboratory services
-Callaghan Innovation,advisory|ICT,medium,Wellington,R&D advisory and services; government innovation programmes
-GNS Science,advisory|infrastructure,medium,Lower Hutt,Geological and nuclear science; government hazard and infrastructure advice
-Quotable Value NZ,advisory|professional_services,medium,Wellington,Government valuation services; rating valuations and property
-Bioresearches Group,advisory,small,Auckland,Ecological survey and environmental assessment; government and councils
-Trimble NZ,ICT|infrastructure,medium,Auckland,Surveying and positioning technology; infrastructure and utilities
-ServiceIQ,advisory|professional_services,small,Wellington,Workforce development for hospitality and tourism; government funded ITO
-Connexis,advisory|infrastructure,small,Wellington,Infrastructure industry training; government funded workforce development
-Hanga-Aro-Rau,advisory,small,Auckland,Manufacturing and engineering workforce development; government funded ITO
+firm_name,canonical_name,sectors,size,headquarters,exclude_keywords,specialist_flags,mbie_confirmed,notes
+Downer NZ,Downer NZ,infrastructure|roading|FM|utilities,major,Auckland,,,,Major infrastructure and roading contractor; national presence; strong NZTA relationship
+Fulton Hogan,Fulton Hogan,infrastructure|roading|construction|civil,major,Christchurch,,,,Leading civil construction and roading; strong South Island base; consistent NZTA winner
+HEB Construction,HEB Construction,infrastructure|roading|construction|civil,large,Auckland,,,,Major roading and civil contractor; national; regular NZTA and local council tender participant
+Higgins Contractors,Higgins Contractors,roading|infrastructure|civil,large,Palmerston North,,,,Specialist roading and pavement contractor; strong Central/Upper North Island presence
+Ventia NZ,Ventia NZ,FM|infrastructure|utilities|roading,major,Auckland,,,,Facilities management and infrastructure services; government FM panel presence
+McConnell Dowell,McConnell Dowell,infrastructure|construction|civil|utilities,major,Auckland,,,,Major civil/infrastructure contractor; tunnels, pipes, marine and earthworks
+Brian Perry Civil,Brian Perry Civil,infrastructure|civil|roading,large,Auckland,,,,Civil construction specialist; strong Auckland and Waikato presence
+City Care,City Care,infrastructure|FM|utilities,large,Christchurch,,,,Christchurch City Holdings subsidiary; infrastructure maintenance and FM
+SouthRoads,SouthRoads,roading|infrastructure|civil,large,Invercargill,,,,Specialist roading contractor; dominant South Island/Southland presence
+Traffica,Traffica,roading|infrastructure,medium,Auckland,,,true,Traffic management and road maintenance specialist
+Broadspectrum NZ,Broadspectrum NZ,FM|infrastructure|utilities,large,Auckland,,,,Infrastructure and FM services; government contracts
+ARCO Group,ARCO Group,infrastructure|civil|roading,medium,Christchurch,,,,Civil and roading contractor; Canterbury-based
+Dempsey Wood Civil,Dempsey Wood Civil,infrastructure|civil|roading,large,Auckland,,,,Civil and earthworks contractor; Auckland region
+Brosnan Construction,Brosnan Construction,construction|infrastructure,large,Auckland,,,,Commercial construction and fit-out; government buildings
+Naylor Love,Naylor Love,construction|infrastructure,large,Auckland,,,,Commercial and public sector construction; national; strong government track record
+Fletcher Construction,Fletcher Construction,construction|infrastructure|civil,major,Auckland,,,,New Zealand's largest construction firm; all major government infrastructure
+Hawkins Construction,Hawkins Construction,construction|infrastructure,large,Auckland,,,,Commercial construction; education, health, justice buildings
+LT McGuinness,LT McGuinness,construction|infrastructure,large,Wellington,,,,Commercial construction specialist; strong Wellington public sector presence
+Dominion Constructors,Dominion Constructors,construction|infrastructure,large,Auckland,,,,Commercial construction; corporate and government buildings
+Leighs Construction,Leighs Construction,construction|infrastructure|civil,large,Christchurch,,,,Construction and civil contractor; South Island focused
+Arrow International,Arrow International,construction|FM,large,Auckland,,,,Project management and construction; design-build specialist
+Ebert Construction,Ebert Construction,construction,medium,Tauranga,,,,Commercial construction; Bay of Plenty and Waikato
+Canam NZ,Canam NZ,construction|infrastructure,medium,Auckland,,,,Precast concrete and construction; public sector projects
+Watts & Hughes Construction,Watts & Hughes Construction,construction|infrastructure,large,Hamilton,,,,Commercial construction; Waikato and Central NZ
+Mitchell Construction,Mitchell Construction,construction|civil,medium,Wellington,,,,Civil and building construction; Wellington region
+Stephenson & Turner,Stephenson & Turner,construction|infrastructure,medium,Auckland,,,,Building and project management; heritage and public buildings
+Cook Brothers Construction,Cook Brothers Construction,construction|civil,medium,Christchurch,,,,Commercial construction; South Island
+Clearwater Construction,Clearwater Construction,construction|civil,medium,Christchurch,,,,Civil and commercial construction; Canterbury
+Ganellen,Ganellen,construction|infrastructure,medium,Auckland,,,,Commercial construction specialist; government buildings
+CPB Contractors NZ,CPB Contractors NZ,construction|infrastructure|civil,major,Auckland,aircraft|aerospace|ICT|health|legal,,true,Civil and infrastructure contractor; major NZ projects
+Laing O'Rourke NZ,Laing O'Rourke NZ,construction|infrastructure|civil,major,Auckland,aircraft|aerospace|ICT|health|legal,,,Major construction and engineering; government
+BGIS,BGIS,FM|infrastructure,large,Auckland,,,,Facilities management; government portfolio manager; national
+ISS Facility Services,ISS Facility Services,FM,large,Auckland,,,,Integrated facilities services; cleaning, catering, security
+Sodexo NZ,Sodexo NZ,FM,large,Auckland,,,,Facilities and food services; public sector FM
+Compass Group NZ,Compass Group NZ,FM,large,Auckland,,,,Catering and FM services; health and education sectors
+Cushman & Wakefield,Cushman & Wakefield,FM|advisory,large,Auckland,,,,Property and FM advisory; government portfolio management
+JLL NZ,JLL NZ,FM|advisory,large,Auckland,,,,Facilities management and property advisory; government accounts
+Programmed NZ,Programmed NZ,FM|infrastructure|roading,large,Auckland,,,,FM and maintenance services; government contracts
+Spotless NZ,Spotless NZ,FM,large,Auckland,,,,Facility services; cleaning, catering, maintenance
+Johnson Controls NZ,Johnson Controls NZ,FM|infrastructure,large,Auckland,,,,Building management systems; FM services
+Colliers International NZ,Colliers International NZ,FM|advisory,large,Auckland,,,,Property management and advisory; government property
+CBRE NZ,CBRE NZ,FM|advisory,large,Auckland,,,,Property and FM services; government portfolio
+Honeywell NZ,Honeywell NZ,FM|ICT|infrastructure,large,Auckland,,,,Building automation and FM technology
+Serco NZ,Serco NZ,FM|advisory,large,Auckland,,,,Government services; corrections and health FM
+Bidvest NZ,Bidvest NZ,FM|utilities,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Catering and FM; government
+Alsco NZ,Alsco NZ,FM,medium,Auckland,aircraft|aerospace|ICT|health|legal,,,Linen and workwear rental; government
+Ventia Health FM,Ventia NZ,FM|health,large,Auckland,,,true,FM services for health sector; part of Ventia
+Downer FM,Downer NZ,FM|infrastructure,major,Auckland,aircraft|aerospace|ICT|health|legal,,true,FM services; part of Downer
+Engie NZ,Engie NZ,FM|utilities|environmental,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Energy services and FM; government
+Chubb Fire & Security NZ,Chubb Fire & Security NZ,security|FM,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Fire and security; government buildings
+Datacom,Datacom,ICT,major,Auckland,roading|civil|construction|aerospace|aircraft,,true,New Zealand's largest IT services firm; dominant government ICT panel presence
+Spark NZ,Spark NZ,ICT|utilities,major,Auckland,roading|civil|construction|aerospace|aircraft,,true,Government ICT and telecommunications; major panel supplier
+One NZ,One NZ,ICT|utilities,major,Auckland,roading|civil|construction|aerospace|aircraft,,true,Telecommunications and cloud services; formerly Vodafone NZ
+2degrees,2degrees,ICT|utilities,large,Auckland,roading|civil|construction|aerospace|aircraft,,true,Telecommunications services; growing government presence
+Kordia,Kordia,ICT|utilities,large,Auckland,roading|civil|construction|aerospace|aircraft,,true,Broadcast, telecommunications and network services; government ICT
+Fujitsu NZ,Fujitsu NZ,ICT,large,Auckland,roading|civil|construction|aerospace|aircraft,,true,IT services and solutions; government ICT panel
+Unisys NZ,Unisys NZ,ICT,large,Auckland,roading|civil|construction|aerospace|aircraft,,true,IT services; government digital transformation
+DXC Technology,DXC Technology,ICT,major,Wellington,roading|civil|construction|aerospace|aircraft,,true,Managed services and IT outsourcing; government departments
+Theta,Theta,ICT|advisory,large,Auckland,roading|civil|construction|aerospace|aircraft,,true,Microsoft solutions and digital transformation; merged with Intergen
+Fronde Systems Group,Fronde Systems Group,ICT,large,Wellington,roading|civil|construction|aerospace|aircraft,,true,IT services and cloud; government ICT
+Provoke Solutions,Provoke Solutions,ICT|advisory,medium,Wellington,roading|civil|construction|aerospace|aircraft,,true,Digital and Microsoft solutions; government
+Assurity Consulting,Assurity Consulting,ICT|advisory,medium,Wellington,roading|civil|construction|aerospace|aircraft,,true,Agile and digital consulting; government ICT assurance
+Solnet Solutions,Solnet Solutions,ICT,medium,Wellington,roading|civil|construction|aerospace|aircraft,,true,Software development and integration; government
+Jade Software,Jade Software,ICT,medium,Christchurch,roading|civil|construction|aerospace|aircraft,,,Database and software products; NZ government
+Technology One NZ,Technology One NZ,ICT,large,Auckland,roading|civil|construction|aerospace|aircraft,,true,ERP and financial management software; government SaaS
+Microsoft NZ,Microsoft NZ,ICT,major,Auckland,roading|civil|construction|aerospace|aircraft,,true,Cloud and productivity software; government Microsoft 365 and Azure
+Amazon Web Services NZ,Amazon Web Services NZ,ICT,major,Auckland,roading|civil|construction|aerospace|aircraft,,true,Cloud infrastructure; government cloud platform
+Deloitte Digital NZ,Deloitte,ICT|advisory,major,Auckland,roading|civil|construction|aerospace|aircraft,,true,Digital transformation and ICT advisory; government
+Accenture NZ,Accenture NZ,ICT|advisory,major,Auckland,roading|civil|construction|aerospace|aircraft,,true,Technology and digital consulting; government transformation
+IBM NZ,IBM NZ,ICT,major,Auckland,roading|civil|construction|aerospace|aircraft,,true,IT infrastructure and consulting; government
+Cisco Systems NZ,Cisco Systems NZ,ICT,major,Auckland,roading|civil|construction|aerospace|aircraft,,,Networking equipment and services; government
+Palo Alto Networks NZ,Palo Alto Networks NZ,ICT|cybersecurity,large,Auckland,roading|civil|construction|aerospace|aircraft,cybersecurity,,Cybersecurity platform; government
+Fortinet NZ,Fortinet NZ,ICT|cybersecurity,large,Auckland,roading|civil|construction|aerospace|aircraft,cybersecurity,,Network security; government
+SAP NZ,SAP NZ,ICT,major,Auckland,roading|civil|construction|aerospace|aircraft,,,ERP and cloud software; large government agencies
+Oracle NZ,Oracle NZ,ICT,major,Auckland,roading|civil|construction|aerospace|aircraft,,,Database and enterprise software; government
+Ricoh NZ,Ricoh NZ,ICT|FM,large,Auckland,roading|civil|construction|aerospace|aircraft,,true,Managed print and document services; government
+Vocus NZ,Vocus NZ,ICT|utilities,large,Auckland,roading|civil|construction|aerospace|aircraft,,true,Fibre and data services; government connectivity
+Chorus NZ,Chorus NZ,ICT|utilities,major,Wellington,roading|civil|construction|aerospace|aircraft,,true,Broadband network infrastructure; UFB government programme
+Enable Networks,Enable Networks,ICT|utilities,medium,Christchurch,roading|civil|construction|aerospace|aircraft,,true,Fibre network; Christchurch region UFB
+Ultrafast Fibre,Ultrafast Fibre,ICT|utilities,medium,Hamilton,roading|civil|construction|aerospace|aircraft,,true,Fibre network; Waikato/Bay of Plenty UFB
+Catalyst IT,Catalyst IT,ICT,large,Wellington,roading|civil|construction|aerospace|aircraft,,true,Open source software; government digital systems
+Springload,Springload,ICT,medium,Wellington,roading|civil|construction|aerospace|aircraft,,,UX and digital design; government portals
+Rush Digital,Rush Digital,ICT,medium,Auckland,roading|civil|construction|aerospace|aircraft,,,App development; government mobile
+Seequent,Seequent,ICT|research,large,Christchurch,roading|civil|construction|aerospace|aircraft,,true,Geoscience software; GNS and government science
+Trimble NZ,Trimble NZ,ICT|infrastructure,large,Auckland,roading|civil|construction|aerospace|aircraft,,true,Survey and construction technology; government
+Esri NZ,Esri NZ,ICT|advisory,medium,Wellington,roading|civil|construction|aerospace|aircraft,,true,GIS and spatial data; government
+Eagle Technology Group,Eagle Technology Group,ICT|advisory,medium,Auckland,roading|civil|construction|aerospace|aircraft,,true,GIS and spatial systems; government
+SilverStripe,SilverStripe,ICT,medium,Wellington,roading|civil|construction|aerospace|aircraft,,true,CMS and web platform; government websites
+Enlighten Designs,Enlighten Designs,ICT,medium,Hamilton,roading|civil|construction|aerospace|aircraft,,,Digital solutions and web development; government portals
+Revera NZ,Revera NZ,ICT,large,Wellington,roading|civil|construction|aerospace|aircraft,,true,Cloud and data centre services; government
+NEC NZ,NEC NZ,ICT|security,large,Auckland,roading|civil|construction|aerospace|aircraft,,true,IT and communications; government; biometric systems
+Dell Technologies NZ,Dell Technologies NZ,ICT,major,Auckland,roading|civil|construction|aerospace|aircraft,,true,IT hardware and solutions; government
+Dimension Data NZ,Dimension Data NZ,ICT,large,Auckland,roading|civil|construction|aerospace|aircraft,,true,Network and cloud services; government
+Logicalis NZ,Logicalis NZ,ICT,large,Auckland,roading|civil|construction|aerospace|aircraft,,true,IT infrastructure; government
+OpenText NZ,OpenText NZ,ICT,large,Auckland,roading|civil|construction|aerospace|aircraft,,true,Content management and ECM; government records
+ServiceNow NZ,ServiceNow NZ,ICT,major,Auckland,roading|civil|construction|aerospace|aircraft,,true,IT service management; government
+Salesforce NZ,Salesforce NZ,ICT,major,Auckland,roading|civil|construction|aerospace|aircraft,,true,CRM and platform; government
+Tait Communications NZ,Tait Communications NZ,ICT|security,large,Christchurch,roading|civil|construction|aerospace|aircraft,,true,Radio communications; government and public safety
+Motorola Solutions NZ,Motorola Solutions NZ,ICT|security,large,Auckland,roading|civil|construction|aerospace|aircraft,,true,Communications and public safety; government
+Ingram Micro NZ,Ingram Micro NZ,ICT,major,Auckland,roading|civil|construction|aerospace|aircraft,,true,IT distribution; government supply chain
+CGI Group NZ,CGI Group NZ,ICT|advisory,large,Wellington,roading|civil|construction|aircraft,,true,IT services and outsourcing; government
+Leidos NZ,Leidos NZ,ICT|advisory|defence,major,Wellington,roading|civil|construction|aircraft,,true,Government IT and defence systems
+Booz Allen Hamilton NZ,Booz Allen Hamilton NZ,advisory|ICT,major,Wellington,roading|civil|construction|aircraft,,true,Strategy and technology advisory; defence and government
+InPhySec,InPhySec,cybersecurity|ICT,medium,Wellington,roading|civil|construction|aerospace|aircraft,cybersecurity,,Cybersecurity services; NZ government specialist
+Bastion Security Group,Bastion Security Group,cybersecurity|ICT,medium,Wellington,roading|civil|construction|aerospace|aircraft,cybersecurity,true,Cyber security services; government; NZ-owned
+CyberCX NZ,CyberCX NZ,cybersecurity|ICT,large,Auckland,roading|civil|construction|aerospace|aircraft,cybersecurity,true,Cybersecurity consulting; government; Australian parent
+Aura Information Security,Aura Information Security,cybersecurity|ICT,medium,Wellington,roading|civil|construction|aerospace|aircraft,cybersecurity,true,Information security; NZ government specialist
+Kordia Security,Kordia Security,cybersecurity|ICT,large,Auckland,roading|civil|construction|aerospace|aircraft,cybersecurity,true,Cybersecurity and network security; government
+ZX Security,ZX Security,cybersecurity|ICT,small,Wellington,roading|civil|construction|aerospace|aircraft,cybersecurity,,Penetration testing; government security assurance
+Insomnia Security,Insomnia Security,cybersecurity|ICT,small,Auckland,roading|civil|construction|aerospace|aircraft,cybersecurity,,Penetration testing and security; government
+Datacom Cybersecurity,Datacom,cybersecurity|ICT,major,Auckland,roading|civil|construction|aerospace|aircraft,cybersecurity,true,Cyber SOC and managed security; government
+Spark Cybersecurity,Spark NZ,cybersecurity|ICT,major,Auckland,roading|civil|construction|aerospace|aircraft,cybersecurity,true,Managed security operations; government
+DXC Cybersecurity,DXC Technology,cybersecurity|ICT,major,Wellington,roading|civil|construction|aerospace|aircraft,cybersecurity,,Security managed services; government
+Splunk NZ,Splunk NZ,ICT|cybersecurity,large,Auckland,roading|civil|construction|aircraft,cybersecurity,,SIEM and analytics; government cybersecurity
+CrowdStrike NZ,CrowdStrike NZ,ICT|cybersecurity,large,Auckland,roading|civil|construction|aircraft,cybersecurity,,Endpoint security; government
+SentinelOne NZ,SentinelOne NZ,ICT|cybersecurity,large,Auckland,roading|civil|construction|aircraft,cybersecurity,,Endpoint detection; government
+Tenable NZ,Tenable NZ,ICT|cybersecurity,large,Auckland,roading|civil|construction|aircraft,cybersecurity,,Vulnerability scanning; government
+Beca,Beca,engineering|infrastructure|advisory,major,Auckland,,,,New Zealand's largest engineering consultancy; all government infrastructure sectors
+WSP NZ,WSP NZ,engineering|infrastructure|roading|advisory,major,Auckland,,,,Engineering and environmental consulting; formerly Opus; NZTA and councils
+AECOM NZ,AECOM NZ,engineering|infrastructure|roading|advisory,major,Auckland,,,,Infrastructure and engineering design; national and international projects
+GHD NZ,GHD NZ,engineering|infrastructure|advisory,major,Auckland,,,,Engineering, architecture and environment; government infrastructure
+Stantec NZ,Stantec NZ,engineering|infrastructure|environmental|advisory,large,Auckland,,,,Environmental and infrastructure engineering; government
+Jacobs NZ,Jacobs NZ,engineering|infrastructure|advisory,major,Auckland,,,,Technical and engineering consulting; defence and government
+Aurecon,Aurecon,engineering|infrastructure|advisory,major,Auckland,,,,Engineering design and advisory; government infrastructure
+Tonkin + Taylor,Tonkin + Taylor,engineering|infrastructure|environmental|advisory,large,Auckland,,,,Geotechnical and environmental engineering; government
+Pattle Delamore Partners,Pattle Delamore Partners,engineering|environmental|advisory,medium,Auckland,,,,Environmental and geotechnical consulting; government
+Morphum Environmental,Morphum Environmental,environmental|advisory,medium,Auckland,,,,Environmental consulting and management; government
+Mott MacDonald NZ,Mott MacDonald NZ,engineering|infrastructure|advisory,large,Auckland,,,,Infrastructure programme management; government
+Harrison Grierson,Harrison Grierson,engineering|infrastructure,large,Auckland,,,,Surveying and engineering; government infrastructure
+Prendos NZ,Prendos NZ,engineering|FM|advisory,medium,Auckland,,,,Building consultancy and dilapidations; government property
+RCP,RCP,advisory|construction,medium,Auckland,,,,Construction project management; government buildings
+Rider Levett Bucknall NZ,Rider Levett Bucknall NZ,advisory|construction,large,Auckland,,,,Quantity surveying and project advisory; government
+Turner & Townsend NZ,Turner & Townsend NZ,advisory|construction|infrastructure,large,Auckland,,,,Programme management and cost consultancy; major government projects
+Cardno NZ,Cardno NZ,engineering|environmental|advisory,large,Auckland,,,,Engineering and environmental services; infrastructure
+ENGEO,ENGEO,engineering|environmental,medium,Hamilton,,,,Geotechnical engineering; government
+Golder Associates NZ,Golder Associates NZ,engineering|environmental,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Geotechnical and environmental; government
+Fugro NZ,Fugro NZ,engineering|environmental|research,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Geotechnical investigation; offshore and government
+Coffey Geotechnics NZ,Coffey Geotechnics NZ,engineering|environmental,medium,Auckland,aircraft|aerospace|ICT|health|legal,,true,Geotechnical investigation; government
+MRCagney,MRCagney,advisory|infrastructure|roading,medium,Auckland,ICT|health|legal|aerospace,,true,Transport planning and analytics; government
+Abley,Abley,advisory|roading|infrastructure,medium,Christchurch,ICT|health|legal|aerospace,,true,Transport engineering and planning; government
+Veitch Lister Consulting,Veitch Lister Consulting,advisory|roading|infrastructure,medium,Auckland,ICT|health|legal|aerospace,,,Transport analytics; government
+Boffa Miskell,Boffa Miskell,environmental|advisory|infrastructure,medium,Auckland,aircraft|aerospace|ICT|health|legal,,true,Landscape and urban design; government
+Deloitte,Deloitte,advisory|ICT|legal,major,Wellington,roading|civil|construction|aircraft,,true,Professional services; government advisory and assurance
+PwC,PwC,advisory|legal,major,Auckland,roading|civil|construction|aircraft,,true,Professional services; government advisory
+KPMG,KPMG,advisory|legal,major,Auckland,roading|civil|construction|aircraft,,true,Professional services; government audit and advisory
+EY,EY,advisory|legal,major,Auckland,roading|civil|construction|aircraft,,true,Professional services; government advisory and assurance
+MartinJenkins,MartinJenkins,advisory,large,Wellington,roading|civil|construction|aircraft,,true,Policy and management consulting; government NZ specialist
+Sapere Research Group,Sapere Research Group,advisory,medium,Wellington,roading|civil|construction|aircraft,,true,Economic and regulatory advisory; government
+NZIER,NZIER,advisory,medium,Wellington,roading|civil|construction|aircraft,,true,Economic research and policy; government
+Nous Group,Nous Group,advisory,large,Wellington,roading|civil|construction|aircraft,,true,Management consulting; government transformation
+BDO NZ,BDO NZ,advisory|legal,large,Auckland,roading|civil|construction|aircraft,,true,Business advisory and audit; government
+Grant Thornton NZ,Grant Thornton NZ,advisory|legal,large,Auckland,roading|civil|construction|aircraft,,true,Advisory and audit; government
+Nexia NZ,Nexia NZ,advisory|legal,large,Auckland,roading|civil|construction|aircraft,,true,Accounting and advisory; government audit
+PKF New Zealand,PKF New Zealand,advisory|legal,medium,Auckland,roading|civil|construction|aircraft,,true,Advisory and audit; government
+Crowe NZ,Crowe NZ,advisory|legal,medium,Auckland,roading|civil|construction|aircraft,,true,Business advisory; government
+Boston Consulting Group NZ,Boston Consulting Group NZ,advisory,major,Auckland,roading|civil|construction|aircraft,,,Strategy consulting; major government transformation
+PA Consulting NZ,PA Consulting NZ,advisory|ICT,large,Wellington,roading|civil|construction|aircraft,,,Management and technology consulting; government
+AlphaBeta,AlphaBeta,advisory,medium,Auckland,roading|civil|construction|aircraft,,,Economics and strategy advisory; government policy
+Castalia,Castalia,advisory,medium,Wellington,roading|civil|construction|aircraft,,,Regulatory and infrastructure economics; utilities and government
+Farrierswier,Farrierswier,advisory,medium,Wellington,roading|civil|construction|aircraft,,,Regulatory and utility economics; government
+Market Economics,Market Economics,advisory,small,Auckland,roading|civil|construction|aircraft,,,Economic modelling; government
+Colmar Brunton,Colmar Brunton,advisory,medium,Wellington,roading|civil|construction|aircraft,,,Market research; government
+Kantar NZ,Kantar NZ,advisory,medium,Auckland,roading|civil|construction|aircraft,,,Research and analytics; government
+Perceptive,Perceptive,advisory,medium,Wellington,roading|civil|construction|aircraft,,,Research and evaluation; government
+UMR Research,UMR Research,advisory,medium,Wellington,roading|civil|construction|aircraft,,,Public opinion research; government policy
+Ipsos NZ,Ipsos NZ,advisory,medium,Auckland,roading|civil|construction|aircraft,,,Public opinion research; government
+BERL,BERL,advisory,small,Wellington,roading|civil|construction|aircraft,,,Economics and public policy research; government
+Motu Economic and Public Policy Research,Motu Economic and Public Policy Research,advisory,small,Wellington,roading|civil|construction|aircraft,,,Public policy research; government
+Chapman Tripp,Chapman Tripp,legal,major,Wellington,roading|civil|construction|aircraft|ICT,legal,true,Top-tier commercial law firm; government legal services panel
+MinterEllisonRuddWatts,MinterEllisonRuddWatts,legal,major,Auckland,roading|civil|construction|aircraft|ICT,legal,true,Top-tier law firm; government commercial and regulatory
+Bell Gully,Bell Gully,legal,major,Auckland,roading|civil|construction|aircraft|ICT,legal,true,Top-tier law firm; government litigation and commercial
+Russell McVeagh,Russell McVeagh,legal,major,Wellington,roading|civil|construction|aircraft|ICT,legal,true,Top-tier law firm; government regulatory and infrastructure
+Buddle Findlay,Buddle Findlay,legal,major,Wellington,roading|civil|construction|aircraft|ICT,legal,true,Full-service law firm; government legal advisory
+Simpson Grierson,Simpson Grierson,legal,major,Auckland,roading|civil|construction|aircraft|ICT,legal,true,Top-tier law firm; government property and commercial
+Dentons Kensington Swan,Dentons Kensington Swan,legal,large,Wellington,roading|civil|construction|aircraft|ICT,legal,true,Commercial law firm; government procurement legal advice
+Anderson Lloyd,Anderson Lloyd,legal,large,Dunedin,roading|civil|construction|aircraft|ICT,legal,true,Full-service law firm; government; South Island focus
+Hesketh Henry,Hesketh Henry,legal,large,Auckland,roading|civil|construction|aircraft|ICT,legal,true,Commercial law firm; government contracts and disputes
+Wynn Williams,Wynn Williams,legal,large,Christchurch,roading|civil|construction|aircraft|ICT,legal,true,Full-service law firm; South Island government legal
+Lane Neave,Lane Neave,legal,medium,Christchurch,roading|civil|construction|aircraft|ICT,legal,,Commercial and immigration law; government
+Tompkins Wake,Tompkins Wake,legal,medium,Hamilton,roading|civil|construction|aircraft|ICT,legal,,Commercial law; Waikato government
+Duncan Cotterill,Duncan Cotterill,legal,large,Christchurch,roading|civil|construction|aircraft|ICT,legal,,Commercial law; national government clients
+Rainey Collins Lawyers,Rainey Collins Lawyers,legal,medium,Wellington,roading|civil|construction|aircraft|ICT,legal,,Wellington commercial law; government employment
+Chen Palmer,Chen Palmer,legal,medium,Wellington,roading|civil|construction|aircraft|ICT,legal,,Public and constitutional law; government specialist
+Cooney Lees Morgan,Cooney Lees Morgan,legal,medium,Tauranga,roading|civil|construction|aircraft|ICT,legal,,Commercial law; Bay of Plenty government
+Sharp Tudhope Lawyers,Sharp Tudhope Lawyers,legal,medium,Hamilton,roading|civil|construction|aircraft|ICT,legal,,Commercial law; Waikato government clients
+Babcock NZ,Babcock NZ,aerospace|defence|FM|engineering,large,Auckland,ICT|health|legal|roading|construction,aerospace,true,Aviation and defence engineering; RNZAF maintenance contracts; specialist
+Air NZ Engineering Services,Air NZ Engineering Services,aerospace|engineering,large,Auckland,ICT|health|legal|roading|construction,aerospace,true,Aircraft MRO; line maintenance and heavy engineering; Air NZ subsidiary
+HAECO,HAECO,aerospace|engineering,large,Auckland,ICT|health|legal|roading|construction,aerospace,true,Aircraft heavy maintenance; RNZAF and commercial airline MRO
+StandardAero NZ,StandardAero NZ,aerospace|engineering,medium,Wellington,ICT|health|legal|roading|construction,aerospace,true,Turbine engine MRO; RNZAF; specialist
+Pacific Aerospace,Pacific Aerospace,aerospace|engineering,medium,Hamilton,ICT|health|legal|roading|construction,aerospace,,Aircraft design and manufacture; RNZAF-aligned
+RUAG Australia NZ,RUAG Australia NZ,aerospace|defence|engineering,medium,Wellington,ICT|health|legal|roading|construction,aerospace,,Defence systems and aerospace MRO; RNZAF
+Lockheed Martin NZ,Lockheed Martin NZ,aerospace|defence,major,Wellington,ICT|health|legal|roading|construction,aerospace,,Aerospace and defence; RNZAF; P-8 support
+Boeing NZ,Boeing NZ,aerospace|defence,major,Wellington,ICT|health|legal|roading|construction,aerospace,,Commercial and defence aircraft; RNZAF
+L3 Technologies NZ,L3 Technologies NZ,aerospace|defence|ICT,large,Auckland,health|legal|roading|construction,aerospace,,Defence electronics and maintenance; RNZAF
+Rolls-Royce NZ,Rolls-Royce NZ,aerospace|defence|engineering,major,Wellington,ICT|health|legal|roading|construction,aerospace,,Aero engine support; RNZAF turbine maintenance
+Pratt & Whitney NZ,Pratt & Whitney NZ,aerospace|defence|engineering,major,Wellington,ICT|health|legal|roading|construction,aerospace,,Aircraft engine MRO; government defence
+GE Aviation NZ,GE Aviation NZ,aerospace|engineering,major,Wellington,ICT|health|legal|roading|construction,aerospace,,Aero engine services; airline and RNZAF
+CHC Helicopter NZ,CHC Helicopter NZ,aerospace,large,Auckland,ICT|health|legal|roading|construction,aerospace,,Helicopter operations and maintenance; SAR
+Jacobs Defence NZ,Jacobs NZ,aerospace|defence|engineering,major,Wellington,ICT|health|legal|roading|construction,aerospace,,Technical services; RNZAF and NZDF
+Orion Health,Orion Health,health|ICT,large,Auckland,roading|civil|construction|aircraft,health_tech,true,Health information systems; DHBs and Health NZ
+Civica NZ,Civica NZ,health|ICT,large,Auckland,roading|civil|construction|aircraft,health_tech,true,Software for health and government; clinical systems
+InterSystems NZ,InterSystems NZ,health|ICT,large,Auckland,roading|civil|construction|aircraft,health_tech,,Health data integration; HealthShare NZ
+Dedalus NZ,Dedalus NZ,health|ICT,large,Auckland,roading|civil|construction|aircraft,health_tech,,Patient administration and clinical systems; Health NZ
+Philips Healthcare NZ,Philips Healthcare NZ,health|ICT,major,Auckland,roading|civil|construction|aircraft,health_tech,,Medical imaging and monitoring; hospitals
+GE Healthcare NZ,GE Healthcare NZ,health|ICT,major,Auckland,roading|civil|construction|aircraft,health_tech,,Medical imaging and diagnostics; Health NZ
+Siemens Healthineers NZ,Siemens Healthineers NZ,health|ICT,major,Auckland,roading|civil|construction|aircraft,health_tech,,Medical imaging equipment; hospitals
+Fisher & Paykel Healthcare,Fisher & Paykel Healthcare,health,major,Auckland,roading|civil|construction|aircraft,health_tech,true,Respiratory care products; DHBs
+Baxter Healthcare NZ,Baxter Healthcare NZ,health,large,Auckland,roading|civil|construction|aircraft,health_tech,,Medical products and pharmaceuticals; hospitals
+EBOS Group,EBOS Group,health|utilities,major,Christchurch,roading|civil|construction|aircraft,health_tech,true,Healthcare products distribution; government health
+Healthcare Logistics NZ,Healthcare Logistics NZ,health|utilities,medium,Auckland,roading|civil|construction|aircraft,health_tech,true,Medical supply chain; hospitals
+Pacific Radiology,Pacific Radiology,health,large,Wellington,roading|civil|construction|aircraft,health_tech,,Radiology services; hospitals
+Sonic Healthcare NZ,Sonic Healthcare NZ,health,large,Auckland,roading|civil|construction|aircraft,health_tech,,Laboratory and pathology services; health
+Medtronic NZ,Medtronic NZ,health,large,Auckland,roading|civil|construction|aircraft,health_tech,,Medical devices and therapies; hospitals
+Stryker NZ,Stryker NZ,health,large,Auckland,roading|civil|construction|aircraft,health_tech,,Orthopaedic and surgical equipment; hospitals
+Smith & Nephew NZ,Smith & Nephew NZ,health,large,Auckland,roading|civil|construction|aircraft,health_tech,,Wound care and orthopaedics; hospitals
+Roche NZ,Roche NZ,health,large,Auckland,roading|civil|construction|aircraft,health_tech,,Diagnostics and pharmaceutical; laboratory
+Abbott NZ,Abbott NZ,health,large,Auckland,roading|civil|construction|aircraft,health_tech,,Diagnostics and medical devices; hospitals
+Johnson & Johnson NZ,Johnson & Johnson NZ,health,large,Auckland,roading|civil|construction|aircraft,health_tech,,Medical devices and consumer health; hospitals
+Douglas Pharmaceuticals,Douglas Pharmaceuticals,health,large,Auckland,roading|civil|construction|aircraft,health_tech,true,Pharmaceutical manufacturing; government contracts
+Henry Schein NZ,Henry Schein NZ,health,medium,Auckland,roading|civil|construction|aircraft,health_tech,,Dental and medical supplies; government health
+Unison Health Group,Unison Health Group,health,large,Auckland,roading|civil|construction|aircraft,health_tech,,Primary health and community services; DHBs
+Pegasus Health,Pegasus Health,health,large,Christchurch,roading|civil|construction|aircraft,health_tech,,PHO and primary health services; Canterbury
+Pinnacle Midlands Health Network,Pinnacle Midlands Health Network,health,large,Hamilton,roading|civil|construction|aircraft,health_tech,true,PHO; Waikato and Bay of Plenty primary health
+Compass Health,Compass Health,health,large,Wellington,roading|civil|construction|aircraft,health_tech,,PHO; Wellington and Wairarapa
+G4S NZ,G4S NZ,security,large,Auckland,aircraft|aerospace,,true,Security services; government buildings; court security
+Armourguard Security,Armourguard Security,security,large,Auckland,aircraft|aerospace,,true,Guarding and patrol; government facilities
+Securitas NZ,Securitas NZ,security,large,Auckland,aircraft|aerospace,,true,Security guarding; government
+Wilson Security NZ,Wilson Security NZ,security,large,Auckland,aircraft|aerospace,,,Guarding; government and commercial buildings
+FIRST Security,FIRST Security,security,large,Auckland,aircraft|aerospace,,true,Guarding and security; government
+Gallagher Security,Gallagher Security,security|ICT,large,Hamilton,aircraft|aerospace,,true,Access control and security technology; government
+ASSA ABLOY NZ,ASSA ABLOY NZ,FM|security,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Access control and security hardware; government
+dormakaba NZ,dormakaba NZ,FM|security,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Access and security systems; government buildings
+Prosegur NZ,Prosegur NZ,security,large,Auckland,aircraft|aerospace|ICT|health|legal,,,Cash-in-transit and security; government
+ADT Security NZ,ADT Security NZ,security,large,Auckland,aircraft|aerospace|ICT|health|legal,,,Alarm and security systems; government
+NIWA,NIWA,research|environmental|advisory,large,Wellington,roading|civil|construction|aircraft|ICT|health|legal,,true,Atmospheric and water research; Crown Research Institute
+ESR,ESR,research|health|advisory,large,Wellington,roading|civil|construction|aircraft|ICT,,true,Environmental science and public health research; Crown Research Institute
+Callaghan Innovation,Callaghan Innovation,research|advisory|ICT,large,Wellington,roading|civil|construction|aircraft,,true,Innovation support and R&D; government agency
+GNS Science,GNS Science,research|environmental|advisory,large,Lower Hutt,roading|civil|construction|aircraft|ICT|health|legal,,true,Geological and nuclear science; Crown Research Institute
+AgResearch,AgResearch,research|environmental|advisory,large,Hamilton,roading|civil|construction|aircraft|ICT|health|legal,,true,Agricultural research; Crown Research Institute
+Plant & Food Research,Plant & Food Research,research|environmental|advisory,large,Auckland,roading|civil|construction|aircraft|ICT|health|legal,,true,Horticulture and food research; Crown Research Institute
+Landcare Research,Landcare Research,research|environmental|advisory,large,Lincoln,roading|civil|construction|aircraft|ICT|health|legal,,true,Land and biodiversity research; Crown Research Institute
+Scion,Scion,research|environmental|advisory,medium,Rotorua,roading|civil|construction|aircraft|ICT|health|legal,,true,Forestry and biomaterials research; Crown Research Institute
+Watercare Services,Watercare Services,utilities|infrastructure,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Water and wastewater; Auckland region
+Veolia NZ,Veolia NZ,utilities|infrastructure|environmental,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Water treatment and waste management; government
+Vector,Vector,utilities|infrastructure,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Electricity distribution; Auckland
+Transpower NZ,Transpower NZ,utilities|infrastructure,major,Wellington,aircraft|aerospace|ICT|health|legal,,true,National electricity grid; government SOE
+Northpower,Northpower,utilities|infrastructure,large,Whangarei,aircraft|aerospace|ICT|health|legal,,true,Electricity lines and infrastructure; Northland
+Powerco,Powerco,utilities|infrastructure,large,New Plymouth,aircraft|aerospace|ICT|health|legal,,true,Electricity distribution; North and South Island
+Wellington Electricity,Wellington Electricity,utilities|infrastructure,large,Wellington,aircraft|aerospace|ICT|health|legal,,true,Electricity distribution; Wellington region
+Unison Networks,Unison Networks,utilities|infrastructure,large,Napier,aircraft|aerospace|ICT|health|legal,,true,Electricity distribution; Hawke's Bay
+Orion NZ,Orion NZ,utilities|infrastructure,large,Christchurch,aircraft|aerospace|ICT|health|legal,,true,Electricity distribution; Canterbury
+Delta Utility Services,Delta Utility Services,utilities|infrastructure,large,Dunedin,aircraft|aerospace|ICT|health|legal,,true,Utility contractor; Otago and Southland
+Electrix,Electrix,utilities|infrastructure,large,Wellington,aircraft|aerospace|ICT|health|legal,,true,Electrical contractor; government facilities
+ABB NZ,ABB NZ,utilities|infrastructure|ICT,large,Auckland,aircraft|aerospace|health|legal,,true,Power and automation; government utilities
+Schneider Electric NZ,Schneider Electric NZ,utilities|ICT|FM,large,Auckland,aircraft|aerospace|health|legal,,true,Electrical distribution and building management; government
+Siemens NZ,Siemens NZ,utilities|ICT|infrastructure,large,Auckland,aircraft|aerospace|health|legal,,true,Automation and energy; government
+Capacity Infrastructure Services,Capacity Infrastructure Services,utilities|infrastructure|roading,large,Wellington,aircraft|aerospace|ICT|health|legal,,true,Asset and infrastructure maintenance; government utilities
+Firstgas Group,Firstgas Group,utilities|infrastructure,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Gas transmission and distribution; national
+Waste Management NZ,Waste Management NZ,environmental|utilities,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Waste collection and disposal; government contracts
+Envirowaste,Envirowaste,environmental|utilities,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Waste and recycling; government
+Warren and Mahoney,Warren and Mahoney,construction|advisory,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Architecture; government buildings and hospitals
+Architectus,Architectus,construction|advisory,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Architecture and urban design; government
+Jasmax,Jasmax,construction|advisory,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Architecture; health, education and justice buildings
+Holmes Consulting,Holmes Consulting,engineering|construction,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Structural engineering; government buildings
+The Property Group,The Property Group,advisory|FM,medium,Wellington,aircraft|aerospace|ICT|health|legal,,true,Property management and acquisitions; government
+Quotable Value NZ,Quotable Value NZ,advisory|infrastructure,large,Wellington,aircraft|aerospace|ICT|health|legal,,true,Property valuation; government rating valuations
+RDT Pacific,RDT Pacific,advisory|construction,medium,Auckland,aircraft|aerospace|ICT|health|legal,,true,Cost management and project advisory; government
+UGL NZ,UGL NZ,infrastructure|engineering|FM,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Engineering and FM services; government
+Tetra Tech NZ,Tetra Tech NZ,engineering|environmental|advisory,large,Auckland,aircraft|aerospace|ICT|health|legal,,,Environment and infrastructure; government
+Ramboll NZ,Ramboll NZ,environmental|engineering|advisory,large,Auckland,aircraft|aerospace|ICT|health|legal,,,Environmental and engineering consulting
+Black & Veatch NZ,Black & Veatch NZ,utilities|engineering,large,Auckland,aircraft|aerospace|ICT|health|legal,,,Energy and utilities engineering; government
+Isthmus,Isthmus,environmental|advisory,medium,Auckland,aircraft|aerospace|ICT|health|legal,,,Urban design and landscape; government
+Agilisys NZ,Agilisys NZ,advisory|ICT,medium,Wellington,roading|civil|construction|aircraft,,true,Digital transformation; government shared services
+Crown Infrastructure Partners,Crown Infrastructure Partners,infrastructure|advisory,major,Wellington,aircraft|aerospace|ICT|health|legal,,true,Government infrastructure investment; Crown entity
+Meridian Energy,Meridian Energy,utilities,major,Wellington,aircraft|aerospace|ICT|health|legal,,true,Electricity generation; government SOE
+Genesis Energy,Genesis Energy,utilities,major,Auckland,aircraft|aerospace|ICT|health|legal,,true,Electricity generation and retail; government SOE
+Contact Energy,Contact Energy,utilities,major,Wellington,aircraft|aerospace|ICT|health|legal,,true,Energy generation and retail
+Mercury Energy,Mercury Energy,utilities,major,Hamilton,aircraft|aerospace|ICT|health|legal,,true,Hydro electricity generation; government SOE
+Ports of Auckland,Ports of Auckland,infrastructure|utilities,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Port operations; Auckland Council
+Port of Tauranga,Port of Tauranga,infrastructure|utilities,large,Tauranga,aircraft|aerospace|ICT|health|legal,,true,Freight logistics; government-aligned
+KiwiRail,KiwiRail,infrastructure|utilities,major,Wellington,aircraft|aerospace|ICT|health|legal,,true,Rail network and passenger services; government SOE
+Hick Bros Civil Construction,Hick Bros Civil Construction,construction|civil|roading,large,Auckland,ICT|health|legal|aerospace,,true,Civil and roading contractor; Auckland and Northland
+Whangarei Contractors,Whangarei Contractors,roading|infrastructure|civil,medium,Whangarei,ICT|health|legal|aerospace,,,Roading and civil; Northland
+Downers Infrastructure,Downer NZ,infrastructure|roading|FM,major,Auckland,ICT|health|legal|aerospace,,true,Infrastructure arm of Downer NZ
+Higgins Pavement,Higgins Contractors,roading|infrastructure,large,Palmerston North,ICT|health|legal|aerospace,,true,Pavement specialist; Higgins brand
+Good Earth Contracting,Good Earth Contracting,civil|roading|infrastructure,medium,Wellington,ICT|health|legal|aerospace,,,Civil contracting; Wellington region
+Northbuild Construction,Northbuild Construction,construction|infrastructure,medium,Auckland,aircraft|aerospace|ICT|health|legal,,,Commercial construction; Northland
+Nicks Roading,Nicks Roading,roading|civil,small,Hamilton,ICT|health|legal|aerospace,,,Roading contractor; Waikato
+Quality Roading and Services,Quality Roading and Services,roading|infrastructure|civil,medium,Rotorua,ICT|health|legal|aerospace,,true,Roading and infrastructure; Bay of Plenty
+E-Roads,E-Roads,roading|infrastructure,small,Napier,ICT|health|legal|aerospace,,,Roading services; Hawke's Bay
+Holcim NZ,Holcim NZ,construction|infrastructure|roading,major,Auckland,aircraft|aerospace|ICT|health|legal,,true,Concrete, aggregates and building products; government infrastructure
+Alliance Contracting NZ,Alliance Contracting NZ,roading|civil|infrastructure,large,Christchurch,ICT|health|legal|aerospace,,true,Infrastructure alliance contracts; South Island
+Higgins Earthmoving,Higgins Contractors,roading|civil|infrastructure,large,Palmerston North,ICT|health|legal|aerospace,,,Earthmoving arm of Higgins
+Tarmac NZ,Tarmac NZ,roading|infrastructure,medium,Auckland,ICT|health|legal|aerospace,,,Road surfacing; government
+Ashphalt Surfaces NZ,Ashphalt Surfaces NZ,roading,medium,Tauranga,ICT|health|legal|aerospace,,,Asphalt and road surfacing; government
+Stevenson Group,Stevenson Group,construction|infrastructure|roading,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Aggregates and construction; government infrastructure
+Fletcher Residential,Fletcher Construction,construction,major,Auckland,aircraft|aerospace|ICT|health|legal,,true,Residential construction; social housing; part of Fletcher
+Willis Bond & Co,Willis Bond & Co,construction|advisory,medium,Wellington,aircraft|aerospace|ICT|health|legal,,,Development and construction management; government property
+Precinct Properties NZ,Precinct Properties NZ,construction|advisory|FM,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Commercial property development; government tenants
+Goodman Property Trust,Goodman Property Trust,FM|advisory,large,Auckland,aircraft|aerospace|ICT|health|legal,,,Industrial and commercial property; government logistics
+Oyster Group,Oyster Group,FM|advisory,medium,Auckland,aircraft|aerospace|ICT|health|legal,,,Property fund and asset management; government leasing
+Stride Property,Stride Property,FM|advisory,medium,Wellington,aircraft|aerospace|ICT|health|legal,,,Property and asset management; government property
+API Group NZ,API Group NZ,FM|construction,large,Auckland,aircraft|aerospace|ICT|health|legal,,,FM and construction services; government
+Broad Construction,Broad Construction,construction,medium,Auckland,aircraft|aerospace|ICT|health|legal,,,Commercial construction; government
+Icon Construction NZ,Icon Construction NZ,construction,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Commercial construction; government and private
+Mainzeal Property and Construction,Mainzeal Property and Construction,construction,large,Auckland,aircraft|aerospace|ICT|health|legal,,,Commercial construction; government
+Haydn & Rollett,Haydn & Rollett,construction|FM,medium,Wellington,aircraft|aerospace|ICT|health|legal,,true,Construction and maintenance; Wellington government
+Calder Stewart,Calder Stewart,construction|infrastructure,large,Dunedin,aircraft|aerospace|ICT|health|legal,,true,Industrial and infrastructure construction; South Island
+Amalgamated Builders,Amalgamated Builders,construction,medium,Christchurch,aircraft|aerospace|ICT|health|legal,,,Commercial construction; Canterbury
+Brian Barr Construction,Brian Barr Construction,construction,small,Christchurch,aircraft|aerospace|ICT|health|legal,,,Construction; South Island government
+Hanham & Philp Contractors,Hanham & Philp Contractors,construction|civil,medium,Wellington,aircraft|aerospace|ICT|health|legal,,true,Civil and building contractor; Wellington region
+Mainmark Group,Mainmark Group,construction|engineering,medium,Auckland,aircraft|aerospace|ICT|health|legal,,true,Ground engineering; government infrastructure
+Fulton Hogan Construction,Fulton Hogan,construction|civil|infrastructure,major,Christchurch,aircraft|aerospace|ICT|health|legal,,true,Construction arm; Fulton Hogan parent
+Stresscrete,Stresscrete,construction|infrastructure,medium,Hamilton,aircraft|aerospace|ICT|health|legal,,,Precast concrete; government infrastructure
+Pacific Steel NZ,Pacific Steel NZ,construction|infrastructure,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Steel products; government construction
+Hartner Construction,Hartner Construction,construction,small,Wellington,aircraft|aerospace|ICT|health|legal,,,Commercial fit-out; Wellington government
+Savcor Pile Driving,Savcor Pile Driving,construction|engineering,medium,Auckland,aircraft|aerospace|ICT|health|legal,,,Piling and foundations; government
+Geopile NZ,Geopile NZ,construction|engineering,small,Auckland,aircraft|aerospace|ICT|health|legal,,,Geotechnical piling; government
+Fulton Hogan Roads,Fulton Hogan,roading|civil,major,Christchurch,ICT|health|legal|aerospace,,true,Roading division; Fulton Hogan
+Downer Roads,Downer NZ,roading|infrastructure,major,Auckland,ICT|health|legal|aerospace,,true,Roading division; Downer NZ
+HEB Roads,HEB Construction,roading|civil|infrastructure,large,Auckland,ICT|health|legal|aerospace,,true,Roading division; HEB Construction
+McConnell Dowell Civil,McConnell Dowell,civil|infrastructure,major,Auckland,aircraft|aerospace|ICT|health|legal,,true,Civil division; McConnell Dowell
+Waterforce,Waterforce,utilities|infrastructure,medium,Christchurch,aircraft|aerospace|ICT|health|legal,,true,Water infrastructure; rural and government
+Fulton Hogan Utilities,Fulton Hogan,utilities|infrastructure,major,Christchurch,aircraft|aerospace|ICT|health|legal,,true,Utilities services; Fulton Hogan parent
+Downer Utilities,Downer NZ,utilities|infrastructure,major,Auckland,aircraft|aerospace|ICT|health|legal,,true,Utilities division; Downer NZ
+Citycare Water,City Care,utilities|infrastructure,large,Christchurch,aircraft|aerospace|ICT|health|legal,,true,Water services; Christchurch
+GHD Water,GHD NZ,utilities|engineering,major,Auckland,aircraft|aerospace|ICT|health|legal,,true,Water infrastructure engineering; government
+Beca Water,Beca,utilities|engineering,major,Auckland,aircraft|aerospace|ICT|health|legal,,true,Water design; part of Beca Group
+WSP Water,WSP NZ,utilities|engineering,major,Auckland,aircraft|aerospace|ICT|health|legal,,true,Water infrastructure; part of WSP
+Tonkin + Taylor Water,Tonkin + Taylor,utilities|engineering,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Water and wastewater; T+T
+Jacobs Water,Jacobs NZ,utilities|engineering,major,Auckland,aircraft|aerospace|ICT|health|legal,,true,Water infrastructure; Jacobs
+Veolia Water,Veolia NZ,utilities|environmental,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Water treatment; government
+Suez Water NZ,Suez Water NZ,utilities|environmental,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Water and waste services; government
+Hyder Consulting NZ,Hyder Consulting NZ,utilities|engineering,large,Auckland,aircraft|aerospace|ICT|health|legal,,,Water and infrastructure engineering; government
+Brown & Caldwell NZ,Brown & Caldwell NZ,utilities|environmental|engineering,medium,Auckland,aircraft|aerospace|ICT|health|legal,,,Water and environmental engineering; government
+WaterNZ Services,WaterNZ Services,utilities,medium,Wellington,aircraft|aerospace|ICT|health|legal,,,Water sector consulting; government
+Saatchi & Saatchi NZ,Saatchi & Saatchi NZ,advisory,large,Auckland,roading|civil|construction|aircraft|ICT,,,Advertising and marketing; government campaigns
+FCB NZ,FCB NZ,advisory,large,Auckland,roading|civil|construction|aircraft|ICT,,,Advertising; government communications
+DDB NZ,DDB NZ,advisory,large,Auckland,roading|civil|construction|aircraft|ICT,,,Advertising and creative; government
+Clemenger BBDO NZ,Clemenger BBDO NZ,advisory,large,Wellington,roading|civil|construction|aircraft|ICT,,,Advertising; government
+Colenso BBDO,Colenso BBDO,advisory,large,Auckland,roading|civil|construction|aircraft|ICT,,,Advertising; government campaigns
+Track,Track,advisory,medium,Wellington,roading|civil|construction|aircraft|ICT,,,Marketing and communications; government
+Motion Sickness,Motion Sickness,advisory,small,Wellington,roading|civil|construction|aircraft|ICT,,,Creative and social media; government
+Assignment,Assignment,advisory,medium,Wellington,roading|civil|construction|aircraft|ICT,,,Strategic communications; government
+Anthem,Anthem,advisory,medium,Auckland,roading|civil|construction|aircraft|ICT,,,Marketing and brand; government
+Perception Strategy,Perception Strategy,advisory,small,Auckland,roading|civil|construction|aircraft|ICT,,,Strategy and research; government
+Convergence Design,Convergence Design,advisory,small,Wellington,roading|civil|construction|aircraft|ICT,,,Design and communications; government
+Designworks,Designworks,advisory,medium,Auckland,roading|civil|construction|aircraft|ICT,,,Brand and design; government communications
+Strategy Creative,Strategy Creative,advisory,small,Auckland,roading|civil|construction|aircraft|ICT,,,Creative agency; government
+Wellington Information,Wellington Information,advisory,small,Wellington,roading|civil|construction|aircraft|ICT,,,Information and communications; government
+GovComms NZ,GovComms NZ,advisory,small,Wellington,roading|civil|construction|aircraft|ICT,,,Government communications consulting
+Mediahub NZ,Mediahub NZ,advisory,medium,Auckland,roading|civil|construction|aircraft|ICT,,,Media buying; government campaigns
+Spark PHD,Spark PHD,advisory,large,Auckland,roading|civil|construction|aircraft|ICT,,,Media planning; government
+OMD NZ,OMD NZ,advisory,large,Auckland,roading|civil|construction|aircraft|ICT,,,Media agency; government advertising
+PHD NZ,PHD NZ,advisory,large,Auckland,roading|civil|construction|aircraft|ICT,,,Media and communications; government
+Ogilvy NZ,Ogilvy NZ,advisory,large,Auckland,roading|civil|construction|aircraft|ICT,,,Advertising and PR; government
+Edelman NZ,Edelman NZ,advisory,medium,Auckland,roading|civil|construction|aircraft|ICT,,,PR and communications; government
+Sefiani NZ,Sefiani NZ,advisory,medium,Auckland,roading|civil|construction|aircraft|ICT,,,PR and communications; government
+Mango Communications,Mango Communications,advisory,medium,Auckland,roading|civil|construction|aircraft|ICT,,,PR; government communications
+Curunix,Curunix,advisory,small,Wellington,roading|civil|construction|aircraft|ICT,,,Public affairs; government
+Weber Shandwick NZ,Weber Shandwick NZ,advisory,medium,Auckland,roading|civil|construction|aircraft|ICT,,,PR; government
+Hays NZ,Hays NZ,advisory,large,Auckland,roading|civil|construction|aircraft|ICT|health,,true,Recruitment and workforce; government staffing
+Robert Half NZ,Robert Half NZ,advisory,large,Auckland,roading|civil|construction|aircraft|ICT|health,,true,Professional recruitment; government
+Madison Recruitment,Madison Recruitment,advisory,medium,Wellington,roading|civil|construction|aircraft|ICT,,,Recruitment; government staffing
+Beyond Recruitment,Beyond Recruitment,advisory,medium,Wellington,roading|civil|construction|aircraft|ICT,,,Recruitment; government
+Drake New Zealand,Drake New Zealand,advisory,large,Auckland,roading|civil|construction|aircraft|ICT,,,Recruitment and workforce; government
+Manpower NZ,Manpower NZ,advisory,large,Auckland,roading|civil|construction|aircraft|ICT,,,Workforce solutions; government temp staffing
+Adecco NZ,Adecco NZ,advisory,large,Auckland,roading|civil|construction|aircraft|ICT,,true,Recruitment and workforce; government panel
+Randstad NZ,Randstad NZ,advisory,large,Auckland,roading|civil|construction|aircraft|ICT,,true,Recruitment; government specialist
+Momentum Consulting Group,Momentum Consulting Group,advisory,medium,Wellington,roading|civil|construction|aircraft|ICT,,,Recruitment and consulting; government
+Oliver Wyman NZ,Oliver Wyman NZ,advisory,large,Auckland,roading|civil|construction|aircraft,,,Management consulting; government
+McKinsey NZ,McKinsey NZ,advisory,major,Auckland,roading|civil|construction|aircraft,,,Strategy consulting; large government
+Kearney NZ,Kearney NZ,advisory,large,Auckland,roading|civil|construction|aircraft,,,Strategy and procurement; government
+L.E.K. Consulting NZ,L.E.K. Consulting NZ,advisory,large,Auckland,roading|civil|construction|aircraft,,,Strategy consulting; government
+EY Parthenon NZ,EY,advisory,major,Auckland,roading|civil|construction|aircraft,,,Strategy consulting arm of EY; government
+Deloitte Strategy NZ,Deloitte,advisory,major,Wellington,roading|civil|construction|aircraft,,,Strategy consulting; government transformation
+PwC Strategy NZ,PwC,advisory,major,Auckland,roading|civil|construction|aircraft,,,Strategy; government
+KPMG Strategy NZ,KPMG,advisory,major,Auckland,roading|civil|construction|aircraft,,,Strategy; government
+Deloitte Risk Advisory,Deloitte,advisory,major,Wellington,roading|civil|construction|aircraft,,,Risk and assurance; government
+EY Risk NZ,EY,advisory,major,Auckland,roading|civil|construction|aircraft,,,Risk and assurance; government
+PwC Risk NZ,PwC,advisory,major,Auckland,roading|civil|construction|aircraft,,,Risk advisory; government
+KPMG Risk NZ,KPMG,advisory,major,Auckland,roading|civil|construction|aircraft,,,Risk and governance; government
+Unison HR NZ,Unison HR NZ,advisory,medium,Auckland,roading|civil|construction|aircraft|ICT,,,HR consulting; government
+AON NZ,AON NZ,advisory,major,Auckland,roading|civil|construction|aircraft,,,Risk management and insurance; government
+Marsh NZ,Marsh NZ,advisory,major,Auckland,roading|civil|construction|aircraft,,true,Insurance and risk advisory; government
+Willis Towers Watson NZ,Willis Towers Watson NZ,advisory,major,Auckland,roading|civil|construction|aircraft,,true,Risk and people advisory; government
+Gallagher NZ,Gallagher NZ,advisory,large,Auckland,roading|civil|construction|aircraft,,,Insurance broking; government
+Crombie Lockwood,Crombie Lockwood,advisory,large,Auckland,roading|civil|construction|aircraft,,true,Insurance broking; government
+NZbrokers,NZbrokers,advisory,medium,Auckland,roading|civil|construction|aircraft,,,Insurance; government
+Tauranga Consulting Group,Tauranga Consulting Group,advisory,small,Tauranga,roading|civil|construction|aircraft,,,Regional consulting; Bay of Plenty government
+Pracsys,Pracsys,advisory,small,Auckland,roading|civil|construction|aircraft|ICT,,,Economics consulting; government
+Intelligent Infrastructure,Intelligent Infrastructure,advisory|infrastructure,small,Wellington,aircraft|aerospace|ICT|health|legal,,,Infrastructure advisory; government
+Hill Young Cooper,Hill Young Cooper,advisory,small,Auckland,roading|civil|construction|aircraft,,,Regulatory advisory; government
+Tainui Group Holdings,Tainui Group Holdings,advisory|construction|infrastructure,large,Hamilton,aircraft|aerospace|ICT|health|legal,,true,Iwi development; government partnership
+Ngai Tahu Property,Ngai Tahu Property,advisory|construction|FM,large,Christchurch,aircraft|aerospace|ICT|health|legal,,true,Iwi commercial arm; government partnership
+Ngati Toa Enterprises,Ngati Toa Enterprises,advisory|FM,medium,Wellington,aircraft|aerospace|ICT|health|legal,,true,Iwi enterprise; government Maori procurement
+Fonterra Co-operative Group,Fonterra Co-operative Group,utilities|FM,major,Auckland,aircraft|aerospace|ICT|health|legal,,true,Dairy; government procurement preferred supplier
+Alliance Group,Alliance Group,FM|utilities,large,Invercargill,aircraft|aerospace|ICT|health|legal,,true,Meat processing; government food supply
+Silver Fern Farms,Silver Fern Farms,FM|utilities,large,Dunedin,aircraft|aerospace|ICT|health|legal,,true,Meat processing; government supply
+ANZCO Foods,ANZCO Foods,FM|utilities,large,Christchurch,aircraft|aerospace|ICT|health|legal,,true,Beef and lamb; government food supply
+McCain Foods NZ,McCain Foods NZ,FM,large,Christchurch,aircraft|aerospace|ICT|health|legal,,,Food manufacturing; government catering supply
+Sanitarium NZ,Sanitarium NZ,FM,large,Auckland,aircraft|aerospace|ICT|health|legal,,,Food manufacturing; government supply
+Goodman Fielder NZ,Goodman Fielder NZ,FM,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Food products; government catering
+Gilmours,Gilmours,FM,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Foodservice wholesale; government catering supply
+Bidfood NZ,Bidfood NZ,FM,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Foodservice distribution; government catering
+Sealord Group,Sealord Group,FM,large,Nelson,aircraft|aerospace|ICT|health|legal,,true,Seafood; government food supply
+Talleys Group,Talleys Group,FM,large,Motueka,aircraft|aerospace|ICT|health|legal,,true,Seafood and food; government
+AFFCO,AFFCO,FM,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Meat processing; government supply
+McMillan Shakespeare NZ,McMillan Shakespeare NZ,advisory|FM,large,Auckland,roading|civil|construction|aircraft,,,Fleet and salary packaging; government novated leases
+SG Fleet NZ,SG Fleet NZ,FM|advisory,large,Auckland,roading|civil|construction|aircraft,,true,Fleet management; government vehicles
+LeasePlan NZ,LeasePlan NZ,FM|advisory,large,Auckland,roading|civil|construction|aircraft,,true,Vehicle leasing; government fleet
+Toyota Fleet Management NZ,Toyota Fleet Management NZ,FM|advisory,major,Auckland,roading|civil|construction|aircraft,,true,Fleet management; government vehicles
+Mitsubishi Fleet NZ,Mitsubishi Fleet NZ,FM|advisory,large,Auckland,roading|civil|construction|aircraft,,,Fleet solutions; government
+Volkswagen Fleet NZ,Volkswagen Fleet NZ,FM|advisory,large,Auckland,roading|civil|construction|aircraft,,,Commercial fleet; government
+Avis Budget NZ,Avis Budget NZ,FM,large,Auckland,roading|civil|construction|aircraft,,true,Vehicle rental; government travel panel
+Europcar NZ,Europcar NZ,FM,medium,Auckland,roading|civil|construction|aircraft,,,Vehicle rental; government
+Hertz NZ,Hertz NZ,FM,large,Auckland,roading|civil|construction|aircraft,,true,Vehicle rental; government travel
+Enterprise NZ,Enterprise NZ,FM,large,Auckland,roading|civil|construction|aircraft,,,Vehicle rental; government travel panel
+Air New Zealand,Air New Zealand,FM|utilities,major,Auckland,roading|civil|construction|aircraft|ICT,,true,Air travel; government travel panel
+Qantas NZ,Qantas NZ,FM|utilities,major,Auckland,roading|civil|construction|aircraft|ICT,,true,Air travel; government panel
+Jetstar NZ,Jetstar NZ,FM,large,Auckland,roading|civil|construction|aircraft,,,Domestic air travel; government
+Intercity NZ,Intercity NZ,FM,large,Auckland,roading|civil|construction|aircraft,,,Bus travel; government
+NZ Bus,NZ Bus,infrastructure|FM,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Urban bus services; government public transport
+Ritchies Transport,Ritchies Transport,FM|infrastructure,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Bus and coach; government public transport contracts
+Mana Coach Services,Mana Coach Services,FM|infrastructure,medium,Wellington,aircraft|aerospace|ICT|health|legal,,,Bus; Wellington public transport
+Hyundai Australia NZ,Hyundai Australia NZ,FM,large,Auckland,roading|civil|construction|aircraft,,,Vehicles; government fleet
+Daimler Trucks NZ,Daimler Trucks NZ,FM|infrastructure,large,Auckland,roading|civil|construction|aircraft,,,Commercial trucks; government
+Bell Equipment NZ,Bell Equipment NZ,infrastructure,large,Auckland,roading|civil|construction|aircraft,,,Earthmoving equipment; government
+Caterpillar NZ,Caterpillar NZ,infrastructure|roading,major,Auckland,aircraft|aerospace|ICT|health|legal,,true,Heavy machinery; government infrastructure
+Komatsu NZ,Komatsu NZ,infrastructure|roading,major,Auckland,aircraft|aerospace|ICT|health|legal,,true,Heavy equipment; government roading
+Hitachi Construction Machinery NZ,Hitachi Construction Machinery NZ,infrastructure|roading,major,Auckland,aircraft|aerospace|ICT|health|legal,,true,Construction machinery; government
+Liebherr NZ,Liebherr NZ,infrastructure|construction,large,Auckland,aircraft|aerospace|ICT|health|legal,,,Cranes and construction equipment; government
+Atlas Copco NZ,Atlas Copco NZ,utilities|infrastructure,large,Auckland,aircraft|aerospace|ICT|health|legal,,,Compressors and pumps; government utilities
+Xylem NZ,Xylem NZ,utilities|infrastructure,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Water technology; government water and wastewater
+KSB NZ,KSB NZ,utilities|infrastructure,medium,Auckland,aircraft|aerospace|ICT|health|legal,,,Pumps; government water infrastructure
+Grundfos NZ,Grundfos NZ,utilities|infrastructure,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Pumps; government water systems
+Pentair NZ,Pentair NZ,utilities|infrastructure,medium,Auckland,aircraft|aerospace|ICT|health|legal,,,Water treatment; government
+Hach NZ,Hach NZ,utilities|research,medium,Auckland,aircraft|aerospace|ICT|health|legal,,,Water quality monitoring; government
+YSI NZ,YSI NZ,utilities|research,small,Wellington,aircraft|aerospace|ICT|health|legal,,,Environmental monitoring; government
+In-Situ NZ,In-Situ NZ,utilities|environmental,small,Auckland,aircraft|aerospace|ICT|health|legal,,,Water quality instruments; government
+3M NZ,3M NZ,FM|utilities,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Safety and industrial products; government
+DuPont NZ,DuPont NZ,FM|utilities,large,Auckland,aircraft|aerospace|ICT|health|legal,,,Industrial products; government
+Laminex NZ,Laminex NZ,construction|FM,medium,Auckland,aircraft|aerospace|ICT|health|legal,,,Building materials; government construction
+Carter Holt Harvey,Carter Holt Harvey,construction|FM,major,Auckland,aircraft|aerospace|ICT|health|legal,,true,Timber and building products; government construction
+Winstone Wallboards,Winstone Wallboards,construction,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Plasterboard; government construction
+James Hardie NZ,James Hardie NZ,construction,large,Auckland,aircraft|aerospace|ICT|health|legal,,,Building products; government construction
+Resene Paints,Resene Paints,FM|construction,large,Wellington,aircraft|aerospace|ICT|health|legal,,true,Paints; government maintenance and construction
+Dulux NZ,Dulux NZ,FM|construction,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Paints and coatings; government facilities
+Cabot NZ,Cabot NZ,FM|construction,medium,Auckland,aircraft|aerospace|ICT|health|legal,,,Timber coatings; government
+Altex NZ,Altex NZ,FM|construction,medium,Auckland,aircraft|aerospace|ICT|health|legal,,,Protective coatings; government marine and infrastructure
+ITW NZ,ITW NZ,FM|construction,large,Auckland,aircraft|aerospace|ICT|health|legal,,,Fasteners and construction products; government
+Hilti NZ,Hilti NZ,construction|FM,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Construction tools; government
+Sika NZ,Sika NZ,construction|infrastructure,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Concrete admixtures; government infrastructure
+Mapei NZ,Mapei NZ,construction,medium,Auckland,aircraft|aerospace|ICT|health|legal,,,Building adhesives and products; government
+GCP Applied Technologies NZ,GCP Applied Technologies NZ,construction|infrastructure,medium,Auckland,aircraft|aerospace|ICT|health|legal,,,Concrete and construction products; government
+Office Max NZ,Office Max NZ,FM,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Office supplies; government stationery panel
+Staples NZ,Staples NZ,FM,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Office products; government
+PaperPlus NZ,PaperPlus NZ,FM,medium,Auckland,aircraft|aerospace|ICT|health|legal,,,Office supplies; government
+Complete Office Supplies,Complete Office Supplies,FM,medium,Wellington,aircraft|aerospace|ICT|health|legal,,true,Office and stationery; government
+NZ Post,NZ Post,FM|utilities,major,Wellington,aircraft|aerospace|ICT|health|legal,,true,Mail and logistics; government
+CourierPost,NZ Post,FM|utilities,major,Wellington,aircraft|aerospace|ICT|health|legal,,true,Courier services; government
+DHL NZ,DHL NZ,FM|utilities,major,Auckland,aircraft|aerospace|ICT|health|legal,,true,Logistics and courier; government
+FedEx NZ,FedEx NZ,FM|utilities,major,Auckland,aircraft|aerospace|ICT|health|legal,,true,Courier and logistics; government
+TNT NZ,TNT NZ,FM|utilities,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Freight and courier; government
+Toll Group NZ,Toll Group NZ,FM|utilities,major,Auckland,aircraft|aerospace|ICT|health|legal,,true,Logistics; government
+Mainfreight NZ,Mainfreight NZ,FM|utilities,major,Auckland,aircraft|aerospace|ICT|health|legal,,true,Freight and logistics; government
+Freightways NZ,Freightways NZ,FM|utilities,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Courier and freight; government
+Linfox NZ,Linfox NZ,FM|utilities,large,Auckland,aircraft|aerospace|ICT|health|legal,,,Logistics; government
+Visy NZ,Visy NZ,FM|utilities,large,Auckland,aircraft|aerospace|ICT|health|legal,,,Packaging and recycling; government
+Orica NZ,Orica NZ,construction|infrastructure,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Explosives and blasting; government mining and roading
+Incitec Pivot NZ,Incitec Pivot NZ,utilities|construction,large,Auckland,aircraft|aerospace|ICT|health|legal,,,Explosives and fertilisers; government
+Wilson Parking NZ,Wilson Parking NZ,FM,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Parking management; government facilities
+Wilsons Security NZ,Wilson Security NZ,security,large,Auckland,aircraft|aerospace,,,Guarding; government (variant name)
+SecureFuture NZ,SecureFuture NZ,security,medium,Auckland,aircraft|aerospace,,,Security consulting; government
+Axis Security NZ,Axis Security NZ,security,medium,Auckland,aircraft|aerospace,,,Security services; government
+National Security Group,National Security Group,security,medium,Auckland,aircraft|aerospace,,,Security; government
+Alert Security,Alert Security,security,medium,Auckland,aircraft|aerospace,,,Security guarding; government
+Southern Cross Security,Southern Cross Security,security,medium,Christchurch,aircraft|aerospace,,,Security; South Island government
+MSS Security NZ,MSS Security NZ,security,large,Auckland,aircraft|aerospace,,,Physical security; government
+Elsinore Security,Elsinore Security,security,small,Wellington,aircraft|aerospace,,,Security consulting; government
+Learning Seat NZ,Learning Seat NZ,ICT|advisory,medium,Wellington,roading|civil|construction|aerospace|aircraft,,,E-learning platform; government workforce training
+Totara Learning NZ,Totara Learning NZ,ICT,medium,Wellington,roading|civil|construction|aerospace|aircraft,,true,LMS software; government and education
+Kineo NZ,Kineo NZ,ICT|advisory,medium,Auckland,roading|civil|construction|aerospace|aircraft,,,E-learning; government
+Instep,Instep,advisory,medium,Wellington,roading|civil|construction|aircraft|ICT,,,Training and development; government
+Edge Learning,Edge Learning,advisory,small,Auckland,roading|civil|construction|aircraft|ICT,,,Leadership training; government
+Victoria University of Wellington,Victoria University of Wellington,advisory|research,major,Wellington,roading|civil|construction|aircraft|ICT,,true,Research and training; government contracts
+University of Auckland,University of Auckland,advisory|research,major,Auckland,roading|civil|construction|aircraft|ICT,,true,Research; government
+University of Otago,University of Otago,advisory|research,major,Dunedin,roading|civil|construction|aircraft|ICT,,true,Research and advisory; government
+AUT University,AUT University,advisory|research,major,Auckland,roading|civil|construction|aircraft|ICT,,true,Research; government applied research contracts
+Massey University,Massey University,advisory|research,major,Palmerston North,roading|civil|construction|aircraft|ICT,,true,Research and advisory; government
+Lincoln University,Lincoln University,advisory|research,large,Lincoln,roading|civil|construction|aircraft|ICT,,true,Agricultural research; government
+Waikato University,Waikato University,advisory|research,major,Hamilton,roading|civil|construction|aircraft|ICT,,true,Research; government
+Unitec NZ,Unitec NZ,advisory|research,large,Auckland,roading|civil|construction|aircraft|ICT,,,Technical training; government
+Te Wānanga o Aotearoa,Te Wānanga o Aotearoa,advisory,large,Hamilton,roading|civil|construction|aircraft|ICT,,true,Vocational education; government
+NZQA,NZQA,advisory,large,Wellington,roading|civil|construction|aircraft|ICT,,true,Qualifications and assessment; government agency
+Skills Consulting Group,Skills Consulting Group,advisory,medium,Auckland,roading|civil|construction|aircraft|ICT,,true,Training and workforce; government
+Competenz NZ,Competenz NZ,advisory,large,Auckland,roading|civil|construction|aircraft|ICT,,,Industry training; government
+Service IQ,Service IQ,advisory,large,Wellington,roading|civil|construction|aircraft|ICT,,,Industry training; hospitality and tourism government
+Connexis NZ,Connexis NZ,advisory,large,Wellington,roading|civil|construction|aircraft|ICT,,true,Infrastructure industry training; government
+Build and Construction ITO,Build and Construction ITO,advisory,large,Wellington,roading|civil|construction|aircraft|ICT,,true,Construction training; government
+HITO NZ,HITO NZ,advisory,medium,Wellington,roading|civil|construction|aircraft|ICT,,,Hairdressing training; government vocational
+Steel Construction NZ,Steel Construction NZ,construction|infrastructure,medium,Auckland,aircraft|aerospace|ICT|health|legal,,,Steel fabrication; government
+Fisher Steel,Fisher Steel,construction|infrastructure,medium,Wellington,aircraft|aerospace|ICT|health|legal,,,Structural steel; government
+Metals NZ,Metals NZ,construction|utilities,medium,Auckland,aircraft|aerospace|ICT|health|legal,,,Metal fabrication; government
+Dynamic Structures NZ,Dynamic Structures NZ,construction|infrastructure,medium,Auckland,aircraft|aerospace|ICT|health|legal,,,Structural engineering; government
+Metalcraft Industries,Metalcraft Industries,construction|FM,medium,Hamilton,aircraft|aerospace|ICT|health|legal,,true,Roof and cladding; government buildings
+Stoddart NZ,Stoddart NZ,FM|construction,medium,Auckland,aircraft|aerospace|ICT|health|legal,,,Commercial kitchen equipment; FM
+Bidvest Foodservice,Bidvest NZ,FM,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Foodservice supply; government catering
+Ingham's NZ,Ingham's NZ,FM,large,Auckland,aircraft|aerospace|ICT|health|legal,,true,Poultry; government food supply
+Open Country Dairy,Open Country Dairy,FM,large,Waikato,aircraft|aerospace|ICT|health|legal,,true,Dairy; government food supply
+Synlait Milk,Synlait Milk,FM,large,Canterbury,aircraft|aerospace|ICT|health|legal,,true,Dairy; government food supply
+Blackmores NZ,Blackmores NZ,health,medium,Auckland,roading|civil|construction|aircraft,health_tech,,Supplements; government health
+Comvita NZ,Comvita NZ,health,medium,Te Puke,roading|civil|construction|aircraft,health_tech,,Natural health; government
+Health 2000,Health 2000,health,medium,Auckland,roading|civil|construction|aircraft,health_tech,,,Natural health retail; government
+Green Cross Health,Green Cross Health,health,large,Auckland,roading|civil|construction|aircraft,health_tech,,Community pharmacy; government contracts
+Unichem Pharmacy,Unichem Pharmacy,health,large,Auckland,roading|civil|construction|aircraft,health_tech,,Pharmacy; government dispensing
+Life Pharmacy,Life Pharmacy,health,large,Auckland,roading|civil|construction|aircraft,health_tech,,Retail pharmacy; government
+ProCare Health,ProCare Health,health,large,Auckland,roading|civil|construction|aircraft,health_tech,true,PHO; Auckland primary health
+Visionwest Community Trust,Visionwest Community Trust,advisory|health,medium,Henderson,roading|civil|construction|aircraft|ICT,,true,Social and health services; government community
+Citizen Advice Bureau NZ,Citizen Advice Bureau NZ,advisory,medium,Wellington,roading|civil|construction|aircraft|ICT,,,Community advisory; government
+The Salvation Army NZ,The Salvation Army NZ,advisory|FM,large,Wellington,roading|civil|construction|aircraft|ICT,,true,Social services; government contracts
+Presbyterian Support NZ,Presbyterian Support NZ,advisory|FM,large,Wellington,roading|civil|construction|aircraft|ICT,,true,Social services; government
+Methodist Mission NZ,Methodist Mission NZ,advisory|FM,medium,Wellington,roading|civil|construction|aircraft|ICT,,,Social services; government
+Barnardos NZ,Barnardos NZ,advisory,large,Wellington,roading|civil|construction|aircraft|ICT,,true,Children and family services; government
+Plunket NZ,Plunket NZ,advisory|health,large,Wellington,roading|civil|construction|aircraft|ICT,,true,Child health; government Plunket contracts
+Family Works NZ,Family Works NZ,advisory,medium,Wellington,roading|civil|construction|aircraft|ICT,,,Family social services; government
+Lifeline NZ,Lifeline NZ,advisory,medium,Auckland,roading|civil|construction|aircraft|ICT,,,Mental health support; government
+Victim Support NZ,Victim Support NZ,advisory,large,Wellington,roading|civil|construction|aircraft|ICT,,true,Victim services; government contract
+Youthline NZ,Youthline NZ,advisory,medium,Auckland,roading|civil|construction|aircraft|ICT,,,Youth mental health; government
+Te Pou NZ,Te Pou NZ,advisory|health,medium,Auckland,roading|civil|construction|aircraft|ICT,,true,Mental health workforce; government
+Emerge Aotearoa,Emerge Aotearoa,advisory|health,large,Auckland,roading|civil|construction|aircraft|ICT,,true,Mental health and addiction; government
+Platform Trust,Platform Trust,advisory|health,large,Wellington,roading|civil|construction|aircraft|ICT,,true,Mental health NGO; government
+Le Va NZ,Le Va NZ,advisory|health,medium,Auckland,roading|civil|construction|aircraft|ICT,,true,Pacific health; government
+Vaka Tautua,Vaka Tautua,advisory|health,medium,Auckland,roading|civil|construction|aircraft|ICT,,true,Pacific wellbeing; government
+National Heart Foundation NZ,National Heart Foundation NZ,advisory|health,large,Auckland,roading|civil|construction|aircraft|ICT,,true,Heart health; government
+Cancer Society NZ,Cancer Society NZ,advisory|health,large,Wellington,roading|civil|construction|aircraft|ICT,,true,Cancer services; government
+Kidney Health NZ,Kidney Health NZ,advisory|health,medium,Christchurch,roading|civil|construction|aircraft|ICT,,,Kidney health; government
+Alzheimers NZ,Alzheimers NZ,advisory|health,medium,Wellington,roading|civil|construction|aircraft|ICT,,true,Dementia support; government
+Arthritis NZ,Arthritis NZ,advisory|health,medium,Wellington,roading|civil|construction|aircraft|ICT,,,Arthritis support; government
+Royal New Zealand Foundation of the Blind,Royal New Zealand Foundation of the Blind,advisory|health,large,Auckland,roading|civil|construction|aircraft|ICT,,true,Blindness services; government
+Deaf Aotearoa,Deaf Aotearoa,advisory,medium,Auckland,roading|civil|construction|aircraft|ICT,,true,Deaf community services; government
+CCS Disability Action,CCS Disability Action,advisory,large,Wellington,roading|civil|construction|aircraft|ICT,,true,Disability services; government
+IHC NZ,IHC NZ,advisory|FM,major,Wellington,roading|civil|construction|aircraft|ICT,,true,Intellectual disability services; government
+Spectrum Care,Spectrum Care,advisory|FM,large,Auckland,roading|civil|construction|aircraft|ICT,,true,Disability support; government

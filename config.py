@@ -143,6 +143,12 @@ SECTOR_SCORE_NEUTRAL:   float = 0.65   # applied to ALL sectors when no preferen
 SECTOR_SCORE_PREFERRED: float = 1.00   # applied to sectors in client's preferred list
 SECTOR_SCORE_OTHER:     float = 0.20   # applied to non-preferred sectors
 
+# Bidder inference — specialist handling
+# For notices in specialist sectors (aerospace, cyber, legal, health),
+# if fewer than this many credible bidders are found after exclusion filtering,
+# show what was found rather than padding with irrelevant general firms.
+SPECIALIST_MIN_BIDDERS: int = 1
+
 # Urgency scoring: days-to-close → score (out of 1.0)
 URGENCY_THRESHOLDS: list[tuple[int, float]] = [
     (7,   1.00),   # ≤7 days → highest urgency
