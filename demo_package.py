@@ -40,7 +40,8 @@ _PDF_PRINT_CSS = """
     }
 }
 
-/* Reset flex layout for print */
+/* ── Weasyprint has incomplete flex support — convert ALL flex containers ── */
+
 body {
     display: block !important;
     padding: 0 !important;
@@ -49,11 +50,10 @@ body {
     print-color-adjust: exact;
 }
 
-/* Hide screen-only chrome */
-.sidebar         { display: none !important; }
-.demo-footer-bar { display: none !important; }
+/* Hide screen-only elements */
+.sidebar, .demo-footer-bar { display: none !important; }
 
-/* Main content fills the full page width */
+/* Main content: full width, no offset */
 .main {
     display: block !important;
     padding: 0 !important;
@@ -61,37 +61,105 @@ body {
     width: 100% !important;
 }
 
-/* Suppress fixed/sticky positioning */
-.card-header, .cover { position: static !important; }
+/* Cover block */
+.cover { position: static !important; }
+.cover-meta { display: block !important; margin-bottom: 1rem; }
+.meta-chip { display: inline-block; margin-right: 6pt; margin-bottom: 4pt; }
 
-/* Subtle SAMPLE watermark */
-body::before {
-    content: "SAMPLE";
+/* Verdict banner — was flex, now block with inline score */
+.verdict {
+    display: block !important;
+    padding: 12pt 14pt;
+}
+.verdict .prob-ring {
+    display: inline-block;
+    margin-right: 14pt;
+    vertical-align: middle;
+    text-align: center;
+    min-width: 60pt;
+}
+.verdict .verdict-badge {
+    display: inline-block;
+    margin-right: 14pt;
+    vertical-align: middle;
+    font-size: 18pt;
+    font-weight: 800;
+}
+.verdict .verdict-text {
     display: block;
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%) rotate(-35deg);
-    font-size: 100px;
-    font-weight: 900;
-    color: rgba(250, 204, 21, 0.06);
-    letter-spacing: 0.2em;
-    white-space: nowrap;
-    pointer-events: none;
+    margin-top: 8pt;
+    font-size: 10pt;
+    line-height: 1.6;
+}
+/* Divider line in verdict — hide in PDF */
+.verdict > div[style*="width:1px"] { display: none !important; }
+
+/* Card header */
+.card-header {
+    display: block !important;
+    position: static !important;
+}
+.card-header-main { display: block; margin-bottom: 6pt; }
+.card-title-row   { display: block !important; margin-bottom: 4pt; }
+.score-block      { display: block; text-align: left; margin-top: 6pt; }
+.score-bar-track  { width: 120pt; }
+
+/* Meta row — was flex, now inline-block cells */
+.card-meta-row { display: block !important; padding: 6pt 0; }
+.meta-item {
+    display: inline-block !important;
+    padding: 0 12pt 0 0 !important;
+    border-right: none !important;
+    vertical-align: top;
+    margin-bottom: 4pt;
 }
 
-/* Readable body type in print */
-.prose p, .summary-text, .pos-card-detail,
-.action-text, .flag-item, .bidder-context,
-.bidder-bullet { font-size: 10pt; line-height: 1.65; }
+/* Card body — was 3-column flex, now stacked */
+.card-body    { display: block !important; }
+.col-intel    { display: block !important; width: 100% !important;
+                border-right: none !important; padding: 0 0 10pt !important; }
+.col-actions  { display: block !important; width: 100% !important;
+                border-right: none !important; padding: 0 0 10pt !important;
+                border-top: 1pt solid #2a3344; padding-top: 10pt !important; }
+.col-bidders  { display: block !important; width: 100% !important;
+                padding: 0 0 10pt !important;
+                border-top: 1pt solid #2a3344; padding-top: 10pt !important; }
 
-.section-title  { font-size: 12pt; }
-.cover-title    { font-size: 18pt; }
-.score-number   { font-size: 20pt; }
+/* Action items */
+.action-item  { display: block !important; padding: 6pt 0; }
+.action-num   { display: inline-block; margin-right: 6pt; vertical-align: top; }
+.action-body  { display: inline-block; vertical-align: top; width: 90%; }
 
-/* Avoid breaking content across pages */
-.section, .pos-card, .action-item,
-.verdict, table, tr { page-break-inside: avoid; }
+/* Bidder cards */
+.bidder-card   { margin-bottom: 8pt; }
+.bidder-header { display: block !important; }
+.bidder-name   { display: block; font-weight: 700; font-size: 10pt; }
+.bidder-meta, .bidder-pill { display: inline-block; margin-right: 6pt;
+                              font-size: 8pt; }
+
+/* Flags */
+.flag-item { display: block !important; margin-bottom: 4pt; }
+.flag-icon { display: inline; margin-right: 4pt; }
+
+/* Suppressed positioning */
+.card-header, .cover, .report-header { position: static !important; }
+
+/* Section title */
+.section { page-break-before: auto; margin-bottom: 16pt; }
+.section-title { font-size: 13pt; margin-bottom: 8pt; }
+.section-number { font-size: 9pt; }
+.cover-title { font-size: 20pt; line-height: 1.3; }
+.score-number { font-size: 22pt; }
+
+/* Readable prose */
+.prose p, .summary-text, .pos-card-detail, .action-text,
+.flag-item, .bidder-context, .bidder-bullet {
+    font-size: 10pt; line-height: 1.65;
+}
+
+/* Page breaks */
+.section, .pos-card, .action-item, .verdict,
+table, tr { page-break-inside: avoid; }
 
 a { color: #4f9cf9; text-decoration: none; }
 """
