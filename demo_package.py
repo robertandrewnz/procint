@@ -45,7 +45,8 @@ _PDF_PRINT_CSS = """
 body {
     display: block !important;
     padding: 0 !important;
-    background: #0d1117 !important;
+    background: #f5f6f8 !important;
+    color: #2c3e50 !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
 }
@@ -239,7 +240,7 @@ def _inject_demo_styles(html: str, prospect_name: str) -> str:
 
     demo_css = """
     body::after {
-        content: 'SAMPLE';
+        content: 'SAMPLE\A BIDEDGE';
         position: fixed;
         top: 50%; left: 50%;
         transform: translate(-50%, -50%) rotate(-35deg);
@@ -250,12 +251,12 @@ def _inject_demo_styles(html: str, prospect_name: str) -> str:
     }
     .demo-footer-bar {
         position: fixed; bottom: 0; left: 0; right: 0;
-        background: rgba(13,17,23,0.95); border-top: 1px solid #2a3344;
-        padding: .4rem 1.5rem; font-size: .68rem; color: #7d8fa8;
+        background: rgba(26,45,74,0.97); border-top: 1px solid #c9a84c;
+        padding: .4rem 1.5rem; font-size: .68rem; color: rgba(255,255,255,0.8);
         display: flex; justify-content: space-between; align-items: center;
-        z-index: 1000;
+        z-index: 1000; font-family: 'Inter', system-ui, sans-serif;
     }
-    .demo-footer-bar strong { color: #facc15; }
+    .demo-footer-bar strong { color: #c9a84c; }
     .main { padding-bottom: 4rem; }
     """
 

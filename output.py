@@ -31,28 +31,28 @@ VALUE_BAND_LABELS = {
 }
 
 SECTOR_COLOURS = {
-    "FM":                    "#4f9cf9",
-    "infrastructure":        "#f97316",
-    "ICT":                   "#a78bfa",
-    "advisory":              "#34d399",
-    "health":                "#f472b6",
-    "security":              "#fb923c",
-    "defence":               "#ef4444",
-    "utilities":             "#facc15",
-    "professional_services": "#38bdf8",
-    "other":                 "#94a3b8",
+    "FM":                    "#1a5276",
+    "infrastructure":        "#7d6608",
+    "ICT":                   "#6c3483",
+    "advisory":              "#1a6b3a",
+    "health":                "#a93226",
+    "security":              "#935116",
+    "defence":               "#1a2d4a",
+    "utilities":             "#5d6d00",
+    "professional_services": "#1f618d",
+    "other":                 "#5d6d7e",
 }
 
 IMPORTANCE_COLOURS = {
-    "high":   "#22c55e",
-    "medium": "#facc15",
-    "low":    "#94a3b8",
+    "high":   "#c9a84c",
+    "medium": "#1a2d4a",
+    "low":    "#6c757d",
 }
 
 MATURITY_COLOURS = {
-    "strong":   "#4f9cf9",
-    "moderate": "#fb923c",
-    "weak":     "#94a3b8",
+    "strong":   "#27ae60",
+    "moderate": "#1a2d4a",
+    "weak":     "#6c757d",
 }
 
 
@@ -208,32 +208,38 @@ def write_markdown(watchlist: list[dict], output_dir: Path, run_date: date) -> P
 
 def _score_bar(score: float) -> str:
     pct = min(100, (float(score) / 10) * 100)
-    colour = "#22c55e" if pct >= 70 else "#facc15" if pct >= 45 else "#f97316"
-    return f"""
-        <div class="score-bar-track">
-          <div class="score-bar-fill" style="width:{pct:.1f}%;background:{colour};"></div>
-        </div>"""
+    colour = "#c9a84c" if pct >= 65 else "#1a2d4a" if pct >= 40 else "#6c757d"
+    return (
+        f'<div class="score-bar-track">'
+        f'<div class="score-bar-fill" style="width:{pct:.1f}%;background:{colour};"></div>'
+        f'</div>'
+    )
 
 
 def _dtc_badge(dtc) -> str:
     if dtc is None:
-        return '<span class="badge badge-grey">Close date TBC</span>'
+        return '<span class="badge badge-grey">Close TBC</span>'
+    if dtc == 0:
+        return '<span class="badge badge-red">Closes today</span>'
     if dtc <= 7:
-        cls = "badge-red"
+        cls, label = "badge-red",  f"URGENT — {dtc}d"
     elif dtc <= 14:
-        cls = "badge-orange"
+        cls, label = "badge-gold", f"Closes in {dtc}d"
     elif dtc <= 30:
-        cls = "badge-yellow"
+        cls, label = "badge-navy", f"{dtc} days"
     else:
-        cls = "badge-green"
-    label = "Closes today" if dtc == 0 else f"Closes in {dtc}d"
+        cls, label = "badge-grey", f"{dtc} days"
     return f'<span class="badge {cls}">{label}</span>'
 
 
 def _sector_badge(sector: str) -> str:
-    colour = SECTOR_COLOURS.get(sector, "#94a3b8")
-    label = sector.replace("_", " ").upper()
-    return f'<span class="sector-badge" style="background:{colour}22;color:{colour};border-color:{colour}44;">{label}</span>'
+    colour = SECTOR_COLOURS.get(sector, "#5d6d7e")
+    label = (sector or "other").replace("_", " ").upper()
+    return (
+        f'<span class="sector-badge" '
+        f'style="background:{colour}18;color:{colour};border-color:{colour}40;">'
+        f'{label}</span>'
+    )
 
 
 def _recommended_actions(item: dict) -> list[str]:
@@ -446,470 +452,199 @@ def _notice_card(rank: int, item: dict, bidders: list[dict]) -> str:
   </div>"""
 
 
-_HTML_TEMPLATE = """\
-<!DOCTYPE html>
+_HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Procurement Intelligence — {run_date}</title>
+  <title>Groundwork by BidEdge — Procurement Watchlist {run_date}</title>
   <style>
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
-
     :root {{
-      --bg:        #0d1117;
-      --surface:   #161b22;
-      --surface2:  #1c2230;
-      --border:    #2a3344;
-      --text:      #e6edf3;
-      --muted:     #7d8fa8;
-      --accent:    #4f9cf9;
-      --font:      'Inter', system-ui, -apple-system, sans-serif;
+      --bg:#f5f6f8; --surface:#ffffff; --surf2:#f0f2f5; --border:#e2e6ea;
+      --text:#2c3e50; --muted:#6c757d; --navy:#1a2d4a; --gold:#c9a84c;
+      --gold-l:#f7eedb; --navy-l:#e8ecf3; --red:#c0392b; --red-l:#fdecea;
+      --green:#27ae60; --accent:#c9a84c;
+      --font:'Inter',system-ui,-apple-system,sans-serif;
     }}
+    body {{ background:var(--bg); color:var(--text); font-family:var(--font);
+            font-size:14px; line-height:1.6; padding:2rem 1.5rem;
+            -webkit-font-smoothing:antialiased; }}
+    a {{ color:var(--navy); text-decoration:none; }}
+    a:hover {{ color:var(--gold); }}
 
-    body {{
-      background: var(--bg);
-      color: var(--text);
-      font-family: var(--font);
-      font-size: 14px;
-      line-height: 1.6;
-      padding: 2rem 1.5rem;
-    }}
+    /* ── Page header ── */
+    .report-header {{ max-width:1200px; margin:0 auto 2rem;
+      display:flex; align-items:flex-end; justify-content:space-between;
+      border-bottom:2px solid var(--navy); padding-bottom:1.25rem; }}
+    .brand-name {{ font-size:1.1rem; font-weight:800; color:var(--navy);
+      letter-spacing:-.01em; }}
+    .brand-name .by {{ font-weight:400; color:var(--muted); font-size:.9rem; }}
+    .brand-sub {{ font-size:.7rem; font-weight:700; letter-spacing:.1em;
+      text-transform:uppercase; color:var(--gold); margin-top:.2rem; }}
+    .report-meta {{ text-align:right; font-size:.75rem; color:var(--muted); }}
+    .report-meta strong {{ display:block; font-size:1.4rem; font-weight:800;
+      color:var(--navy); letter-spacing:-.03em; }}
 
-    /* ── Header ── */
-    .report-header {{
-      max-width: 1100px;
-      margin: 0 auto 2.5rem;
-      display: flex;
-      align-items: flex-end;
-      justify-content: space-between;
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 1.25rem;
-    }}
-    .report-title {{
-      font-size: 1.1rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--accent);
-    }}
-    .report-subtitle {{
-      font-size: 0.8rem;
-      color: var(--muted);
-      margin-top: 0.2rem;
-    }}
-    .report-meta {{
-      text-align: right;
-      font-size: 0.75rem;
-      color: var(--muted);
-    }}
-    .report-meta strong {{
-      display: block;
-      font-size: 1.4rem;
-      font-weight: 700;
-      color: var(--text);
-      letter-spacing: -0.03em;
-    }}
+    /* ── Explainer ── */
+    .explainer {{ max-width:1200px; margin:0 auto 2rem;
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:8px; padding:1.5rem;
+      display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:1.5rem;
+      box-shadow:0 1px 4px rgba(26,45,74,.06); }}
+    .explainer-section h3 {{ font-size:.7rem; font-weight:700; letter-spacing:.08em;
+      text-transform:uppercase; color:var(--navy); margin-bottom:.6rem; }}
+    .explainer-section p {{ font-size:.78rem; color:var(--muted); line-height:1.6; margin:0; }}
+    .score-breakdown {{ display:flex; flex-direction:column; gap:.4rem; margin-top:.4rem; }}
+    .score-dim {{ display:flex; align-items:center; gap:.5rem; font-size:.75rem; color:var(--muted); }}
+    .score-dim-bar {{ flex:1; height:3px; background:var(--border); border-radius:2px; overflow:hidden; }}
+    .score-dim-fill {{ height:100%; border-radius:2px; background:var(--gold); }}
+    .score-dim-weight {{ min-width:1.5rem; text-align:right; color:var(--gold); font-weight:700; }}
+    .score-dim-label {{ min-width:4.5rem; }}
 
     /* ── Cards ── */
-    .cards {{
-      max-width: 1100px;
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      gap: 1.25rem;
-    }}
+    .cards {{ max-width:1200px; margin:0 auto;
+      display:flex; flex-direction:column; gap:1.25rem; }}
+    .card {{ background:var(--surface); border:1px solid var(--border);
+      border-radius:8px; overflow:hidden;
+      box-shadow:0 1px 4px rgba(26,45,74,.06); }}
+    .card-header {{ background:var(--navy); color:#fff;
+      display:flex; align-items:flex-start; gap:1rem;
+      padding:1.25rem 1.5rem; }}
+    .rank-badge {{ flex-shrink:0; width:2.2rem; height:2.2rem; border-radius:50%;
+      background:rgba(201,168,76,.25); color:var(--gold);
+      font-size:.72rem; font-weight:700;
+      display:flex; align-items:center; justify-content:center; margin-top:.1rem; }}
+    .card-header-main {{ flex:1; min-width:0; }}
+    .card-title-row {{ display:flex; align-items:center; flex-wrap:wrap;
+      gap:.5rem; margin-bottom:.3rem; }}
+    .card-title {{ font-size:.95rem; font-weight:600; color:#fff; line-height:1.4; }}
+    .card-agency {{ font-size:.78rem; color:rgba(255,255,255,.65); }}
 
-    .card {{
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      overflow: hidden;
-    }}
+    /* Score */
+    .score-block {{ flex-shrink:0; text-align:right; min-width:80px; }}
+    .score-number {{ font-size:1.75rem; font-weight:800; color:var(--gold);
+      letter-spacing:-.04em; line-height:1; }}
+    .score-label {{ font-size:.65rem; color:rgba(255,255,255,.5); margin-bottom:.4rem; }}
+    .score-bar-track {{ height:4px; background:rgba(255,255,255,.2);
+      border-radius:2px; overflow:hidden; width:80px; }}
+    .score-bar-fill {{ height:100%; border-radius:2px; }}
 
-    .card-header {{
-      display: flex;
-      align-items: flex-start;
-      gap: 1rem;
-      padding: 1.25rem 1.5rem;
-      border-bottom: 1px solid var(--border);
-      background: var(--surface2);
-    }}
+    /* Badges */
+    .badge {{ display:inline-flex; align-items:center; padding:.2rem .6rem;
+      border-radius:999px; font-size:.68rem; font-weight:600;
+      letter-spacing:.03em; border:1px solid; white-space:nowrap; }}
+    .badge-red   {{ background:#fdecea; color:var(--red);  border-color:#f1a9a0; }}
+    .badge-gold  {{ background:var(--gold-l); color:#7a5c00; border-color:var(--gold); }}
+    .badge-navy  {{ background:var(--navy-l); color:var(--navy); border-color:#b0bcd4; }}
+    .badge-grey  {{ background:var(--surf2);  color:var(--muted); border-color:var(--border); }}
+    .sector-badge {{ display:inline-flex; align-items:center; padding:.2rem .55rem;
+      border-radius:4px; font-size:.65rem; font-weight:700;
+      letter-spacing:.06em; border:1px solid; }}
 
-    .rank-badge {{
-      flex-shrink: 0;
-      width: 2.4rem;
-      height: 2.4rem;
-      border-radius: 50%;
-      background: var(--border);
-      color: var(--muted);
-      font-size: 0.75rem;
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-top: 0.15rem;
-    }}
+    /* Meta row */
+    .card-meta-row {{ display:flex; border-bottom:1px solid var(--border); }}
+    .meta-item {{ flex:1; padding:.65rem 1.5rem; border-right:1px solid var(--border); }}
+    .meta-item:last-child {{ border-right:none; }}
+    .meta-label {{ display:block; font-size:.63rem; font-weight:700; letter-spacing:.07em;
+      text-transform:uppercase; color:var(--muted); margin-bottom:.2rem; }}
+    .meta-value {{ font-size:.82rem; color:var(--text); }}
+    .meta-value a {{ color:var(--navy); }}
+    .meta-value a:hover {{ color:var(--gold); }}
 
-    .card-header-main {{
-      flex: 1;
-      min-width: 0;
-    }}
+    /* Card body — three columns */
+    .card-body {{ display:flex; }}
+    .col-intel   {{ flex:1.8; padding:1.25rem 1.5rem; border-right:1px solid var(--border); }}
+    .col-actions {{ flex:1.4; padding:1.25rem 1.5rem; border-right:1px solid var(--border); }}
+    .col-bidders {{ flex:1.2; padding:1.25rem 1.5rem; }}
+    .section-label {{ font-size:.65rem; font-weight:700; letter-spacing:.08em;
+      text-transform:uppercase; color:var(--navy); margin-bottom:.65rem; display:block; }}
 
-    .card-title-row {{
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-      margin-bottom: 0.25rem;
-    }}
+    /* Summary & framing */
+    .summary-text {{ font-size:.84rem; color:var(--text); line-height:1.7; }}
+    .summary-placeholder {{ font-size:.82rem; color:var(--muted); font-style:italic; }}
+    .framing-block {{ margin-top:1rem; padding:.75rem 1rem;
+      background:#f7eedb; border-left:3px solid var(--gold); border-radius:0 4px 4px 0; }}
+    .framing-label {{ font-size:.65rem; font-weight:700; letter-spacing:.08em;
+      text-transform:uppercase; color:var(--gold); display:block; margin-bottom:.3rem; }}
+    .framing-block p {{ font-size:.82rem; color:var(--text); font-style:italic; margin:0; }}
 
-    .card-title {{
-      font-size: 0.95rem;
-      font-weight: 600;
-      color: var(--text);
-      line-height: 1.4;
-    }}
+    /* Flags */
+    .flags-list {{ display:flex; flex-direction:column; gap:.4rem; }}
+    .flag-item {{ display:flex; align-items:flex-start; gap:.5rem;
+      font-size:.8rem; color:var(--text); }}
+    .flag-icon {{ color:var(--red); flex-shrink:0; }}
+    .no-flags {{ color:var(--muted); font-style:italic; }}
 
-    .card-agency {{
-      font-size: 0.78rem;
-      color: var(--muted);
-    }}
+    /* Actions */
+    .actions-list {{ display:flex; flex-direction:column; gap:.65rem; }}
+    .action-item {{ display:flex; align-items:flex-start; gap:.6rem; }}
+    .action-num {{ flex-shrink:0; width:1.3rem; height:1.3rem; border-radius:50%;
+      background:var(--navy); color:#fff; font-size:.65rem; font-weight:700;
+      display:flex; align-items:center; justify-content:center; margin-top:.1rem; }}
+    .action-text {{ font-size:.8rem; color:var(--text); line-height:1.6; }}
 
-    /* ── Score ── */
-    .score-block {{
-      flex-shrink: 0;
-      text-align: right;
-      min-width: 80px;
-    }}
-    .score-number {{
-      font-size: 1.75rem;
-      font-weight: 800;
-      color: var(--text);
-      letter-spacing: -0.04em;
-      line-height: 1;
-    }}
-    .score-label {{
-      font-size: 0.7rem;
-      color: var(--muted);
-      margin-bottom: 0.4rem;
-    }}
-    .score-bar-track {{
-      height: 4px;
-      background: var(--border);
-      border-radius: 2px;
-      overflow: hidden;
-      width: 80px;
-    }}
-    .score-bar-fill {{
-      height: 100%;
-      border-radius: 2px;
-      transition: width 0.3s ease;
-    }}
+    /* Bidders */
+    .bidders-list {{ display:flex; flex-direction:column; gap:.75rem; }}
+    .bidder-card {{ background:var(--surf2); border:1px solid var(--border);
+      border-radius:6px; padding:.65rem .85rem; }}
+    .bidder-header {{ display:flex; align-items:center; gap:.5rem;
+      flex-wrap:wrap; margin-bottom:.3rem; }}
+    .bidder-name {{ font-size:.82rem; font-weight:700; color:var(--navy); flex:1; min-width:0; }}
+    .bidder-meta {{ font-size:.72rem; color:var(--muted); }}
+    .bidder-pill {{ font-size:.68rem; font-weight:600; padding:.15rem .45rem;
+      border-radius:999px; border:1px solid; white-space:nowrap; }}
+    .bidder-context {{ font-size:.78rem; color:var(--muted); line-height:1.55;
+      margin-bottom:.35rem; font-style:italic; }}
+    .bidder-reasoning {{ display:flex; flex-direction:column; gap:.2rem; }}
+    .bidder-bullet {{ font-size:.74rem; color:var(--muted); line-height:1.4; }}
+    .conf-flag {{ font-size:.65rem; color:var(--red); margin-left:.3rem; }}
+    .bidder-empty {{ font-size:.8rem; color:var(--muted); font-style:italic; }}
+    .bidder-no-context {{ font-size:.72rem; color:#9aa5b4; font-style:italic;
+      margin-bottom:.25rem; border-top:1px solid var(--border);
+      padding-top:.3rem; margin-top:.3rem; }}
 
-    /* ── Badges ── */
-    .badge {{
-      display: inline-flex;
-      align-items: center;
-      padding: 0.2rem 0.55rem;
-      border-radius: 999px;
-      font-size: 0.68rem;
-      font-weight: 600;
-      letter-spacing: 0.03em;
-      white-space: nowrap;
-    }}
-    .badge-red    {{ background: #ef444422; color: #f87171; border: 1px solid #ef444440; }}
-    .badge-orange {{ background: #f9731622; color: #fb923c; border: 1px solid #f9731640; }}
-    .badge-yellow {{ background: #facc1522; color: #fde047; border: 1px solid #facc1540; }}
-    .badge-green  {{ background: #22c55e22; color: #4ade80; border: 1px solid #22c55e40; }}
-    .badge-grey   {{ background: #94a3b822; color: #94a3b8; border: 1px solid #94a3b840; }}
-
-    .sector-badge {{
-      display: inline-flex;
-      align-items: center;
-      padding: 0.2rem 0.55rem;
-      border-radius: 4px;
-      font-size: 0.65rem;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      border: 1px solid;
-    }}
-
-    /* ── Meta row ── */
-    .card-meta-row {{
-      display: flex;
-      gap: 0;
-      border-bottom: 1px solid var(--border);
-    }}
-    .meta-item {{
-      flex: 1;
-      padding: 0.65rem 1.5rem;
-      border-right: 1px solid var(--border);
-    }}
-    .meta-item:last-child {{ border-right: none; }}
-    .meta-label {{
-      display: block;
-      font-size: 0.65rem;
-      font-weight: 600;
-      letter-spacing: 0.07em;
-      text-transform: uppercase;
-      color: var(--muted);
-      margin-bottom: 0.2rem;
-    }}
-    .meta-value {{
-      font-size: 0.82rem;
-      color: var(--text);
-    }}
-    .meta-value a {{
-      color: var(--accent);
-      text-decoration: none;
-    }}
-    .meta-value a:hover {{ text-decoration: underline; }}
-
-    /* ── Card body — three columns ── */
-    .card-body {{
-      display: flex;
-      gap: 0;
-    }}
-    .col-intel {{
-      flex: 1.8;
-      padding: 1.25rem 1.5rem;
-      border-right: 1px solid var(--border);
-    }}
-    .col-actions {{
-      flex: 1.4;
-      padding: 1.25rem 1.5rem;
-      border-right: 1px solid var(--border);
-    }}
-    .col-bidders {{
-      flex: 1;
-      padding: 1.25rem 1.5rem;
-    }}
-
-    /* ── Recommended actions ── */
-    .actions-list {{ display: flex; flex-direction: column; gap: 0.65rem; }}
-    .action-item {{
-      display: flex;
-      align-items: flex-start;
-      gap: 0.6rem;
-    }}
-    .action-num {{
-      flex-shrink: 0;
-      width: 1.3rem;
-      height: 1.3rem;
-      border-radius: 50%;
-      background: #4f9cf918;
-      border: 1px solid #4f9cf940;
-      color: var(--accent);
-      font-size: 0.65rem;
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-top: 0.1rem;
-    }}
-    .action-text {{
-      font-size: 0.8rem;
-      color: var(--text);
-      line-height: 1.6;
-    }}
-
-    .section-label {{
-      font-size: 0.65rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--muted);
-      margin-bottom: 0.6rem;
-    }}
-
-    .summary-text {{
-      font-size: 0.83rem;
-      color: var(--text);
-      line-height: 1.65;
-    }}
-    .summary-placeholder {{
-      font-size: 0.8rem;
-      color: var(--muted);
-      font-style: italic;
-    }}
-
-    .framing-block {{
-      margin-top: 1rem;
-      padding: 0.75rem 1rem;
-      background: #4f9cf908;
-      border-left: 2px solid var(--accent);
-      border-radius: 0 4px 4px 0;
-    }}
-    .framing-label {{
-      font-size: 0.65rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--accent);
-      display: block;
-      margin-bottom: 0.3rem;
-    }}
-    .framing-block p {{
-      font-size: 0.82rem;
-      color: var(--text);
-      font-style: italic;
-    }}
-
-    /* ── Flags ── */
-    .flags-list {{ display: flex; flex-direction: column; gap: 0.4rem; }}
-    .flag-item {{
-      display: flex;
-      align-items: flex-start;
-      gap: 0.5rem;
-      font-size: 0.8rem;
-      color: var(--text);
-    }}
-    .flag-icon {{ color: #f97316; flex-shrink: 0; font-style: normal; }}
-    .no-flags {{ color: var(--muted); font-style: italic; }}
-    .no-flags .flag-icon {{ color: var(--muted); }}
-
-    /* ── Bidders ── */
-    .bidders-list {{ display: flex; flex-direction: column; gap: 0.5rem; }}
-    .bidder-row {{
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-    }}
-    .bidder-name {{
-      font-size: 0.82rem;
-      font-weight: 600;
-      color: var(--text);
-      flex: 1;
-      min-width: 0;
-    }}
-    .bidder-meta {{
-      font-size: 0.72rem;
-      color: var(--muted);
-    }}
-    .bidder-pill {{
-      font-size: 0.68rem;
-      font-weight: 600;
-      padding: 0.15rem 0.45rem;
-      border-radius: 999px;
-      border: 1px solid;
-      white-space: nowrap;
-    }}
-
-    /* ── Explainer panel ── */
-    .explainer {{
-      max-width: 1100px;
-      margin: 0 auto 2rem;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 1.5rem;
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr 1fr;
-      gap: 1.5rem;
-    }}
-    .explainer-section h3 {{
-      font-size: 0.7rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--accent);
-      margin-bottom: 0.6rem;
-    }}
-    .explainer-section p {{
-      font-size: 0.78rem;
-      color: var(--muted);
-      line-height: 1.6;
-    }}
-    .score-breakdown {{
-      display: flex;
-      flex-direction: column;
-      gap: 0.4rem;
-      margin-top: 0.2rem;
-    }}
-    .score-dim {{
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      font-size: 0.75rem;
-      color: var(--muted);
-    }}
-    .score-dim-bar {{
-      flex: 1;
-      height: 3px;
-      background: var(--border);
-      border-radius: 2px;
-      overflow: hidden;
-    }}
-    .score-dim-fill {{ height: 100%; border-radius: 2px; background: var(--accent); }}
-    .score-dim-label {{ min-width: 4.5rem; }}
-    .score-dim-weight {{ min-width: 1.5rem; text-align: right; color: #4f9cf9aa; }}
-
-    /* ── Footer ── */
-    .report-footer {{
-      max-width: 1100px;
-      margin: 2rem auto 0;
-      padding-top: 1rem;
-      border-top: 1px solid var(--border);
-      font-size: 0.72rem;
-      color: var(--muted);
-      display: flex;
-      justify-content: space-between;
-    }}
+    /* Report footer */
+    .report-footer {{ max-width:1200px; margin:2rem auto 0; padding-top:1rem;
+      border-top:1px solid var(--border); font-size:.72rem; color:var(--muted);
+      display:flex; justify-content:space-between; }}
   </style>
 </head>
 <body>
 
   <div class="report-header">
     <div>
-      <div class="report-title">Procurement Intelligence</div>
-      <div class="report-subtitle">NZ Government Procurement — Daily Watchlist</div>
+      <div class="brand-name">Groundwork <span class="by">by BidEdge</span></div>
+      <div class="brand-sub">NZ Government Procurement Intelligence</div>
     </div>
     <div class="report-meta">
       <strong>{notice_count}</strong>
-      opportunities · {run_date}
+      opportunities &middot; {run_date}
     </div>
   </div>
 
   <div class="explainer">
     <div class="explainer-section">
       <h3>What this is</h3>
-      <p>A daily watchlist of active NZ government procurement notices from GETS (gets.govt.nz), scored and ranked for strategic relevance to advisory and professional services firms. Notices are ingested each morning and enriched with AI analysis. Use it to prioritise bid/no-bid decisions and outreach.</p>
+      <p>Daily watchlist of active NZ government procurement notices from GETS (gets.govt.nz), scored and ranked for strategic relevance. Notices are ingested each morning, AI-enriched, and matched to likely bidders from 27,948 historical awards.</p>
     </div>
     <div class="explainer-section">
       <h3>How scores are calculated</h3>
-      <p>Each notice is scored 1–10 across four dimensions, then combined into a composite weighted score.</p>
+      <p>Each notice is scored 1&ndash;10 across four dimensions.</p>
       <div class="score-breakdown">
-        <div class="score-dim">
-          <span class="score-dim-label">Contract value</span>
-          <div class="score-dim-bar"><div class="score-dim-fill" style="width:75%"></div></div>
-          <span class="score-dim-weight">30%</span>
-        </div>
-        <div class="score-dim">
-          <span class="score-dim-label">Sector priority</span>
-          <div class="score-dim-bar"><div class="score-dim-fill" style="width:75%"></div></div>
-          <span class="score-dim-weight">30%</span>
-        </div>
-        <div class="score-dim">
-          <span class="score-dim-label">Eval complexity</span>
-          <div class="score-dim-bar"><div class="score-dim-fill" style="width:50%"></div></div>
-          <span class="score-dim-weight">20%</span>
-        </div>
-        <div class="score-dim">
-          <span class="score-dim-label">Days to close</span>
-          <div class="score-dim-bar"><div class="score-dim-fill" style="width:50%"></div></div>
-          <span class="score-dim-weight">20%</span>
-        </div>
+        <div class="score-dim"><span class="score-dim-label">Contract value</span><div class="score-dim-bar"><div class="score-dim-fill" style="width:75%"></div></div><span class="score-dim-weight">30%</span></div>
+        <div class="score-dim"><span class="score-dim-label">Sector priority</span><div class="score-dim-bar"><div class="score-dim-fill" style="width:75%"></div></div><span class="score-dim-weight">30%</span></div>
+        <div class="score-dim"><span class="score-dim-label">Eval complexity</span><div class="score-dim-bar"><div class="score-dim-fill" style="width:50%"></div></div><span class="score-dim-weight">20%</span></div>
+        <div class="score-dim"><span class="score-dim-label">Days to close</span><div class="score-dim-bar"><div class="score-dim-fill" style="width:50%"></div></div><span class="score-dim-weight">20%</span></div>
       </div>
     </div>
     <div class="explainer-section">
       <h3>Sector priorities</h3>
-      <p>Sectors are ranked by strategic relevance: <strong style="color:#4f9cf9">FM</strong> and <strong style="color:#f97316">Infrastructure</strong> score highest (0.95/0.90), followed by <strong style="color:#ef4444">Defence</strong>, <strong style="color:#fb923c">Utilities</strong>, and <strong style="color:#fb923c">Security</strong> (0.90/0.85), then <strong style="color:#a78bfa">ICT</strong> (0.80), <strong style="color:#34d399">Advisory</strong> (0.70), and other professional services. Adjust weights in config.py to reflect your firm's priorities.</p>
+      <p>FM and Infrastructure score highest (0.95/0.90), followed by Defence, Utilities, Security (0.90/0.85), ICT (0.80), Advisory (0.70), and other professional services. Adjust weights in config.py.</p>
     </div>
     <div class="explainer-section">
       <h3>How to use this report</h3>
-      <p>Review the <strong>close date badge</strong> first — red means ≤7 days. Read the <strong>AI summary</strong> and <strong>red flags</strong> to inform go/no-bid. Use <strong>recommended actions</strong> as a starting checklist. Check <strong>likely bidders</strong> to assess competitive field before committing resources.</p>
+      <p>Check the <strong>close date badge</strong> first — red means &le;7 days. Read the <strong>AI summary</strong> and <strong>flags</strong> to inform go/no-bid. Use <strong>recommended actions</strong> as your starting checklist.</p>
     </div>
   </div>
 
@@ -918,14 +653,13 @@ _HTML_TEMPLATE = """\
   </div>
 
   <div class="report-footer">
-    <span>Source: GETS (gets.govt.nz) · Scores computed by Procint Layer 1</span>
-    <span>Generated {run_date}</span>
+    <span>&copy; BidEdge Ltd &middot; Groundwork Procurement Intelligence &middot; Confidential</span>
+    <span>Source: GETS (gets.govt.nz) &middot; MBIE Awards Data &middot; Generated {run_date}</span>
   </div>
 
 </body>
 </html>
 """
-
 
 def write_html(watchlist: list[dict], output_dir: Path, run_date: date) -> Path:
     cards = []

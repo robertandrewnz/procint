@@ -49,57 +49,86 @@ def _require_auth():
 
 _BASE_STYLE = """
 <style>
-:root{--bg:#0d1117;--surface:#161b22;--surf2:#1c2230;--border:#2a3344;
-      --text:#e6edf3;--muted:#7d8fa8;--accent:#4f9cf9;
-      --green:#22c55e;--amber:#facc15;--red:#ef4444;}
+:root{--bg:#f5f6f8;--surface:#ffffff;--surf2:#f0f2f5;--border:#e2e6ea;
+      --text:#2c3e50;--muted:#6c757d;--navy:#1a2d4a;--gold:#c9a84c;
+      --gold-l:#f7eedb;--navy-l:#e8ecf3;--red:#c0392b;--red-l:#fdecea;
+      --green:#27ae60;--font:'Inter',system-ui,-apple-system,sans-serif;}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;
-     font-size:14px;line-height:1.6;}
-a{color:var(--accent);text-decoration:none;}
-a:hover{text-decoration:underline;}
-.nav{background:var(--surface);border-bottom:1px solid var(--border);
-     padding:.75rem 2rem;display:flex;align-items:center;gap:2rem;}
-.nav-brand{font-size:.85rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);}
-.nav-link{font-size:.8rem;color:var(--muted);}
-.nav-link:hover{color:var(--text);}
-.nav-right{margin-left:auto;font-size:.75rem;color:var(--muted);}
+body{background:var(--bg);color:var(--text);font-family:var(--font);
+     font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+a{color:var(--navy);text-decoration:none;}
+a:hover{color:var(--gold);}
+
+/* ── Navbar ── */
+.nav{background:var(--navy);padding:.85rem 2rem;display:flex;
+     align-items:center;gap:2rem;box-shadow:0 2px 8px rgba(26,45,74,.2);}
+.nav-brand-wrap{display:flex;flex-direction:column;margin-right:auto;}
+.nav-brand{font-size:.9rem;font-weight:800;color:#fff;letter-spacing:-.01em;}
+.nav-brand .by{font-weight:400;color:rgba(255,255,255,.45);}
+.nav-brand-sub{font-size:.6rem;font-weight:700;letter-spacing:.09em;
+               text-transform:uppercase;color:var(--gold);}
+.nav-link{font-size:.82rem;color:rgba(255,255,255,.75);padding:.35rem .6rem;
+          border-radius:4px;transition:background .12s;}
+.nav-link:hover{background:rgba(255,255,255,.12);color:#fff;}
+.nav-right{margin-left:auto;font-size:.75rem;}
+.nav-right a{color:rgba(255,255,255,.55);}
+.nav-right a:hover{color:#fff;}
+
+/* ── Page ── */
 .page{max-width:1100px;margin:0 auto;padding:2.5rem 2rem;}
-.page-title{font-size:1.25rem;font-weight:800;color:var(--text);margin-bottom:1.5rem;}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;
-      padding:1.25rem 1.5rem;margin-bottom:1rem;}
-.card-title{font-size:.9rem;font-weight:600;color:var(--text);margin-bottom:.3rem;}
+.page-title{font-size:1.2rem;font-weight:800;color:var(--navy);
+            margin-bottom:1.5rem;padding-bottom:.75rem;
+            border-bottom:2px solid var(--border);}
+
+/* ── Cards ── */
+.card{background:var(--surface);border:1px solid var(--border);
+      border-radius:8px;padding:1.25rem 1.5rem;margin-bottom:1rem;
+      box-shadow:0 1px 4px rgba(26,45,74,.06);}
+.card-title{font-size:.9rem;font-weight:700;color:var(--navy);margin-bottom:.3rem;}
 .card-meta{font-size:.75rem;color:var(--muted);margin-bottom:.6rem;}
-.chip{display:inline-flex;align-items:center;padding:.18rem .5rem;border-radius:999px;
-      font-size:.65rem;font-weight:600;border:1px solid;}
-.chip-blue{background:#4f9cf922;color:var(--accent);border-color:#4f9cf940;}
-.chip-amber{background:#facc1522;color:var(--amber);border-color:#facc1540;}
-.chip-red{background:#ef444422;color:var(--red);border-color:#ef444440;}
-.chip-green{background:#22c55e22;color:var(--green);border-color:#22c55e40;}
-.chip-grey{background:#94a3b822;color:var(--muted);border-color:#94a3b840;}
-table{width:100%;border-collapse:collapse;font-size:.82rem;}
-th{font-size:.65rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
-   color:var(--muted);padding:.45rem .7rem;border-bottom:1px solid var(--border);text-align:left;}
-td{padding:.5rem .7rem;border-bottom:1px solid var(--border);}
+
+/* ── Chips ── */
+.chip{display:inline-flex;align-items:center;padding:.18rem .5rem;
+      border-radius:999px;font-size:.65rem;font-weight:600;border:1px solid;}
+.chip-blue {background:var(--navy-l);color:var(--navy);border-color:#b0bcd4;}
+.chip-gold {background:var(--gold-l);color:#7a5c00;border-color:var(--gold);}
+.chip-red  {background:var(--red-l); color:var(--red); border-color:#f1a9a0;}
+.chip-grey {background:var(--surf2); color:var(--muted);border-color:var(--border);}
+
+/* ── Tables ── */
+table{width:100%;border-collapse:collapse;font-size:.83rem;}
+thead tr{background:var(--navy);}
+th{color:#fff;font-size:.66rem;font-weight:600;letter-spacing:.07em;
+   text-transform:uppercase;padding:.55rem .75rem;text-align:left;}
+td{padding:.55rem .75rem;border-bottom:1px solid var(--border);color:var(--text);}
 tr:last-child td{border-bottom:none;}
-tr:nth-child(even) td{background:var(--surf2);}
-.btn{display:inline-flex;align-items:center;gap:.4rem;padding:.5rem 1rem;
-     border-radius:6px;font-size:.8rem;font-weight:600;cursor:pointer;border:none;
-     text-decoration:none;}
-.btn-primary{background:var(--accent);color:#0d1117;}
-.btn-primary:hover{background:#6ab0fa;text-decoration:none;}
-.btn-outline{background:transparent;color:var(--accent);border:1px solid var(--accent);}
-.btn-outline:hover{background:#4f9cf922;text-decoration:none;}
+tbody tr:hover td{background:var(--surf2);}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;gap:.4rem;padding:.5rem 1.1rem;
+     background:var(--navy);color:#fff;border:1.5px solid var(--navy);
+     border-radius:6px;font-size:.82rem;font-weight:600;cursor:pointer;
+     text-decoration:none;transition:background .15s,border-color .15s;}
+.btn:hover{background:var(--gold);border-color:var(--gold);color:#fff;text-decoration:none;}
+.btn-outline{background:transparent;color:var(--navy);}
+.btn-outline:hover{background:var(--navy);color:#fff;}
+
+/* ── Forms ── */
 .form-group{margin-bottom:1.25rem;}
 label{display:block;font-size:.75rem;font-weight:600;color:var(--muted);margin-bottom:.4rem;}
 input[type=text],input[type=password],select{
-  width:100%;background:var(--surf2);border:1px solid var(--border);
-  border-radius:6px;color:var(--text);font-size:.85rem;padding:.55rem .85rem;}
-input:focus,select:focus{outline:none;border-color:var(--accent);}
+  width:100%;background:var(--surface);border:1.5px solid var(--border);
+  border-radius:6px;color:var(--text);font-size:.85rem;
+  padding:.55rem .85rem;transition:border-color .15s;}
+input:focus,select:focus{outline:none;border-color:var(--navy);}
+
+/* ── Alerts ── */
 .alert{padding:.75rem 1rem;border-radius:6px;font-size:.82rem;margin-bottom:1rem;}
-.alert-error{background:#ef444418;border:1px solid #ef444440;color:var(--red);}
-.alert-success{background:#22c55e18;border:1px solid #22c55e40;color:var(--green);}
+.alert-error  {background:var(--red-l);border:1px solid #f1a9a0;color:var(--red);}
+.alert-success{background:#eafaf1;border:1px solid #a9dfbf;color:var(--green);}
 </style>
 """
+
 
 _LOGIN_HTML = _BASE_STYLE + """
 <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;">
@@ -125,7 +154,7 @@ _LOGIN_HTML = _BASE_STYLE + """
 
 _DASHBOARD_HTML = _BASE_STYLE + """
 <div class="nav">
-  <span class="nav-brand">Procurement Intelligence</span>
+  <div class="nav-brand-wrap"><div class="nav-brand">Groundwork <span class="by">by BidEdge</span></div><div class="nav-brand-sub">Procurement Intelligence</div></div>
   <a class="nav-link" href="{{ url_for('dashboard') }}">Watchlist</a>
   <a class="nav-link" href="{{ url_for('packages_page') }}">Pursuit Packages</a>
   <a class="nav-link" href="{{ url_for('competitors_page') }}">Competitors</a>
@@ -196,7 +225,7 @@ _DASHBOARD_HTML = _BASE_STYLE + """
 
 _PACKAGES_HTML = _BASE_STYLE + """
 <div class="nav">
-  <span class="nav-brand">Procurement Intelligence</span>
+  <div class="nav-brand-wrap"><div class="nav-brand">Groundwork <span class="by">by BidEdge</span></div><div class="nav-brand-sub">Procurement Intelligence</div></div>
   <a class="nav-link" href="{{ url_for('dashboard') }}">Watchlist</a>
   <a class="nav-link" href="{{ url_for('packages_page') }}">Pursuit Packages</a>
   <a class="nav-link" href="{{ url_for('competitors_page') }}">Competitors</a>
@@ -228,7 +257,7 @@ _PACKAGES_HTML = _BASE_STYLE + """
 
 _COMPETITORS_HTML = _BASE_STYLE + """
 <div class="nav">
-  <span class="nav-brand">Procurement Intelligence</span>
+  <div class="nav-brand-wrap"><div class="nav-brand">Groundwork <span class="by">by BidEdge</span></div><div class="nav-brand-sub">Procurement Intelligence</div></div>
   <a class="nav-link" href="{{ url_for('dashboard') }}">Watchlist</a>
   <a class="nav-link" href="{{ url_for('packages_page') }}">Pursuit Packages</a>
   <a class="nav-link" href="{{ url_for('competitors_page') }}">Competitors</a>
