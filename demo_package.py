@@ -29,45 +29,55 @@ logger = logging.getLogger(__name__)
 
 def _html_to_pdf(html_path: Path, pdf_path: Path) -> bool:
     """
-    Convert HTML to PDF via pdfkit (requires wkhtmltopdf installed).
-    Returns True on success, False if pdfkit/wkhtmltopdf not available.
-    Install: brew install wkhtmltopdf
+    Convert HTML to PDF via weasyprint.
+    Returns True on success, False if weasyprint not available.
+    Install: pip install weasyprint
+    Note: wkhtmltopdf was removed from Homebrew in 2023; weasyprint is the
+    recommended replacement — pure Python, better CSS support.
     """
     try:
-        import pdfkit  # type: ignore
+        from weasyprint import HTML, CSS  # type: ignore
+        from weasyprint.text.fonts import FontConfiguration  # type: ignore
     except ImportError:
-        logger.warning("pdfkit not installed — skipping PDF generation. pip install pdfkit")
+        logger.warning("weasyprint not installed — skipping PDF. pip install weasyprint")
         return False
 
-    if not shutil.which("wkhtmltopdf"):
-        logger.warning(
-            "wkhtmltopdf not found — skipping PDF generation. "
-            "Install with: brew install wkhtmltopdf"
-        )
-        return False
-
-    options = {
-        "page-size": "A4",
-        "margin-top": "12mm",
-        "margin-bottom": "16mm",
-        "margin-left": "10mm",
-        "margin-right": "10mm",
-        "encoding": "UTF-8",
-        "enable-local-file-access": "",
-        "quiet": "",
-        "print-media-type": "",
-        "no-outline": "",
-        # Sidebar doesn't translate well to PDF — use a print-optimised layout
-        "user-style-sheet": "",
-    }
+    # Print-optimised CSS overrides: hide the sticky sidebar and demo footer bar,
+    # ensure the main content fills the full page width.
+    print_css = CSS(string="""
+        @page { size: A4; margin: 15mm 15mm 20mm 15mm; }
+        .sidebar { display: none !important; }
+        .demo-footer-bar { position: static !important; border-top: 1px solid #2a3344;
+                           padding: 6pt 0; font-size: 7pt; }
+        .main { padding-left: 0 !important; max-width: 100% !important;
+                padding-bottom: 0 !important; }
+        body { padding: 0 !important; }
+        a { color: #4f9cf9; text-decoration: none; }
+    """)
 
     try:
-        pdfkit.from_file(str(html_path), str(pdf_path), options=options)
-        logger.info("PDF generated: %s", pdf_path)
+        font_config = FontConfiguration()
+        html_doc = HTML(filename=str(html_path))
+        html_doc.write_pdf(
+            target=str(pdf_path),
+            stylesheets=[print_css],
+            font_config=font_config,
+        )
+        logger.info("PDF generated: %s (%s)",
+                    pdf_path,
+                    _human_size(pdf_path.stat().st_size))
         return True
     except Exception as exc:
-        logger.warning("pdfkit conversion failed: %s", exc)
+        logger.warning("weasyprint conversion failed: %s", exc)
         return False
+
+
+def _human_size(n: int) -> str:
+    for unit in ("B", "KB", "MB"):
+        if n < 1024:
+            return f"{n:.0f}{unit}"
+        n //= 1024
+    return f"{n:.0f}MB"
 
 
 # ── Demo branding ──────────────────────────────────────────────────────────────
