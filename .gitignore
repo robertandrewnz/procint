@@ -21,3 +21,4 @@ venv/
 # macOS
 .DS_Store
 data/mbie/
+logs/
