@@ -361,3 +361,102 @@ def get_profile(org_id: int) -> Optional[dict]:
     return db.fetchone(
         "SELECT * FROM agency_profiles WHERE org_id = %s", (org_id,)
     )
+
+
+# ── MBIE-backed summary profile (for market intelligence) ─────────────────────
+
+def get_agency_profile(agency_name: str) -> dict:
+    """
+    Compute a lightweight behaviour profile for *agency_name* directly from
+    MBIE award data. Used by generate_market_intelligence() to give Claude
+    structured context without requiring a full Layer 2 run.
+
+    Returns dict:
+        agency_name, total_awards, total_value_nzd,
+        distinct_suppliers, incumbent_rate,
+        most_frequent_winner, most_frequent_winner_wins,
+        top_sectors
+    """
+    if not agency_name:
+        return {}
+
+    profile: dict = {"agency_name": agency_name}
+
+    try:
+        row = db.fetchone(
+            """
+            SELECT COUNT(*)                           AS total_awards,
+                   SUM(n.awarded_amount)              AS total_value,
+                   COUNT(DISTINCT s.business_name)    AS distinct_suppliers
+              FROM mbie_award_notices n
+              JOIN mbie_award_suppliers s ON s.rfx_id = n.rfx_id
+             WHERE LOWER(n.posting_agency) = LOWER(%s)
+               AND n.is_awarded IS TRUE
+            """,
+            (agency_name,),
+        )
+        if row:
+            profile["total_awards"]       = int(row["total_awards"] or 0)
+            profile["total_value_nzd"]    = float(row["total_value"] or 0)
+            profile["distinct_suppliers"] = int(row["distinct_suppliers"] or 0)
+
+        winner_row = db.fetchone(
+            """
+            SELECT s.business_name, COUNT(*) AS wins
+              FROM mbie_award_notices n
+              JOIN mbie_award_suppliers s ON s.rfx_id = n.rfx_id
+             WHERE LOWER(n.posting_agency) = LOWER(%s)
+               AND n.is_awarded IS TRUE
+             GROUP BY s.business_name
+             ORDER BY wins DESC
+             LIMIT 1
+            """,
+            (agency_name,),
+        )
+        if winner_row:
+            profile["most_frequent_winner"]      = winner_row["business_name"]
+            profile["most_frequent_winner_wins"] = int(winner_row["wins"])
+
+        if profile.get("total_awards") and profile.get("distinct_suppliers"):
+            repeat_row = db.fetchone(
+                """
+                SELECT COUNT(*) AS repeat_suppliers
+                  FROM (
+                      SELECT s.business_name
+                        FROM mbie_award_notices n
+                        JOIN mbie_award_suppliers s ON s.rfx_id = n.rfx_id
+                       WHERE LOWER(n.posting_agency) = LOWER(%s)
+                         AND n.is_awarded IS TRUE
+                       GROUP BY s.business_name
+                      HAVING COUNT(*) > 1
+                  ) sub
+                """,
+                (agency_name,),
+            )
+            if repeat_row and profile["distinct_suppliers"]:
+                profile["incumbent_rate"] = round(
+                    int(repeat_row["repeat_suppliers"] or 0)
+                    / profile["distinct_suppliers"],
+                    2,
+                )
+
+        sector_rows = db.fetchall(
+            """
+            SELECT c.sector_tag, COUNT(*) AS cnt
+              FROM mbie_award_notices n
+              JOIN mbie_award_categories c ON c.rfx_id = n.rfx_id
+             WHERE LOWER(n.posting_agency) = LOWER(%s)
+               AND n.is_awarded IS TRUE
+               AND c.sector_tag IS NOT NULL
+             GROUP BY c.sector_tag
+             ORDER BY cnt DESC
+             LIMIT 3
+            """,
+            (agency_name,),
+        )
+        profile["top_sectors"] = [r["sector_tag"] for r in sector_rows]
+
+    except Exception as exc:
+        logger.warning("get_agency_profile(%s): %s", agency_name, exc)
+
+    return profile

@@ -187,13 +187,37 @@ def _latest_watchlist() -> Optional[Path]:
     c = sorted(OUTPUT_DIR.glob("watchlist_*.html"), reverse=True)
     return c[0] if c else None
 
-def _watchlist_summary(preferred_sectors: Optional[list[str]] = None) -> dict:
+def _watchlist_summary(
+    preferred_sectors: Optional[list[str]] = None,
+    user_id: Optional[str] = None,
+) -> dict:
     """
     Return top notices re-ranked by client sector preference.
-    When preferred_sectors is None/empty all sectors score equally (neutral).
+
+    Scoring:
+    - preferred sector  → composite × 1.4 (capped at 10)
+    - non-preferred     → composite × 0.7
+    - no preference     → composite unchanged (neutral)
+
+    If *user_id* is provided, preferred_sectors is merged with any saved DB
+    preferences so the two sources agree.
     """
     try:
         from scoring import compute_composite_for_client
+
+        # Merge JSON-file sectors with DB-saved preferences
+        merged_sectors = list(preferred_sectors or [])
+        if user_id:
+            try:
+                from preferences import get_user_preferences
+                db_prefs = get_user_preferences(user_id)
+                for s in db_prefs.get("sectors") or []:
+                    if s not in merged_sectors:
+                        merged_sectors.append(s)
+            except Exception:
+                pass
+        preferred_sectors = merged_sectors or None
+
         # Pull a wider pool so re-ranking has room to surface preferred sectors
         pool = db.fetchall("""
             SELECT r.notice_id, r.title, r.agency, r.close_date,
@@ -207,13 +231,21 @@ def _watchlist_summary(preferred_sectors: Optional[list[str]] = None) -> dict:
         """, (config.PRIORITY_THRESHOLD,))
 
         for row in pool:
-            row["client_score"] = compute_composite_for_client(
+            base = compute_composite_for_client(
                 float(row.get("score_value") or 0),
                 float(row.get("score_complexity") or 0),
                 float(row.get("score_urgency") or 0),
                 row.get("sector_tag") or "other",
                 preferred_sectors,
             )
+            # Apply 1.4× boost / 0.7× penalty based on preference
+            if preferred_sectors:
+                if (row.get("sector_tag") or "other") in preferred_sectors:
+                    base = min(base * 1.4, 10.0)
+                else:
+                    base = base * 0.7
+            row["client_score"] = round(base, 2)
+
         pool.sort(key=lambda r: r["client_score"], reverse=True)
         notices = pool[:5]
 
@@ -659,7 +691,11 @@ def login():
                                request.form.get("password",""))
         if user:
             login_user(user, remember=request.form.get("remember") == "on")
-            return redirect(request.args.get("next") or url_for("gw_home"))
+            next_url = request.args.get("next")
+            if not next_url:
+                from preferences import has_preferences
+                next_url = url_for("gw_home") if has_preferences(user.id) else url_for("onboarding")
+            return redirect(next_url)
         error = "Invalid username or password."
     err_html = f'<div class="al al-er">{error}</div>' if error else ""
     body = (f'<div class="lw"><div class="lb">'
@@ -688,6 +724,110 @@ def login():
 def logout():
     logout_user()
     return redirect(url_for("login"))
+
+
+# ── Onboarding ────────────────────────────────────────────────────────────────
+
+@app.route("/onboarding", methods=["GET", "POST"])
+@login_required
+def onboarding():
+    from preferences import save_user_preferences
+
+    # Fetch distinct sector tags from DB for the multi-select
+    try:
+        sector_rows = db.fetchall(
+            "SELECT DISTINCT sector_tag FROM parsed_notices "
+            "WHERE sector_tag IS NOT NULL ORDER BY sector_tag",
+            (),
+        )
+        available_sectors = [r["sector_tag"] for r in sector_rows]
+    except Exception:
+        available_sectors = list(config.SECTORS)
+
+    error = ""
+    if request.method == "POST":
+        selected = request.form.getlist("sectors")
+        agency_focus = [a.strip() for a in
+                        request.form.get("agency_focus", "").split(",")
+                        if a.strip()]
+        try:
+            min_val = int(request.form.get("min_value_nzd") or 0)
+        except ValueError:
+            min_val = 0
+
+        if not selected:
+            error = "Please select at least one sector."
+        else:
+            save_user_preferences(
+                user_id=current_user.id,
+                sectors=selected,
+                agency_focus=agency_focus,
+                min_value_nzd=min_val,
+            )
+            _flash(f"Preferences saved — showing {', '.join(selected)} opportunities.", "success")
+            return redirect(url_for("gw_home"))
+
+    err_html = f'<div class="al al-er">{error}</div>' if error else ""
+
+    # Build sector checkboxes
+    sector_opts = ""
+    for s in available_sectors:
+        label = s.replace("_", " ").upper()
+        sector_opts += (
+            f'<label style="display:flex;align-items:center;gap:.6rem;'
+            f'padding:.45rem .6rem;border-radius:5px;cursor:pointer;'
+            f'border:1px solid var(--border);background:var(--surf2);'
+            f'font-size:.84rem;transition:border-color .15s;" '
+            f'onmouseover="this.style.borderColor=\'var(--gold)\'" '
+            f'onmouseout="this.style.borderColor=\'var(--border)\'">'
+            f'<input type="checkbox" name="sectors" value="{s}" '
+            f'style="accent-color:var(--gold);width:15px;height:15px;"> {label}</label>'
+        )
+
+    body = (
+        f'<div style="min-height:100vh;display:flex;align-items:center;'
+        f'justify-content:center;padding:2rem;background:var(--bg);">'
+        f'<div style="width:100%;max-width:560px;">'
+        f'<div style="text-align:center;margin-bottom:2rem;">'
+        f'<div style="font-size:1.25rem;font-weight:800;color:#fff;">Welcome, {current_user.name}</div>'
+        f'<div style="font-size:.75rem;font-weight:700;letter-spacing:.1em;'
+        f'text-transform:uppercase;color:var(--gold);margin-top:.3rem;">'
+        f'Set your intelligence preferences</div></div>'
+        f'<div class="card">'
+        f'<div class="ch"><span class="ct">Sector Focus</span>'
+        f'<span style="font-size:.72rem;color:var(--muted);">Select all that apply</span></div>'
+        f'<div class="cb">'
+        f'{err_html}'
+        f'<form method="POST" action="{url_for("onboarding")}">'
+        f'<div class="fg">'
+        f'<label class="fl">Which sectors are most relevant to your firm?</label>'
+        f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-top:.35rem;">'
+        f'{sector_opts}'
+        f'</div></div>'
+        f'<div class="fg">'
+        f'<label class="fl">Agency focus <span style="font-weight:400;color:var(--muted);">'
+        f'(optional — comma-separated)</span></label>'
+        f'<input name="agency_focus" class="fc2" '
+        f'placeholder="e.g. NZTA, Ministry of Education, Waka Kotahi">'
+        f'<div class="fh">Opportunities from these agencies will be highlighted.</div>'
+        f'</div>'
+        f'<div class="fg">'
+        f'<label class="fl">Minimum contract value (NZD) '
+        f'<span style="font-weight:400;color:var(--muted);">(optional)</span></label>'
+        f'<input name="min_value_nzd" type="number" class="fc2" '
+        f'placeholder="e.g. 100000" min="0" step="50000">'
+        f'<div class="fh">Filter out opportunities below this threshold.</div>'
+        f'</div>'
+        f'<button type="submit" class="btn bg-gold" '
+        f'style="width:100%;justify-content:center;padding:.65rem;">'
+        f'Save preferences &rarr;</button>'
+        f'<div style="text-align:center;margin-top:1rem;">'
+        f'<a href="{url_for("gw_home")}" '
+        f'style="font-size:.78rem;color:var(--muted);">Skip for now</a>'
+        f'</div>'
+        f'</form></div></div></div></div>'
+    )
+    return _page("Set Preferences — Groundwork", body, public=False, sidebar=False)
 
 
 # ── Share ─────────────────────────────────────────────────────────────────────
@@ -746,14 +886,35 @@ def create_share():
 @app.route("/groundwork")
 @login_required
 def gw_home():
-    data    = _watchlist_summary(preferred_sectors=current_user.preferred_sectors)
-    top     = data.get("top_notices", [])
-    flags   = data.get("flags", [])
-    total   = data.get("total", 0)
+    data     = _watchlist_summary(
+        preferred_sectors=current_user.preferred_sectors,
+        user_id=current_user.id,
+    )
+    top      = data.get("top_notices", [])
+    total    = data.get("total", 0)
     run_date = data.get("run_date", date.today().isoformat())
+    # Effective preferred sectors (merged JSON + DB)
+    eff_sectors = data.get("preferred_sectors") or current_user.preferred_sectors
     pursuits = len(_list_artefacts(current_user.slug, "*pursuit*.html"))
     comps    = len(_list_artefacts(current_user.slug, "competitor_*.html"))
 
+    # ── Section 6: Claude-powered market signals ──────────────────────────────
+    try:
+        from market_intelligence import get_stored_signals
+        signals = get_stored_signals(current_user.id)
+    except Exception as _e:
+        logger.warning("market_intelligence unavailable: %s", _e)
+        signals = []
+
+    # ── Section 4: Renewal radar ──────────────────────────────────────────────
+    try:
+        from renewal_radar import get_renewal_radar
+        renewals = get_renewal_radar(user_sectors=eff_sectors or None, days_ahead=90)
+    except Exception as _e:
+        logger.warning("renewal_radar unavailable: %s", _e)
+        renewals = []
+
+    # ── Build notices HTML ────────────────────────────────────────────────────
     notices_html = ""
     for i, n in enumerate(top, 1):
         display_score = float(n.get("client_score") or n.get("composite_score") or 0)
@@ -769,43 +930,93 @@ def gw_home():
                          f'<div class="nscore">{display_score:.1f}<small>/10</small></div>'
                          f'</div>')
 
-    flags_html = ""
-    for fl in flags:
-        sev = (fl.get("severity") or "low").lower()
-        css_map = {"high": "fsh", "medium": "fsm", "low": "fsl"}
-        flags_html += (f'<div class="fr">'
-                       f'<span class="fs {css_map.get(sev,"fsl")}">{sev}</span>'
-                       f'<span style="line-height:1.5;">{fl.get("description","")}</span></div>')
-    if not flags_html:
-        flags_html = '<p style="color:var(--muted);font-size:.82rem;">No active market signals.</p>'
+    # ── Build market signals HTML (Claude-generated) ──────────────────────────
+    priority_css = {"high": "fsh", "medium": "fsm", "low": "fsl"}
+    signals_html = ""
+    for sig in signals:
+        sev = (sig.get("priority") or "low").lower()
+        action_text = sig.get("action", "")
+        signals_html += (
+            f'<div class="fr">'
+            f'<span class="fs {priority_css.get(sev,"fsl")}">{sev}</span>'
+            f'<span style="line-height:1.5;">'
+            f'<strong style="font-size:.83rem;">{sig.get("signal","")}</strong>'
+            f'{"<br><span style=font-size:.78rem;color:var(--muted);>" + action_text + "</span>" if action_text else ""}'
+            f'</span></div>'
+        )
+    if not signals_html:
+        signals_html = (
+            '<p style="color:var(--muted);font-size:.82rem;">'
+            'No signals yet — run the intelligence pipeline.</p>'
+        )
+
+    # ── Build renewal radar HTML ──────────────────────────────────────────────
+    renewal_rows = ""
+    for r in renewals[:5]:
+        val_str = _fmt_value(r.get("contract_value") or r.get("awarded_amount"))
+        src = r.get("source", "")
+        src_label = "confirmed" if src == "end_date" else "est."
+        renewal_rows += (
+            f'<div class="nr" style="padding:.75rem 1.1rem;">'
+            f'<div class="nmain">'
+            f'<div class="ntitle" style="font-size:.83rem;">{(r.get("title") or "")[:70]}</div>'
+            f'<div class="nagency">{r.get("agency_name") or r.get("posting_agency","")}</div>'
+            f'<div class="nmeta">'
+            f'{_sector_badge(r.get("sector_tag",""))}'
+            f'<span class="badge bk">{src_label}</span>'
+            f'</div></div>'
+            f'<div style="flex-shrink:0;text-align:right;">'
+            f'<div style="font-size:.88rem;font-weight:700;color:var(--gold);">{val_str}</div>'
+            f'<div style="font-size:.65rem;color:var(--muted);">value</div>'
+            f'</div></div>'
+        )
+    renewal_card = ""
+    if renewals:
+        renewal_card = (
+            f'<div class="card" style="margin-top:1.25rem;">'
+            f'<div class="ch"><span class="ct">Renewal Radar</span>'
+            f'<span style="font-size:.72rem;color:var(--muted);">Contracts approaching renewal · next 90 days</span></div>'
+            f'{renewal_rows}'
+            f'</div>'
+        )
 
     wl_link = f'<a href="{url_for("gw_watchlist")}" class="btn bg-out sm">Full watchlist &rarr;</a>'
+    prefs_link = (f'<a href="{url_for("onboarding")}" '
+                  f'style="font-size:.72rem;color:var(--muted);margin-left:.75rem;">Edit preferences</a>')
+
     # Sector preference indicator
-    if current_user.preferred_sectors:
+    if eff_sectors:
         pills = "".join(
             f'<span style="background:rgba(201,168,76,.15);color:var(--gold);'
             f'border:1px solid rgba(201,168,76,.3);border-radius:4px;'
             f'padding:.1rem .4rem;font-size:.7rem;font-weight:600;margin-right:.3rem;">'
             f'{s}</span>'
-            for s in current_user.preferred_sectors
+            for s in eff_sectors
         )
-        sector_note = f' &middot; Ranked for: {pills}'
+        sector_note = f' &middot; Ranked for: {pills}{prefs_link}'
     else:
-        sector_note = ' &middot; <span style="font-size:.75rem;color:var(--muted);">Sector-neutral ranking</span>'
+        sector_note = (f' &middot; <span style="font-size:.75rem;color:var(--muted);">'
+                       f'Sector-neutral ranking</span>{prefs_link}')
+
     body = (f'<div class="ptitle">Dashboard</div>'
             f'<div class="psub">Good morning, {current_user.name} &middot; {run_date}{sector_note}</div>'
             f'<div class="stats">'
             f'<div class="stat"><div class="sval">{total}</div><div class="slbl">Active opportunities</div></div>'
             f'<div class="stat"><div class="sval">{pursuits}</div><div class="slbl">Pursuit packages</div></div>'
             f'<div class="stat"><div class="sval">{comps}</div><div class="slbl">Competitor profiles</div></div>'
-            f'<div class="stat"><div class="sval">{len(flags)}</div><div class="slbl">Market signals</div></div>'
+            f'<div class="stat"><div class="sval">{len(signals)}</div><div class="slbl">Market signals</div></div>'
             f'</div>'
             f'<div style="display:grid;grid-template-columns:1.6fr 1fr;gap:1.25rem;">'
             f'<div class="card"><div class="ch"><span class="ct">Top Opportunities</span>{wl_link}</div>'
             f'{notices_html or "<div class=cb><p style=color:var(--muted)>No scored notices yet.</p></div>"}'
             f'</div>'
-            f'<div class="card"><div class="ch"><span class="ct">Market Signals</span></div>'
-            f'<div class="cb">{flags_html}</div></div></div>')
+            f'<div>'
+            f'<div class="card"><div class="ch"><span class="ct">Market Signals</span>'
+            f'<span style="font-size:.68rem;color:var(--muted);">AI · refreshed daily</span></div>'
+            f'<div class="cb" style="padding:.85rem 1rem;">{signals_html}</div></div>'
+            f'</div>'
+            f'</div>'
+            f'{renewal_card}')
     return _page("Dashboard — Groundwork", body, "home")
 
 
