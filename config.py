@@ -147,5 +147,67 @@ TOP_N_BIDDERS_PER_NOTICE: int = 3
 # ── Bidder data ───────────────────────────────────────────────────────────────
 BIDDER_CSV_PATH: str = "data/bidders.csv"
 
+# ── Layer 2 — Knowledge graph & intelligence synthesis ────────────────────────
+
+# GETS award notices search URL. Needs verification against live site.
+GETS_AWARDS_URL: str = "https://www.gets.govt.nz/ExternalIndex.htm"
+GETS_AWARDS_PARAMS: dict = {"status": "awarded", "ResultType": "tender"}
+
+# Fuzzy name matching: minimum ratio (0–100) to treat two org names as the same
+ORG_FUZZY_MATCH_THRESHOLD: int = int(os.getenv("ORG_FUZZY_MATCH_THRESHOLD", "88"))
+
+# Minimum notices before generating a Claude agency profile narrative
+AGENCY_PROFILE_MIN_NOTICES: int = int(os.getenv("AGENCY_PROFILE_MIN_NOTICES", "3"))
+
+# Days ahead to flag contracts approaching renewal
+RENEWAL_WINDOW_DAYS: int = int(os.getenv("RENEWAL_WINDOW_DAYS", "90"))
+
+# Days lookback for procurement surge detection
+SURGE_LOOKBACK_DAYS: int = int(os.getenv("SURGE_LOOKBACK_DAYS", "30"))
+
+# Win streak threshold (consecutive awards in the same sector for same supplier)
+WIN_STREAK_THRESHOLD: int = int(os.getenv("WIN_STREAK_THRESHOLD", "3"))
+
+# Max notices to generate agency profiles for per Layer 2 run (cost control)
+MAX_AGENCY_PROFILES_PER_RUN: int = int(os.getenv("MAX_AGENCY_PROFILES_PER_RUN", "15"))
+
+# Max competitor assessments per Layer 2 run
+MAX_COMPETITOR_ASSESSMENTS: int = int(os.getenv("MAX_COMPETITOR_ASSESSMENTS", "10"))
+
+# Layer 2 output section title
+LAYER2_SECTION_TITLE: str = "Market Intelligence"
+
+# ── Layer 3 — Executive artefacts & client delivery ──────────────────────────
+
+# Artefact output root (subdirs: {client_slug}/{date}/)
+ARTEFACTS_DIR: str = os.getenv("ARTEFACTS_DIR", "output/artefacts")
+
+# Model for Layer 3 (longer-form synthesis — can be overridden per client)
+CLAUDE_MODEL_L3: str = os.getenv("CLAUDE_MODEL_L3", CLAUDE_MODEL)
+CLAUDE_MAX_TOKENS_L3: int = int(os.getenv("CLAUDE_MAX_TOKENS_L3", "4096"))
+
+# Portal auth (single shared password per deployment)
+PORTAL_PASSWORD: str = os.getenv("PORTAL_PASSWORD", "changeme")
+PORTAL_HOST: str = os.getenv("PORTAL_HOST", "127.0.0.1")
+PORTAL_PORT: int = int(os.getenv("PORTAL_PORT", "5000"))
+PORTAL_SECRET_KEY: str = os.getenv("PORTAL_SECRET_KEY", "change-this-secret-key")
+
+# SMTP for weekly briefing emails
+SMTP_HOST: str = os.getenv("SMTP_HOST", "")
+SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER: str = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM: str = os.getenv("SMTP_FROM", "")
+BRIEFING_RECIPIENTS: str = os.getenv("BRIEFING_RECIPIENTS", "")  # comma-separated
+
+# Demo package branding (for cold-outreach samples)
+DEMO_FIRM_NAME: str = os.getenv("DEMO_FIRM_NAME", "Procurement Win AI")
+DEMO_CONTACT_EMAIL: str = os.getenv("DEMO_CONTACT_EMAIL", "")
+DEMO_CONTACT_PHONE: str = os.getenv("DEMO_CONTACT_PHONE", "")
+DEMO_WEBSITE: str = os.getenv("DEMO_WEBSITE", "")
+
+# How many competitors to show in pursuit packages
+PURSUIT_COMPETITOR_LIMIT: int = int(os.getenv("PURSUIT_COMPETITOR_LIMIT", "8"))
+
 # ── Logging ───────────────────────────────────────────────────────────────────
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
