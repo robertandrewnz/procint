@@ -199,54 +199,44 @@ def _watchlist_summary(
     - non-preferred     → composite × 0.7
     - no preference     → composite unchanged (neutral)
 
-    If *user_id* is provided, preferred_sectors is merged with any saved DB
-    preferences so the two sources agree.
+    If *user_id* is provided, the DB row is the authoritative source.
+    The JSON-file sectors (passed as preferred_sectors) are only used as a
+    fallback when no DB row exists for that user.
     """
     try:
-        from scoring import compute_composite_for_client
-
-        # Merge JSON-file sectors with DB-saved preferences
-        merged_sectors = list(preferred_sectors or [])
+        # DB is source of truth for sector preferences; JSON sectors are fallback only
         if user_id:
             try:
                 from preferences import get_user_preferences
                 db_prefs = get_user_preferences(user_id)
-                for s in db_prefs.get("sectors") or []:
-                    if s not in merged_sectors:
-                        merged_sectors.append(s)
+                db_sectors = db_prefs.get("sectors") or []
+                if db_sectors:
+                    preferred_sectors = db_sectors
             except Exception:
                 pass
-        preferred_sectors = merged_sectors or None
 
-        # Pull a wider pool so re-ranking has room to surface preferred sectors
+        # Fetch active (not yet closed) parsed notices ordered by urgency
         pool = db.fetchall("""
             SELECT r.notice_id, r.title, r.agency, r.close_date,
-                   p.sector_tag, p.days_until_close, s.composite_score,
-                   s.score_value, s.score_complexity, s.score_urgency
-              FROM scored_notices s
-              JOIN raw_notices r  ON r.notice_id = s.notice_id
-              JOIN parsed_notices p ON p.notice_id = s.notice_id
-             WHERE s.composite_score >= %s
-             ORDER BY s.composite_score DESC LIMIT 50
-        """, (config.PRIORITY_THRESHOLD,))
+                   p.sector_tag, p.days_until_close, p.value_band
+              FROM parsed_notices p
+              JOIN raw_notices r ON r.notice_id = p.notice_id
+             WHERE (p.days_until_close IS NULL OR p.days_until_close >= 0)
+             ORDER BY p.days_until_close ASC NULLS LAST
+             LIMIT 50
+        """)
 
-        for row in pool:
-            base = compute_composite_for_client(
-                float(row.get("score_value") or 0),
-                float(row.get("score_complexity") or 0),
-                float(row.get("score_urgency") or 0),
-                row.get("sector_tag") or "other",
-                preferred_sectors,
-            )
-            # Apply 1.4× boost / 0.7× penalty based on preference
-            if preferred_sectors:
-                if (row.get("sector_tag") or "other") in preferred_sectors:
-                    base = min(base * 1.4, 10.0)
-                else:
-                    base = base * 0.7
-            row["client_score"] = round(base, 2)
+        pool = [dict(r) for r in pool]
+        # If sectors preferred, surface matching notices first, then sort by urgency+value
+        if preferred_sectors:
+            matched   = [r for r in pool if (r.get("sector_tag") or "other") in preferred_sectors]
+            unmatched = [r for r in pool if (r.get("sector_tag") or "other") not in preferred_sectors]
+            matched.sort(key=_notice_sort_key)
+            unmatched.sort(key=_notice_sort_key)
+            pool = matched + unmatched
+        else:
+            pool.sort(key=_notice_sort_key)
 
-        pool.sort(key=lambda r: r["client_score"], reverse=True)
         notices = pool[:5]
 
         flags = db.fetchall("""
@@ -255,10 +245,8 @@ def _watchlist_summary(
              ORDER BY CASE severity WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END
              LIMIT 4
         """)
-        total = db.fetchone(
-            "SELECT COUNT(*) as n FROM scored_notices WHERE composite_score >= %s",
-            (config.PRIORITY_THRESHOLD,))
-        return {"top_notices": [dict(n) for n in notices],
+        total = db.fetchone("SELECT COUNT(*) as n FROM parsed_notices")
+        return {"top_notices": notices,
                 "flags": [dict(f) for f in flags],
                 "total": total["n"] if total else 0,
                 "run_date": date.today().isoformat(),
@@ -273,9 +261,10 @@ def _watchlist_summary(
 
 CSS = """
 <style>
-:root{--bg:#0f1923;--surf:#162032;--surf2:#1e2f45;--border:#253d5c;
-      --text:#f0f4f8;--muted:#8fa3bc;--navy:#1a2d4a;--gold:#c9a84c;
-      --gold-l:rgba(201,168,76,.12);--red:#e05555;--green:#4caf7d;
+:root{--bg:#1E2D40;--surf:#253345;--surf2:#2a3d54;--border:#253d5c;
+      --text:#EDE8E3;--muted:#8fa3bc;--navy:#1a2d4a;--gold:#2a9d8f;
+      --gold-l:rgba(42,157,143,.12);--red:#e05555;--green:#4caf7d;
+      --card:#253345;--card-border:#253d5c;--card-hover:#2a3d54;
       --font:'Inter',system-ui,-apple-system,sans-serif;}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 html{scroll-behavior:smooth;}
@@ -298,7 +287,7 @@ h1,h2,h3{line-height:1.3;color:var(--text);}
 .nav-link:hover,.nav-link.active{color:#fff;}
 .nav-link.active{background:var(--surf2);}
 .nav-user{font-size:.78rem;color:var(--muted);display:flex;align-items:center;gap:.75rem;}
-.nav-user strong{color:var(--text);}
+.nav-user strong{color:#fff;}
 /* Shell */
 .shell{display:flex;min-height:calc(100vh - 52px);}
 .side{width:210px;flex-shrink:0;background:var(--surf);
@@ -308,60 +297,58 @@ h1,h2,h3{line-height:1.3;color:var(--text);}
 .side a{display:flex;align-items:center;gap:.6rem;padding:.42rem .65rem;
         border-radius:5px;font-size:.83rem;color:var(--muted);margin-bottom:.15rem;transition:.12s;}
 .side a:hover{background:var(--surf2);color:#fff;}
-.side a.on{background:var(--gold-l);color:var(--gold);border:1px solid rgba(201,168,76,.25);}
+.side a.on{background:var(--gold-l);color:var(--gold);border:1px solid rgba(42,157,143,.25);}
 /* Content */
 .main{flex:1;padding:2.5rem 2.5rem;overflow-x:hidden;}
 .ptitle{font-size:1.3rem;font-weight:800;color:var(--text);margin-bottom:.35rem;}
 .psub{font-size:.85rem;color:var(--muted);margin-bottom:2rem;}
 /* Cards */
-.card{background:var(--surf);border:1px solid var(--border);border-radius:8px;
-      overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.2);margin-bottom:1.25rem;}
-.ch{background:var(--surf2);border-bottom:1px solid var(--border);
+.card{background:var(--card);border:1px solid var(--card-border);border-radius:8px;
+      overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.07);margin-bottom:1.25rem;}
+.ch{background:var(--surf2);border-bottom:1px solid var(--card-border);
     padding:.85rem 1.25rem;display:flex;align-items:center;justify-content:space-between;}
 .ct{font-size:.88rem;font-weight:700;}
 .cb{padding:1.25rem;}
 /* Notice rows */
 .nr{display:flex;align-items:flex-start;gap:1rem;padding:1rem 1.25rem;
-    border-bottom:1px solid var(--border);transition:.1s;}
+    border-bottom:1px solid var(--card-border);transition:.1s;}
 .nr:last-child{border-bottom:none;}
-.nr:hover{background:var(--surf2);}
+.nr:hover{background:var(--card-hover);}
 .nrank{flex-shrink:0;width:1.75rem;height:1.75rem;border-radius:50%;
        background:var(--gold-l);color:var(--gold);font-size:.72rem;font-weight:700;
        display:flex;align-items:center;justify-content:center;
-       border:1px solid rgba(201,168,76,.3);}
+       border:1px solid rgba(42,157,143,.3);}
 .nmain{flex:1;min-width:0;}
 .ntitle{font-size:.88rem;font-weight:600;margin-bottom:.22rem;}
 .nagency{font-size:.75rem;color:var(--muted);}
 .nmeta{display:flex;gap:.4rem;margin-top:.35rem;flex-wrap:wrap;}
-.nscore{flex-shrink:0;font-size:1.1rem;font-weight:800;color:var(--gold);text-align:center;}
-.nscore small{display:block;font-size:.6rem;color:var(--muted);font-weight:400;}
 /* Badges */
 .badge{display:inline-flex;align-items:center;padding:.18rem .55rem;border-radius:999px;
        font-size:.65rem;font-weight:600;border:1px solid;white-space:nowrap;}
-.bg{background:rgba(201,168,76,.12);color:var(--gold);border-color:rgba(201,168,76,.35);}
-.bn{background:rgba(26,45,74,.5);color:#8fa3bc;border-color:var(--border);}
+.bg{background:rgba(42,157,143,.12);color:var(--gold);border-color:rgba(42,157,143,.35);}
+.bn{background:rgba(26,45,74,.07);color:#4a6080;border-color:#c8d4e0;}
 .br{background:rgba(224,85,85,.12);color:var(--red);border-color:rgba(224,85,85,.3);}
 .bk{background:rgba(143,163,188,.1);color:var(--muted);border-color:var(--border);}
 /* Flag rows */
 .fr{display:flex;gap:.75rem;align-items:flex-start;padding:.65rem 1rem;
     border-radius:6px;background:var(--surf2);margin-bottom:.5rem;
-    border:1px solid var(--border);font-size:.82rem;min-width:0;}
+    border:1px solid var(--card-border);font-size:.82rem;min-width:0;}
 .fr>span:last-child{min-width:0;word-wrap:break-word;overflow-wrap:break-word;}
 .fs{flex-shrink:0;font-size:.62rem;font-weight:700;padding:.15rem .4rem;
     border-radius:3px;text-transform:uppercase;}
 .fsh{background:rgba(224,85,85,.2);color:var(--red);}
-.fsm{background:rgba(201,168,76,.2);color:var(--gold);}
+.fsm{background:rgba(42,157,143,.2);color:var(--gold);}
 .fsl{background:rgba(143,163,188,.1);color:var(--muted);}
 /* Stats */
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
        gap:1rem;margin-bottom:2rem;}
-.stat{background:var(--surf);border:1px solid var(--border);border-radius:8px;padding:1.1rem 1.25rem;}
+.stat{background:var(--card);border:1px solid var(--card-border);border-radius:8px;padding:1.1rem 1.25rem;}
 .sval{font-size:1.6rem;font-weight:800;color:var(--gold);line-height:1;}
 .slbl{font-size:.7rem;font-weight:600;letter-spacing:.07em;text-transform:uppercase;
       color:var(--muted);margin-top:.3rem;}
 /* File grid */
 .fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:1rem;}
-.fc{background:var(--surf);border:1px solid var(--border);border-radius:8px;
+.fc{background:var(--card);border:1px solid var(--card-border);border-radius:8px;
     padding:1rem 1.25rem;transition:border-color .15s;}
 .fc:hover{border-color:var(--gold);}
 .fct{font-size:.88rem;font-weight:600;margin-bottom:.18rem;}
@@ -372,9 +359,10 @@ h1,h2,h3{line-height:1.3;color:var(--text);}
      border-radius:5px;font-size:.8rem;font-weight:600;cursor:pointer;
      border:1.5px solid;transition:all .15s;text-decoration:none;}
 .btn:hover{text-decoration:none;}
-.bg-gold{background:var(--gold);color:#0f1923;border-color:var(--gold);}
+.bg-gold{background:var(--gold);color:#fff;border-color:var(--gold);}
+.bg-gold:hover{background:#238f82;border-color:#238f82;color:#fff;}
 .bg-gold:hover{background:#e0c070;border-color:#e0c070;color:#0f1923;}
-.bg-out{background:transparent;color:var(--text);border-color:var(--border);}
+.bg-out{background:transparent;color:var(--text);border-color:var(--card-border);}
 .bg-out:hover{border-color:var(--gold);color:var(--gold);}
 .bg-ghost{background:transparent;color:var(--muted);border-color:transparent;font-size:.75rem;padding:.3rem .65rem;}
 .bg-ghost:hover{color:var(--text);background:var(--surf2);}
@@ -393,20 +381,20 @@ textarea.fc2{min-height:90px;resize:vertical;}
 .al{padding:.8rem 1rem;border-radius:6px;font-size:.83rem;margin-bottom:1rem;border:1px solid;}
 .al-ok{background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.3);color:var(--green);}
 .al-er{background:rgba(224,85,85,.1);border-color:rgba(224,85,85,.3);color:var(--red);}
-.al-in{background:var(--gold-l);border-color:rgba(201,168,76,.3);color:var(--gold);}
+.al-in{background:var(--gold-l);border-color:rgba(42,157,143,.3);color:var(--gold);}
 /* Tables */
 .dt{width:100%;border-collapse:collapse;font-size:.84rem;}
 .dt thead tr{background:var(--surf2);}
 .dt th{padding:.6rem .85rem;text-align:left;font-size:.66rem;font-weight:600;
        letter-spacing:.07em;text-transform:uppercase;color:var(--muted);
-       border-bottom:1px solid var(--border);}
-.dt td{padding:.6rem .85rem;border-bottom:1px solid var(--border);}
+       border-bottom:1px solid var(--card-border);}
+.dt td{padding:.6rem .85rem;border-bottom:1px solid var(--card-border);}
 .dt tbody tr:last-child td{border-bottom:none;}
-.dt tbody tr:hover td{background:var(--surf2);}
+.dt tbody tr:hover td{background:var(--card-hover);}
 /* Share modal */
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.65);
           display:flex;align-items:center;justify-content:center;z-index:999;}
-.modal{background:var(--surf);border:1px solid var(--border);border-radius:10px;
+.modal{background:var(--card);border:1px solid var(--card-border);border-radius:10px;
        padding:2rem;width:480px;max-width:90vw;}
 .modal-t{font-size:1rem;font-weight:700;margin-bottom:1rem;}
 .cp{display:flex;gap:.5rem;}
@@ -449,7 +437,7 @@ textarea.fc2{min-height:90px;resize:vertical;}
 .hamburger{display:none;flex-direction:column;justify-content:center;gap:5px;
            width:44px;height:44px;cursor:pointer;flex-shrink:0;
            background:none;border:none;padding:10px;border-radius:6px;}
-.hamburger span{display:block;height:2px;background:var(--text);
+.hamburger span{display:block;height:2px;background:#fff;
                 border-radius:2px;transition:all .2s;}
 .hamburger:hover span{background:var(--gold);}
 .side-overlay{display:none;}
@@ -502,7 +490,6 @@ textarea.fc2{min-height:90px;resize:vertical;}
   .nrank{width:1.5rem;height:1.5rem;font-size:.65rem;}
   .ntitle{font-size:.82rem;}
   .nagency{font-size:.7rem;}
-  .nscore{font-size:1rem;}
   /* Badges — keep readable, min 44px touch on links */
   .badge{font-size:.6rem;padding:.22rem .5rem;}
   a.badge, button.badge{min-height:44px;display:inline-flex;align-items:center;}
@@ -558,6 +545,13 @@ def _sidebar(active: str = "") -> str:
     def lnk(href, icon, label, key):
         cls = "on" if active == key else ""
         return f'<a href="{href}" class="{cls}">{icon}&nbsp; {label}</a>'
+    admin_links = ""
+    if current_user.is_authenticated and current_user.is_admin_user:
+        admin_links = (
+            f'<div class="side-sec">Admin</div>'
+            f'{lnk(url_for("admin_dash"),  "⚙", "Admin",            "admin")}'
+            f'{lnk(url_for("intel_dash"),  "🛰", "Intel Library",    "intel")}'
+        )
     return (f'<nav class="side">'
             f'<div class="side-sec">Intelligence</div>'
             f'{lnk(url_for("gw_home"),        "⬛", "Dashboard",    "home")}'
@@ -567,6 +561,7 @@ def _sidebar(active: str = "") -> str:
             f'{lnk(url_for("gw_briefs"),      "📬", "Watch Briefs", "briefs")}'
             f'<div class="side-sec">Actions</div>'
             f'{lnk(url_for("gw_request"),     "✉", "Request",      "request")}'
+            f'{admin_links}'
             f'</nav>')
 
 
@@ -617,54 +612,272 @@ def _dtc_badge(dtc) -> str:
 def _sector_badge(sector: str) -> str:
     return f'<span class="badge bn">{(sector or "other").replace("_"," ").upper()}</span>'
 
+# Value band display labels and sort rank (higher = more valuable)
+_VALUE_BAND_LABELS = {
+    "under_100k": "Under $100K",
+    "100k_500k":  "$100K–$500K",
+    "500k_2m":    "$500K–$2M",
+    "2m_10m":     "$2M–$10M",
+    "10m_plus":   "$10M+",
+    "unknown":    "TBC",
+}
+_VALUE_BAND_RANK = {
+    "10m_plus": 5, "2m_10m": 4, "500k_2m": 3,
+    "100k_500k": 2, "under_100k": 1, "unknown": 0,
+}
+
+def _value_badge(band: str) -> str:
+    label = _VALUE_BAND_LABELS.get(band or "unknown", "TBC")
+    return f'<span class="badge bn">{label}</span>'
+
+def _intel_sector_map() -> dict:
+    """
+    Return {sector: source_short_name} for all sectors that have at least one
+    active intel signal. Used to render the ⚡ strategic flag badge.
+    """
+    try:
+        rows = db.fetchall("""
+            SELECT DISTINCT ON (sect)
+                   unnest(sig.affected_sectors) AS sect,
+                   src.short_name
+              FROM v_active_signals sig
+              JOIN intel_sources src ON src.id = sig.source_id
+             ORDER BY sect, src.short_name
+        """)
+        return {r["sect"]: r["short_name"] for r in rows}
+    except Exception:
+        return {}
+
+def _notice_sort_key(n: dict):
+    """Sort key: urgency first (days ASC, None last), then value DESC."""
+    dtc = n.get("days_until_close")
+    dtc_key = dtc if dtc is not None else 9999
+    val_key = -_VALUE_BAND_RANK.get(n.get("value_band") or "unknown", 0)
+    return (dtc_key, val_key)
+
 
 # ── Public routes ─────────────────────────────────────────────────────────────
 
 @app.route("/")
 def homepage():
-    sent = '<div class="al al-ok" style="max-width:540px;margin:0 auto 1.5rem;">Request sent — we will be in touch.</div>' if request.args.get("sent") else ""
-    body = (f'<nav class="pub-nav">'
-            f'<div class="pub-brand">Groundwork <span>by BidEdge</span></div>'
-            f'<a href="{url_for("login")}" class="btn bg-out" style="margin-left:auto;font-size:.82rem;">Client Login</a>'
-            f'</nav>'
-            f'<div class="hero">{sent}'
-            f'<h1>Win more <span>government contracts.</span></h1>'
-            f'<p class="hero-sub">Groundwork is BidEdge\'s procurement intelligence platform — built on '
-            f'10+ years of NZ government award data, daily GETS monitoring, and AI-powered analysis. '
-            f'We help your organisation find the right opportunities, understand the competitive '
-            f'landscape, and arrive better prepared than your competitors.</p>'
-            f'<a href="#tiers" class="btn bg-gold" style="font-size:.9rem;padding:.65rem 1.75rem;">See what\'s included &darr;</a>'
-            f'</div>'
-            f'<div class="tiers" id="tiers">'
-            f'<div class="tier"><div class="tier-lbl">Foundation</div>'
-            f'<div class="tier-name">Groundwork Watch</div>'
-            f'<div class="tier-desc">Daily intelligence on active GETS tenders, scored and ranked for strategic relevance.</div>'
-            f'<ul><li>Daily scored watchlist (25+ notices)</li><li>AI enrichment — summary, red flags, framing</li>'
-            f'<li>Weekly watch brief via email</li><li>MBIE-evidenced likely bidders</li></ul></div>'
-            f'<div class="tier ft"><div class="tier-lbl">Most popular</div>'
-            f'<div class="tier-name">Groundwork Pursue</div>'
-            f'<div class="tier-desc">Everything in Watch, plus a full pursuit intelligence package for each opportunity you target.</div>'
-            f'<ul><li>Pursuit intelligence packages</li><li>Win probability from 27,948 MBIE awards</li>'
-            f'<li>Incumbent detection &amp; competitor analysis</li>'
-            f'<li>Agency procurement profiling</li><li>Recommended actions per notice</li></ul></div>'
-            f'<div class="tier"><div class="tier-lbl">Full platform</div>'
-            f'<div class="tier-name">Groundwork Intel</div>'
-            f'<div class="tier-desc">The complete platform — pursuit intelligence, competitor profiling, renewal radar, and analyst support.</div>'
-            f'<ul><li>Competitor intelligence profiles</li><li>Contract renewal radar (90-day)</li>'
-            f'<li>Longitudinal pattern detection</li><li>Dedicated BidEdge analyst support</li></ul></div>'
-            f'</div>'
-            f'<div style="text-align:center;padding:3rem 2rem;">'
-            f'<h2 style="font-size:1.5rem;margin-bottom:.75rem;">Ready to get started?</h2>'
-            f'<p style="color:var(--muted);margin-bottom:2rem;">Request access — a BidEdge adviser will be in touch within one business day.</p>'
-            f'<form action="{url_for("request_access")}" method="POST" '
-            f'style="display:inline-flex;gap:.75rem;flex-wrap:wrap;justify-content:center;max-width:500px;">'
-            f'<input name="name" class="fc2" placeholder="Your name" style="width:190px;" required>'
-            f'<input name="email" type="email" class="fc2" placeholder="Work email" style="width:210px;" required>'
-            f'<input name="org" class="fc2" placeholder="Organisation" style="width:190px;">'
-            f'<button type="submit" class="btn bg-gold" style="padding:.55rem 1.5rem;">Request Access &rarr;</button>'
-            f'</form></div>'
-            f'<div class="pub-footer">&copy; BidEdge Ltd &middot; Groundwork Procurement Intelligence &middot; '
-            f'<a href="{url_for("login")}">Client Login</a></div>')
+    sent = ('<div class="al al-ok" style="max-width:540px;margin:0 auto 1.5rem;">'
+            'Request sent — we will be in touch.</div>') if request.args.get("sent") else ""
+
+    # ── Pricing section toggle + card CSS (scoped to this page) ──────────────
+    pricing_css = """
+<style>
+/* Billing toggle */
+.billing-toggle{display:inline-flex;align-items:center;gap:.85rem;
+  background:var(--surf);border:1px solid var(--border);border-radius:999px;
+  padding:.55rem 1.25rem;font-size:.85rem;color:var(--muted);margin-bottom:2.75rem;}
+.billing-toggle span{white-space:nowrap;}
+.toggle-switch{position:relative;display:inline-block;width:42px;height:24px;flex-shrink:0;}
+.toggle-switch input{opacity:0;width:0;height:0;}
+.toggle-knob{position:absolute;cursor:pointer;inset:0;background:var(--surf2);
+  border-radius:999px;transition:.2s;}
+.toggle-knob::before{content:"";position:absolute;height:16px;width:16px;
+  left:4px;bottom:4px;background:#fff;border-radius:50%;transition:.2s;}
+.toggle-switch input:checked + .toggle-knob{background:var(--gold);}
+.toggle-switch input:checked + .toggle-knob::before{transform:translateX(18px);}
+/* Annual badge */
+.annual-badge{display:inline-flex;align-items:center;
+  background:rgba(42,157,143,.15);color:var(--gold);
+  border:1px solid rgba(42,157,143,.3);border-radius:999px;
+  font-size:.65rem;font-weight:700;padding:.15rem .55rem;
+  margin-left:.4rem;vertical-align:middle;}
+/* Pricing cards */
+.pricing-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem;
+  max-width:1020px;margin:0 auto 5rem;padding:0 2.5rem;}
+.ptier{background:var(--surf);border:1px solid var(--border);border-radius:12px;
+  padding:2rem 1.75rem;display:flex;flex-direction:column;position:relative;}
+.ptier.pop{border-color:var(--gold);border-width:2px;
+  box-shadow:0 0 0 1px rgba(42,157,143,.15),0 8px 32px rgba(0,0,0,.35);}
+.ptier-pop-lbl{position:absolute;top:-14px;left:50%;transform:translateX(-50%);
+  background:var(--gold);color:#fff;font-size:.68rem;font-weight:700;
+  letter-spacing:.06em;text-transform:uppercase;padding:.25rem .9rem;border-radius:999px;
+  white-space:nowrap;}
+.ptier-lbl{font-size:.65rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--gold);margin-bottom:.5rem;}
+.ptier-name{font-size:1.25rem;font-weight:800;color:var(--text);margin-bottom:.6rem;}
+.ptier-price{margin-bottom:.3rem;}
+.ptier-price .amount{font-size:2.25rem;font-weight:900;color:var(--text);line-height:1;}
+.ptier-price .period{font-size:.82rem;color:var(--muted);margin-left:.25rem;}
+.ptier-price-sub{font-size:.75rem;color:var(--muted);margin-bottom:1.25rem;min-height:1.1em;}
+.ptier-desc{font-size:.83rem;color:var(--muted);line-height:1.6;margin-bottom:1.25rem;}
+.ptier ul{list-style:none;flex:1;margin-bottom:1.75rem;}
+.ptier li{font-size:.82rem;color:var(--muted);padding:.32rem 0;
+  border-top:1px solid var(--border);display:flex;gap:.55rem;align-items:baseline;}
+.ptier li::before{content:"✓";color:var(--gold);flex-shrink:0;font-weight:700;}
+.ptier li.inherited::before{content:"✓";color:var(--muted);}
+.ptier .cta{display:block;text-align:center;}
+/* Mobile */
+@media(max-width:768px){
+  .pricing-grid{grid-template-columns:1fr;padding:0 1rem;gap:1.25rem;margin-bottom:3rem;}
+  .ptier{padding:1.5rem 1.25rem;}
+}
+</style>
+"""
+
+    # ── Pricing section HTML ──────────────────────────────────────────────────
+    pricing_section = f"""
+<section id="pricing" style="padding:5rem 0 0;text-align:center;">
+  <h2 style="font-size:2rem;font-weight:900;color:var(--text);margin-bottom:.75rem;letter-spacing:-.02em;">
+    Simple, transparent pricing</h2>
+  <p style="color:var(--muted);font-size:1rem;max-width:520px;margin:0 auto 2rem;line-height:1.7;">
+    No setup fees. Cancel any time. Every plan includes daily scored opportunity monitoring
+    across all NZ government procurement channels.</p>
+  <div class="billing-toggle">
+    <span id="lbl-mo" style="color:var(--muted);">Monthly</span>
+    <label class="toggle-switch">
+      <input type="checkbox" id="billing-annual" checked onchange="toggleBilling(this)">
+      <span class="toggle-knob"></span>
+    </label>
+    <span id="lbl-yr" style="color:var(--text);font-weight:600;">Annual
+      <span class="annual-badge" id="annual-badge">2 months free</span></span>
+  </div>
+
+  <div class="pricing-grid">
+
+    <!-- Watch -->
+    <div class="ptier">
+      <div class="ptier-lbl">Foundation</div>
+      <div class="ptier-name">Watch</div>
+      <div class="ptier-price">
+        <span class="amount" id="watch-price">$4,900</span>
+        <span class="period" id="watch-period">/yr</span>
+      </div>
+      <div class="ptier-price-sub" id="watch-sub">billed annually &mdash; save $996</div>
+      <div class="ptier-desc">Daily intelligence on active GETS tenders,
+        scored and ranked for your sectors.</div>
+      <ul>
+        <li>Daily scored watchlist</li>
+        <li>Sector &amp; region filtering</li>
+        <li>Opportunity scoring and ranking</li>
+        <li>Likely bidders &amp; agency history</li>
+        <li>AI enrichment &mdash; flags, framing</li>
+      </ul>
+      <a href="{url_for('signup')}?plan=watch" class="btn bg-out cta"
+         style="font-size:.85rem;padding:.6rem 1.25rem;">Get started &rarr;</a>
+    </div>
+
+    <!-- Pursue (featured) -->
+    <div class="ptier pop">
+      <div class="ptier-pop-lbl">Most popular</div>
+      <div class="ptier-lbl">Most popular</div>
+      <div class="ptier-name">Pursue</div>
+      <div class="ptier-price">
+        <span class="amount" id="pursue-price">$9,900</span>
+        <span class="period" id="pursue-period">/yr</span>
+      </div>
+      <div class="ptier-price-sub" id="pursue-sub">billed annually &mdash; save $1,000</div>
+      <div class="ptier-desc">Everything in Watch, plus AI-powered pursuit
+        intelligence for every opportunity you target.</div>
+      <ul>
+        <li class="inherited">Everything in Watch</li>
+        <li>AI-generated pursuit packages</li>
+        <li>Competitor intelligence profiles</li>
+        <li>Weekly watch briefs</li>
+        <li>Contract renewal radar</li>
+      </ul>
+      <a href="{url_for('signup')}?plan=pursue" class="btn bg-gold cta"
+         style="font-size:.85rem;padding:.6rem 1.25rem;">Get started &rarr;</a>
+    </div>
+
+    <!-- Edge -->
+    <div class="ptier">
+      <div class="ptier-lbl">Enterprise</div>
+      <div class="ptier-name">Edge</div>
+      <div class="ptier-price">
+        <span class="amount" style="font-size:1.6rem;">Custom</span>
+      </div>
+      <div class="ptier-price-sub">talk to us about your requirements</div>
+      <div class="ptier-desc">The full platform plus dedicated analyst support
+        and bespoke strategic intelligence.</div>
+      <ul>
+        <li class="inherited">Everything in Pursue</li>
+        <li>Custom agency deep-dives</li>
+        <li>Strategic briefings</li>
+        <li>Priority turnaround</li>
+        <li>Direct access to the BidEdge team</li>
+      </ul>
+      <a href="{url_for('signup')}?plan=edge" class="btn bg-out cta"
+         style="font-size:.85rem;padding:.6rem 1.25rem;">Talk to us &rarr;</a>
+    </div>
+
+  </div>
+</section>
+
+<script>
+function toggleBilling(cb) {{
+  var annual = cb.checked;
+  // Prices
+  document.getElementById('watch-price').textContent   = annual ? '$4,900' : '$408';
+  document.getElementById('watch-period').textContent  = annual ? '/yr'    : '/mo';
+  document.getElementById('watch-sub').innerHTML       = annual ? 'billed annually &mdash; save $996' : 'billed monthly';
+  document.getElementById('pursue-price').textContent  = annual ? '$9,900' : '$825';
+  document.getElementById('pursue-period').textContent = annual ? '/yr'    : '/mo';
+  document.getElementById('pursue-sub').innerHTML      = annual ? 'billed annually &mdash; save $1,000' : 'billed monthly';
+  // Toggle labels
+  document.getElementById('lbl-mo').style.color  = annual ? 'var(--muted)' : 'var(--text)';
+  document.getElementById('lbl-mo').style.fontWeight = annual ? '400' : '600';
+  document.getElementById('lbl-yr').style.color  = annual ? 'var(--text)' : 'var(--muted)';
+  document.getElementById('lbl-yr').style.fontWeight = annual ? '600' : '400';
+  document.getElementById('annual-badge').style.display = annual ? '' : 'none';
+}}
+</script>
+"""
+
+    body = (
+        f'{pricing_css}'
+        f'<nav class="pub-nav">'
+        f'<div class="pub-brand">Groundwork <span>by BidEdge</span></div>'
+        f'<a href="#pricing" style="font-size:.82rem;color:var(--muted);padding:.3rem .5rem;'
+        f'text-decoration:none;transition:color .12s;" '
+        f'onmouseover="this.style.color=\'var(--text)\'" '
+        f'onmouseout="this.style.color=\'var(--muted)\'">Pricing</a>'
+        f'<a href="{url_for("demo")}" style="font-size:.82rem;color:var(--muted);padding:.3rem .5rem;'
+        f'text-decoration:none;transition:color .12s;" '
+        f'onmouseover="this.style.color=\'var(--text)\'" '
+        f'onmouseout="this.style.color=\'var(--muted)\'">Demo</a>'
+        f'<a href="{url_for("login")}" class="btn bg-out" style="margin-left:auto;font-size:.82rem;">Client Login</a>'
+        f'</nav>'
+        f'<div class="hero">{sent}'
+        f'<h1>Know before you bid. <span>Win when you do.</span></h1>'
+        f'<p class="hero-sub">Groundwork scores every NZ government tender against your strengths, '
+        f'tells you who you\'re up against, and gets you to the table as the best-informed '
+        f'bidder in the room.</p>'
+        f'<a href="#pricing" class="btn bg-gold" style="font-size:.9rem;padding:.65rem 1.75rem;">See pricing &darr;</a>'
+        f'&nbsp; <a href="{url_for("demo")}" class="btn bg-out" style="font-size:.9rem;padding:.65rem 1.75rem;">View Demo &rarr;</a>'
+        f'</div>'
+        f'<div class="tiers" id="tiers">'
+        f'<div class="tier"><div class="tier-lbl">Foundation</div>'
+        f'<div class="tier-name">Groundwork Watch</div>'
+        f'<div class="tier-desc">Daily intelligence on active GETS tenders, scored and ranked for strategic relevance.</div>'
+        f'<ul><li>Daily scored watchlist (25+ notices)</li><li>AI enrichment — summary, red flags, framing</li>'
+        f'<li>Weekly watch brief via email</li><li>MBIE-evidenced likely bidders</li></ul></div>'
+        f'<div class="tier ft"><div class="tier-lbl">Most popular</div>'
+        f'<div class="tier-name">Groundwork Pursue</div>'
+        f'<div class="tier-desc">Everything in Watch, plus a full pursuit intelligence package for each opportunity you target.</div>'
+        f'<ul><li>Pursuit intelligence packages</li><li>Win position assessment from 27,948 MBIE awards</li>'
+        f'<li>Incumbent detection &amp; competitor analysis</li>'
+        f'<li>Agency procurement profiling</li><li>Recommended actions per notice</li></ul></div>'
+        f'<div class="tier"><div class="tier-lbl">Enterprise</div>'
+        f'<div class="tier-name">Groundwork Edge</div>'
+        f'<div class="tier-desc">The complete platform — pursuit intelligence, competitor profiling, renewal radar, and analyst support.</div>'
+        f'<ul><li>Competitor intelligence profiles</li><li>Contract renewal radar (90-day)</li>'
+        f'<li>Longitudinal pattern detection</li><li>Dedicated BidEdge analyst support</li></ul></div>'
+        f'</div>'
+        f'{pricing_section}'
+        f'<div style="text-align:center;padding:3rem 2rem;">'
+        f'<h2 style="font-size:1.5rem;margin-bottom:.75rem;">Questions? Talk to us.</h2>'
+        f'<p style="color:var(--muted);margin-bottom:2rem;">Not sure which plan fits? A BidEdge adviser will help you choose.</p>'
+        f'<a href="{url_for("signup")}?plan=edge" class="btn bg-gold" style="font-size:.9rem;padding:.65rem 1.75rem;">Get in touch &rarr;</a>'
+        f'</div>'
+        f'<div class="pub-footer">&copy; BidEdge Ltd &middot; Groundwork Procurement Intelligence &middot; '
+        f'<a href="#pricing">Pricing</a> &middot; '
+        f'<a href="{url_for("demo")}">Demo</a> &middot; '
+        f'<a href="{url_for("login")}">Client Login</a></div>'
+    )
     return _page("BidEdge — Groundwork Procurement Intelligence", body, public=True, sidebar=False)
 
 
@@ -679,6 +892,445 @@ def request_access():
                 f"<b>Organisation:</b> {org or '(not given)'}</p>")
         _send_email(subject, html, _admin_emails())
     return redirect(url_for("homepage") + "?sent=1")
+
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    import json as _json
+    from pathlib import Path as _Path
+    from html import escape as _esc
+
+    PLAN_LABELS = {"watch": "Watch", "pursue": "Pursue", "edge": "Edge"}
+
+    # ── POST: process submission ──────────────────────────────────────────────
+    if request.method == "POST":
+        plan     = request.form.get("plan", "").strip().lower()
+        name     = request.form.get("name", "").strip()
+        org      = request.form.get("org", "").strip()
+        email    = request.form.get("email", "").strip()
+        phone    = request.form.get("phone", "").strip()
+        goals    = request.form.get("goals", "").strip()  # Edge only
+
+        if not (name and email):
+            return redirect(url_for("signup") + f"?plan={plan}&err=1")
+
+        plan_label = PLAN_LABELS.get(plan, plan.title() or "Unknown")
+
+        # Build email body
+        rows = (f"<tr><td><b>Plan</b></td><td>{_esc(plan_label)}</td></tr>"
+                f"<tr><td><b>Name</b></td><td>{_esc(name)}</td></tr>"
+                f"<tr><td><b>Organisation</b></td><td>{_esc(org) or '(not given)'}</td></tr>"
+                f"<tr><td><b>Email</b></td><td>{_esc(email)}</td></tr>")
+        if phone:
+            rows += f"<tr><td><b>Phone</b></td><td>{_esc(phone)}</td></tr>"
+        if goals:
+            rows += f"<tr><td><b>Goals</b></td><td>{_esc(goals)}</td></tr>"
+
+        email_html = (f"<h2>New sign-up: {_esc(plan_label)} plan</h2>"
+                      f"<table border='0' cellpadding='6' style='border-collapse:collapse;'>"
+                      f"{rows}</table>")
+        subject = f"[BidEdge] New sign-up — {plan_label} — {name}"
+
+        sent = _send_email(subject, email_html, _admin_emails())
+
+        if not sent:
+            # Fallback: persist to signups.json
+            # TODO: wire up SMTP (SMTP_HOST, SMTP_USER, SMTP_PASSWORD in .env) to send email
+            signups_path = _Path(__file__).parent / "signups.json"
+            try:
+                existing = _json.loads(signups_path.read_text()) if signups_path.exists() else []
+            except Exception:
+                existing = []
+            import time as _time
+            existing.append({"ts": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+                              "plan": plan, "name": name, "org": org,
+                              "email": email, "phone": phone, "goals": goals})
+            signups_path.write_text(_json.dumps(existing, indent=2))
+            logger.info("Signup stored to signups.json (SMTP not configured): %s <%s> plan=%s",
+                        name, email, plan)
+
+        return redirect(url_for("signup") + f"?plan={plan}&sent=1")
+
+    # ── GET: render form ──────────────────────────────────────────────────────
+    plan = request.args.get("plan", "watch").strip().lower()
+    if plan not in PLAN_LABELS:
+        plan = "watch"
+    plan_label = PLAN_LABELS[plan]
+    sent = bool(request.args.get("sent"))
+    err  = bool(request.args.get("err"))
+
+    # Confirmation state
+    if sent:
+        confirm_body = (
+            f'<div style="text-align:center;padding:4rem 2rem;">'
+            f'<div style="font-size:2.5rem;margin-bottom:1rem;">✓</div>'
+            f'<h2 style="font-size:1.5rem;font-weight:800;color:var(--text);margin-bottom:.75rem;">'
+            f'Thanks — we\'ll be in touch within one business day.</h2>'
+            f'<p style="color:var(--muted);margin-bottom:2rem;max-width:440px;margin-left:auto;margin-right:auto;">'
+            f'Your {plan_label} plan enquiry has been received. A BidEdge adviser will '
+            f'contact you at the email address you provided.</p>'
+            f'<a href="{url_for("homepage")}" class="btn bg-out">← Back to BidEdge.com</a>'
+            f'</div>'
+        )
+        body = (f'<nav class="pub-nav">'
+                f'<div class="pub-brand">Groundwork <span>by BidEdge</span></div>'
+                f'<a href="{url_for("login")}" class="btn bg-out" style="margin-left:auto;font-size:.82rem;">Client Login</a>'
+                f'</nav>'
+                f'<div style="max-width:600px;margin:0 auto;">{confirm_body}</div>'
+                f'<div class="pub-footer">&copy; BidEdge Ltd &middot; '
+                f'<a href="{url_for("homepage")}">Home</a></div>')
+        return _page(f"BidEdge — Sign up for {plan_label}", body, public=True, sidebar=False)
+
+    err_banner = ('<div class="al al-er">Please fill in your name and email address.</div>'
+                  if err else "")
+
+    # ── Form variants ─────────────────────────────────────────────────────────
+    if plan == "edge":
+        # Edge: simplified form + goals textarea, no submit button → "we'll be in touch"
+        form_fields = (
+            f'<div class="fg"><label class="fl">Full name *</label>'
+            f'<input name="name" type="text" class="fc2" placeholder="Jane Smith" required></div>'
+            f'<div class="fg"><label class="fl">Organisation *</label>'
+            f'<input name="org" type="text" class="fc2" placeholder="Your company or agency" required></div>'
+            f'<div class="fg"><label class="fl">Email address *</label>'
+            f'<input name="email" type="email" class="fc2" placeholder="jane@example.com" required></div>'
+            f'<div class="fg"><label class="fl">Tell us about your procurement goals</label>'
+            f'<textarea name="goals" class="fc2" rows="4" placeholder="What markets do you operate in? What are your biggest procurement challenges?"></textarea></div>'
+        )
+        submit_section = (
+            f'<div class="al al-in" style="margin-bottom:1.5rem;">'
+            f'We\'ll be in touch to discuss your requirements and tailor a solution '
+            f'for your organisation.</div>'
+            f'<button type="submit" class="btn bg-gold" style="width:100%;justify-content:center;'
+            f'font-size:.9rem;padding:.7rem 1.5rem;">Send enquiry &rarr;</button>'
+        )
+    else:
+        billing_note = "$4,900/yr (or $408/mo)" if plan == "watch" else "$9,900/yr (or $825/mo)"
+        form_fields = (
+            f'<div class="fg"><label class="fl">Full name *</label>'
+            f'<input name="name" type="text" class="fc2" placeholder="Jane Smith" required></div>'
+            f'<div class="fg"><label class="fl">Organisation *</label>'
+            f'<input name="org" type="text" class="fc2" placeholder="Your company or agency" required></div>'
+            f'<div class="fg"><label class="fl">Email address *</label>'
+            f'<input name="email" type="email" class="fc2" placeholder="jane@example.com" required></div>'
+            f'<div class="fg"><label class="fl">Phone number <span style="color:var(--muted);font-weight:400;">(optional)</span></label>'
+            f'<input name="phone" type="tel" class="fc2" placeholder="+64 21 000 0000"></div>'
+            f'<div class="fg"><label class="fl">Plan</label>'
+            f'<input name="plan_display" type="text" class="fc2" value="{plan_label} — {billing_note}" readonly '
+            f'style="opacity:.65;cursor:default;"></div>'
+        )
+        submit_section = (
+            f'<button type="submit" class="btn bg-gold" style="width:100%;justify-content:center;'
+            f'font-size:.9rem;padding:.7rem 1.5rem;">Get started &rarr;</button>'
+            f'<p style="font-size:.75rem;color:var(--muted);text-align:center;margin-top:1rem;">'
+            f'No payment taken now — a BidEdge adviser will confirm your plan and '
+            f'send an invoice within one business day.</p>'
+        )
+
+    plan_pill = (
+        f'<span style="background:rgba(42,157,143,.15);color:var(--gold);'
+        f'border:1px solid rgba(42,157,143,.3);border-radius:999px;'
+        f'font-size:.72rem;font-weight:700;padding:.2rem .65rem;'
+        f'margin-left:.6rem;vertical-align:middle;">{plan_label}</span>'
+    )
+    form_subtitle = ("Tell us about your organisation and we'll tailor the right solution."
+                     if plan == "edge"
+                     else "Fill in your details and we'll be in touch within one business day.")
+
+    form_html = (
+        f'<div style="max-width:480px;margin:0 auto;padding:2rem 1rem 4rem;">'
+        f'<div style="text-align:center;margin-bottom:2.5rem;">'
+        f'<div class="pub-brand" style="font-size:1.1rem;margin-bottom:.5rem;">'
+        f'Groundwork <span style="color:var(--gold);">by BidEdge</span></div>'
+        f'<h1 style="font-size:1.6rem;font-weight:900;color:var(--text);margin-bottom:.35rem;">'
+        f'Get started{plan_pill}</h1>'
+        f'<p style="color:var(--muted);font-size:.88rem;">{form_subtitle}</p>'
+        f'</div>'
+        f'{err_banner}'
+        f'<div class="lcard">'
+        f'<form action="{url_for("signup")}" method="POST">'
+        f'<input type="hidden" name="plan" value="{plan}">'
+        f'{form_fields}'
+        f'{submit_section}'
+        f'</form></div>'
+        f'<div style="text-align:center;margin-top:1.5rem;">'
+        f'<a href="{url_for("homepage")}#pricing" '
+        f'style="font-size:.8rem;color:var(--muted);">← Back to pricing</a>'
+        f'</div></div>'
+    )
+
+    body = (f'<nav class="pub-nav">'
+            f'<div class="pub-brand">Groundwork <span>by BidEdge</span></div>'
+            f'<a href="{url_for("login")}" class="btn bg-out" style="margin-left:auto;font-size:.82rem;">Client Login</a>'
+            f'</nav>'
+            f'{form_html}'
+            f'<div class="pub-footer">&copy; BidEdge Ltd &middot; '
+            f'<a href="{url_for("homepage")}">Home</a> &middot; '
+            f'<a href="{url_for("login")}">Client Login</a></div>')
+    return _page(f"BidEdge — Sign up for {plan_label}", body, public=True, sidebar=False)
+
+
+def _load_demo_manifest() -> dict:
+    """Load the sector demo manifest; returns {} on missing/error."""
+    import json as _json
+    from pathlib import Path as _Path
+    mp = _Path(__file__).parent / "output" / "artefacts" / "demo" / "manifest.json"
+    if mp.exists():
+        try:
+            return _json.loads(mp.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+# Sector metadata mirrored from generate_demo_content (no import to avoid slowdown)
+_DEMO_SECTOR_META = {
+    "cybersecurity": {"label": "Cybersecurity",        "icon": "🔒",
+                      "tagline": "Government security assessments, pen testing & compliance advisory"},
+    "FM":            {"label": "Facilities Management", "icon": "🏗",
+                      "tagline": "FM contracts for local government, social housing and public estates"},
+    "construction":  {"label": "Construction",          "icon": "🏛",
+                      "tagline": "Civil construction, roading and infrastructure delivery"},
+    "defence":       {"label": "Defence",               "icon": "⚙️",
+                      "tagline": "Defence facilities, critical infrastructure and security engineering"},
+    "ICT":           {"label": "ICT",                   "icon": "💻",
+                      "tagline": "Digital transformation, cloud migration and systems integration"},
+    "infrastructure":{"label": "Infrastructure",        "icon": "🌐",
+                      "tagline": "Water, transport and community infrastructure at scale"},
+    "health":        {"label": "Health",                "icon": "🏥",
+                      "tagline": "Clinical systems, hospital ICT and health data platforms"},
+}
+
+
+@app.route("/demo")
+def demo():
+    """
+    Public demo route.
+    Without ?sector=: show sector selection grid.
+    With ?sector=<key>: show the three artefacts for that sector.
+    """
+    sector_param = request.args.get("sector", "").strip()
+    # Match case-insensitively against known sector keys (FM, ICT, etc. are uppercase)
+    sector_key = next(
+        (k for k in _DEMO_SECTOR_META if k.lower() == sector_param.lower()),
+        "",
+    )
+
+    manifest = _load_demo_manifest()
+    sectors_data = manifest.get("sectors", {})
+
+    # ── Sector detail view ────────────────────────────────────────────────────
+    if sector_key and sector_key in _DEMO_SECTOR_META:
+        meta   = _DEMO_SECTOR_META[sector_key]
+        sdata  = sectors_data.get(sector_key, {})
+        firm   = sdata.get("firm", {})
+        items  = sdata.get("items", [])
+
+        type_labels = {
+            "pursuit_package":   ("Pursuit Package",   "A tailored bid intelligence brief for a live GETS notice in your sector."),
+            "competitor_profile":("Competitor Profile", "An evidence-based profile of the dominant incumbent supplier."),
+            "watch_brief":       ("Watch Brief",        "A weekly market briefing filtered to your sector and firm context."),
+        }
+        type_icons = {
+            "pursuit_package": "🎯",
+            "competitor_profile": "📊",
+            "watch_brief": "📬",
+        }
+
+        artefact_cards = ""
+        for it in items:
+            kind = it.get("type", "")
+            html_path = it.get("html_path", "")
+            if not html_path:
+                continue
+            type_name, type_desc = type_labels.get(kind, (kind.replace("_", " ").title(), ""))
+            icon = type_icons.get(kind, "📄")
+            view_url = url_for("demo_file",
+                               filepath=html_path.replace("output/artefacts/demo/", ""))
+            artefact_cards += (
+                f'<div class="card" style="margin-bottom:1rem;">'
+                f'<div class="ch" style="gap:.75rem;">'
+                f'<span style="font-size:1.2rem;">{icon}</span>'
+                f'<span class="ct">{type_name}</span>'
+                f'</div>'
+                f'<div class="cb" style="padding:1rem 1.25rem;">'
+                f'<p style="font-size:.82rem;color:var(--muted);margin-bottom:.85rem;">{type_desc}</p>'
+                f'<a href="{view_url}" target="_blank" class="btn bg-gold" '
+                f'style="font-size:.8rem;padding:.45rem 1.1rem;">View sample &rarr;</a>'
+                f'</div></div>'
+            )
+
+        if not artefact_cards:
+            artefact_cards = (
+                '<div class="card cb" style="text-align:center;color:var(--muted);padding:2rem;">'
+                'Demo content for this sector is being prepared. Check back shortly.</div>'
+            )
+
+        firm_blurb = ""
+        if firm.get("name"):
+            firm_blurb = (
+                f'<div style="background:rgba(42,157,143,.07);border:1px solid rgba(42,157,143,.2);'
+                f'border-radius:8px;padding:.85rem 1.1rem;margin-bottom:1.5rem;font-size:.82rem;">'
+                f'<strong style="color:var(--gold);">{firm["name"]}</strong>'
+                f'<span style="color:var(--muted);"> — {firm.get("description","")}</span>'
+                f'</div>'
+            )
+
+        signup_url = url_for("signup") + f"?plan=pursue"
+        body = (
+            f'<nav class="pub-nav">'
+            f'<div class="pub-brand">Groundwork <span>by BidEdge</span></div>'
+            f'<a href="{url_for("demo")}" style="font-size:.82rem;color:var(--muted);padding:.3rem .5rem;text-decoration:none;">← All sectors</a>'
+            f'<a href="{url_for("login")}" class="btn bg-out" style="margin-left:auto;font-size:.82rem;">Client Login</a>'
+            f'</nav>'
+            f'<div style="max-width:680px;margin:0 auto;padding:2.5rem 1.5rem 4rem;">'
+            f'<div style="font-size:2rem;margin-bottom:.5rem;">{meta["icon"]}</div>'
+            f'<div class="ptitle">{meta["label"]} — Sample Intelligence</div>'
+            f'<div class="psub" style="margin-bottom:1.5rem;">'
+            f'Generated from real NZ procurement data &middot; {meta["tagline"]}</div>'
+            f'<div style="background:linear-gradient(90deg,#1a6b62,#2a9d8f);color:#fff;'
+            f'padding:.85rem 1.25rem;border-radius:8px;margin-bottom:1.5rem;font-size:.82rem;">'
+            f'<strong>EXAMPLE CONTENT</strong> — These samples show what Groundwork delivers for a '
+            f'{meta["label"].lower()} firm. Your live account will receive intelligence '
+            f'personalised to your organisation, sectors and targets.</div>'
+            f'{firm_blurb}'
+            f'{artefact_cards}'
+            f'<div class="card" style="margin-top:1.5rem;border:1px solid rgba(42,157,143,.3);">'
+            f'<div class="cb" style="padding:1.75rem;text-align:center;">'
+            f'<h2 style="font-size:1.15rem;color:var(--gold);margin-bottom:.6rem;">Ready for your sector?</h2>'
+            f'<p style="color:var(--muted);font-size:.85rem;margin-bottom:1.1rem;">'
+            f'Get live intelligence tailored to {meta["label"].lower()} — '
+            f'daily opportunities, competitor tracking, and renewal radar.</p>'
+            f'<a href="{signup_url}" class="btn bg-gold" style="font-size:.88rem;padding:.6rem 1.5rem;">'
+            f'Get started &rarr;</a>'
+            f'&nbsp;<a href="{url_for("demo")}" class="btn bg-out" style="font-size:.88rem;padding:.6rem 1.25rem;">'
+            f'View other sectors</a>'
+            f'</div></div>'
+            f'</div>'
+            f'<div class="pub-footer">&copy; BidEdge Ltd &middot; '
+            f'<a href="{url_for("homepage")}">Home</a> &middot; '
+            f'<a href="{url_for("demo")}">Demo</a> &middot; '
+            f'<a href="{url_for("login")}">Client Login</a></div>'
+        )
+        return _page(f"Groundwork Demo — {meta['label']}", body, public=True, sidebar=False)
+
+    # ── Sector selection grid ─────────────────────────────────────────────────
+    sector_card_css = """
+<style>
+.demo-sector-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
+  gap:1rem;margin:1.5rem 0 2rem;}
+.demo-sc{background:var(--surf);border:1px solid var(--border);border-radius:10px;
+  padding:1.5rem 1.25rem;cursor:pointer;text-decoration:none;display:block;
+  transition:border-color .15s,box-shadow .15s;}
+.demo-sc:hover{border-color:var(--gold);
+  box-shadow:0 0 0 1px rgba(42,157,143,.2),0 4px 16px rgba(0,0,0,.25);
+  text-decoration:none;}
+.demo-sc-icon{font-size:1.8rem;margin-bottom:.65rem;line-height:1;}
+.demo-sc-name{font-size:.95rem;font-weight:800;color:var(--text);margin-bottom:.3rem;}
+.demo-sc-tag{font-size:.78rem;color:var(--muted);line-height:1.5;}
+@media(max-width:480px){.demo-sector-grid{grid-template-columns:1fr 1fr;gap:.65rem;}
+  .demo-sc{padding:1.1rem 1rem;}.demo-sc-icon{font-size:1.5rem;}}
+</style>
+"""
+    sector_grid = ""
+    for sk, meta in _DEMO_SECTOR_META.items():
+        has_content = bool(sectors_data.get(sk, {}).get("items"))
+        ready_badge = "" if has_content else (
+            ' <span style="font-size:.65rem;color:var(--muted);font-weight:400;">(coming soon)</span>'
+        )
+        sector_url = url_for("demo") + f"?sector={sk}"
+        sector_grid += (
+            f'<a href="{sector_url}" class="demo-sc">'
+            f'<div class="demo-sc-icon">{meta["icon"]}</div>'
+            f'<div class="demo-sc-name">{meta["label"]}{ready_badge}</div>'
+            f'<div class="demo-sc-tag">{meta["tagline"]}</div>'
+            f'</a>'
+        )
+
+    body = (
+        f'{sector_card_css}'
+        f'<nav class="pub-nav">'
+        f'<div class="pub-brand">Groundwork <span>by BidEdge</span></div>'
+        f'<a href="{url_for("homepage")}#pricing" style="font-size:.82rem;color:var(--muted);padding:.3rem .5rem;text-decoration:none;">Pricing</a>'
+        f'<a href="{url_for("login")}" class="btn bg-out" style="margin-left:auto;font-size:.82rem;">Client Login</a>'
+        f'</nav>'
+        f'<div style="max-width:840px;margin:0 auto;padding:2.5rem 1.5rem 4rem;">'
+        f'<div class="ptitle">Groundwork Demo</div>'
+        f'<div class="psub">Choose your sector to see real sample intelligence</div>'
+        f'<p style="font-size:.88rem;color:var(--muted);max-width:560px;line-height:1.7;margin-bottom:2rem;">'
+        f'Each demo shows three live artefacts — a pursuit package, a competitor profile, and a watch brief — '
+        f'generated from real NZ government procurement data and personalised to a fictional firm in that sector.</p>'
+        f'<div class="demo-sector-grid">{sector_grid}</div>'
+        f'<div class="card" style="border:1px solid rgba(42,157,143,.3);margin-top:.5rem;">'
+        f'<div class="cb" style="padding:1.75rem;text-align:center;">'
+        f'<h2 style="font-size:1.1rem;color:var(--gold);margin-bottom:.55rem;">'
+        f'See Groundwork working for your sector</h2>'
+        f'<p style="color:var(--muted);font-size:.85rem;margin-bottom:1.1rem;">'
+        f'Live accounts get daily scoring, competitor tracking, renewal radar and AI-generated '
+        f'pursuit packages tailored to your firm.</p>'
+        f'<a href="{url_for("signup")}?plan=pursue" class="btn bg-gold" '
+        f'style="font-size:.88rem;padding:.6rem 1.5rem;">Get started &rarr;</a>'
+        f'&nbsp;<a href="{url_for("homepage")}#pricing" class="btn bg-out" '
+        f'style="font-size:.88rem;padding:.6rem 1.25rem;">See pricing</a>'
+        f'</div></div>'
+        f'</div>'
+        f'<div class="pub-footer">&copy; BidEdge Ltd &middot; '
+        f'<a href="{url_for("homepage")}">Home</a> &middot; '
+        f'<a href="{url_for("homepage")}#pricing">Pricing</a> &middot; '
+        f'<a href="{url_for("login")}">Client Login</a></div>'
+    )
+    return _page("Groundwork Demo — BidEdge", body, public=True, sidebar=False)
+
+
+@app.route("/demo/file/<path:filepath>")
+def demo_file(filepath: str):
+    """Serve a demo artefact HTML file publicly (read-only)."""
+    from pathlib import Path as _Path
+    demo_dir = _Path(__file__).parent / "output" / "artefacts" / "demo"
+    full = (demo_dir / filepath).resolve()
+    try:
+        full.relative_to(demo_dir.resolve())
+    except ValueError:
+        abort(403)
+    if not full.exists():
+        abort(404)
+
+    # Read the HTML and inject the gold demo banner at the top of <body>
+    html = full.read_text(encoding="utf-8")
+    artefact_type = "Pursuit Package"
+    if "competitor" in filepath.lower():
+        artefact_type = "Competitor Profile"
+    elif "watch_brief" in filepath.lower():
+        artefact_type = "Watch Brief"
+
+    # Banner uses position:fixed so it floats over the document without becoming
+    # a flex item. The pursuit package body uses display:flex — injecting a plain
+    # div at <body> start would make it a flex sibling of sidebar and main,
+    # breaking the two-column layout.  position:fixed + padding-top/top overrides
+    # on the CSS classes keep the layout intact for all three artefact types.
+    banner_height = "48px"
+    banner = (
+        f'<div style="position:fixed;top:0;left:0;right:0;z-index:9999;'
+        f'background:linear-gradient(90deg,#1a6b62,#2a9d8f);color:#fff;'
+        f'font-weight:600;font-size:.82rem;padding:.7rem 1.5rem;text-align:center;'
+        f'letter-spacing:.01em;line-height:1.3;">'
+        f'<strong>EXAMPLE</strong> — This is a sample {artefact_type} generated from real NZ '
+        f'procurement data to illustrate what Groundwork delivers. Your live account will '
+        f'receive intelligence tailored to your sectors and targets.'
+        f'</div>'
+        # Push body content down and re-anchor the sticky sidebar below the fixed banner
+        f'<style>'
+        f'body{{padding-top:{banner_height}!important}}'
+        f'.sidebar{{top:{banner_height}!important;height:calc(100vh - {banner_height})!important}}'
+        f'</style>'
+    )
+    import re as _re
+    if "<body>" in html:
+        html = html.replace("<body>", "<body>" + banner, 1)
+    else:
+        html = _re.sub(r"(<body[^>]*>)", r"\1" + banner, html, count=1)
+
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -744,6 +1396,13 @@ def onboarding():
     except Exception:
         available_sectors = list(config.SECTORS)
 
+    # Load saved preferences to pre-populate form on GET (and re-populate on POST error)
+    from preferences import get_user_preferences as _get_prefs
+    saved_prefs = _get_prefs(current_user.id)
+    saved_sectors = set(saved_prefs.get("sectors") or [])
+    saved_agency_focus = ", ".join(saved_prefs.get("agency_focus") or [])
+    saved_min_value = saved_prefs.get("min_value_nzd") or 0
+
     error = ""
     if request.method == "POST":
         selected = request.form.getlist("sectors")
@@ -757,6 +1416,10 @@ def onboarding():
 
         if not selected:
             error = "Please select at least one sector."
+            # Re-populate with whatever the user submitted (so nothing is lost on error)
+            saved_sectors = set(selected)
+            saved_agency_focus = request.form.get("agency_focus", "")
+            saved_min_value = min_val
         else:
             save_user_preferences(
                 user_id=current_user.id,
@@ -769,10 +1432,11 @@ def onboarding():
 
     err_html = f'<div class="al al-er">{error}</div>' if error else ""
 
-    # Build sector checkboxes
+    # Build sector checkboxes — mark saved sectors as checked
     sector_opts = ""
     for s in available_sectors:
         label = s.replace("_", " ").upper()
+        checked = "checked" if s in saved_sectors else ""
         sector_opts += (
             f'<label style="display:flex;align-items:center;gap:.6rem;'
             f'padding:.45rem .6rem;border-radius:5px;cursor:pointer;'
@@ -780,7 +1444,7 @@ def onboarding():
             f'font-size:.84rem;transition:border-color .15s;" '
             f'onmouseover="this.style.borderColor=\'var(--gold)\'" '
             f'onmouseout="this.style.borderColor=\'var(--border)\'">'
-            f'<input type="checkbox" name="sectors" value="{s}" '
+            f'<input type="checkbox" name="sectors" value="{s}" {checked} '
             f'style="accent-color:var(--gold);width:15px;height:15px;"> {label}</label>'
         )
 
@@ -808,6 +1472,7 @@ def onboarding():
         f'<label class="fl">Agency focus <span style="font-weight:400;color:var(--muted);">'
         f'(optional — comma-separated)</span></label>'
         f'<input name="agency_focus" class="fc2" '
+        f'value="{saved_agency_focus}" '
         f'placeholder="e.g. NZTA, Ministry of Education, Waka Kotahi">'
         f'<div class="fh">Opportunities from these agencies will be highlighted.</div>'
         f'</div>'
@@ -815,6 +1480,7 @@ def onboarding():
         f'<label class="fl">Minimum contract value (NZD) '
         f'<span style="font-weight:400;color:var(--muted);">(optional)</span></label>'
         f'<input name="min_value_nzd" type="number" class="fc2" '
+        f'value="{saved_min_value if saved_min_value else ""}" '
         f'placeholder="e.g. 100000" min="0" step="50000">'
         f'<div class="fh">Filter out opportunities below this threshold.</div>'
         f'</div>'
@@ -886,15 +1552,16 @@ def create_share():
 @app.route("/groundwork")
 @login_required
 def gw_home():
+    # DB is source of truth for preferred sectors; JSON value is fallback only
     data     = _watchlist_summary(
-        preferred_sectors=current_user.preferred_sectors,
-        user_id=current_user.id,
+        preferred_sectors=current_user.preferred_sectors,  # fallback if no DB row
+        user_id=current_user.id,                           # DB overrides if row exists
     )
     top      = data.get("top_notices", [])
     total    = data.get("total", 0)
     run_date = data.get("run_date", date.today().isoformat())
-    # Effective preferred sectors (merged JSON + DB)
-    eff_sectors = data.get("preferred_sectors") or current_user.preferred_sectors
+    # Effective sectors come from _watchlist_summary which now uses DB as truth
+    eff_sectors = data.get("preferred_sectors") or []
     pursuits = len(_list_artefacts(current_user.slug, "*pursuit*.html"))
     comps    = len(_list_artefacts(current_user.slug, "competitor_*.html"))
 
@@ -906,28 +1573,43 @@ def gw_home():
         logger.warning("market_intelligence unavailable: %s", _e)
         signals = []
 
-    # ── Section 4: Renewal radar ──────────────────────────────────────────────
+    # ── Section 4: Renewal pipeline (three-tier) ─────────────────────────────
     try:
-        from renewal_radar import get_renewal_radar
-        renewals = get_renewal_radar(user_sectors=eff_sectors or None, days_ahead=90)
+        from renewal_radar import get_renewal_pipeline
+        _pipeline = get_renewal_pipeline(user_sectors=eff_sectors or None)
     except Exception as _e:
         logger.warning("renewal_radar unavailable: %s", _e)
-        renewals = []
+        _pipeline = {"imminent": [], "approaching": [], "market_sounding": [], "data_note": ""}
 
     # ── Build notices HTML ────────────────────────────────────────────────────
+    intel_map = _intel_sector_map()
     notices_html = ""
     for i, n in enumerate(top, 1):
-        display_score = float(n.get("client_score") or n.get("composite_score") or 0)
+        sector = n.get("sector_tag") or "other"
+        sector_match = (eff_sectors and sector in eff_sectors)
+        intel_source = intel_map.get(sector)
+
+        extra_badges = ""
+        if sector_match:
+            extra_badges += ('<span class="badge" style="background:rgba(42,157,143,.15);'
+                             'color:var(--gold);border:1px solid rgba(42,157,143,.35);">'
+                             '✓ Matches your sectors</span>')
+        if intel_source:
+            extra_badges += (f'<span class="badge" style="background:rgba(42,157,143,.1);'
+                             f'color:var(--gold);border:1px solid rgba(42,157,143,.3);">'
+                             f'⚡ {intel_source}</span>')
+
         notices_html += (f'<div class="nr">'
                          f'<div class="nrank">{i}</div>'
                          f'<div class="nmain">'
                          f'<div class="ntitle">{n.get("title","")[:80]}</div>'
                          f'<div class="nagency">{n.get("agency","")}</div>'
                          f'<div class="nmeta">'
-                         f'{_sector_badge(n.get("sector_tag",""))}'
+                         f'{_sector_badge(sector)}'
+                         f'{_value_badge(n.get("value_band"))}'
                          f'{_dtc_badge(n.get("days_until_close"))}'
+                         f'{extra_badges}'
                          f'</div></div>'
-                         f'<div class="nscore">{display_score:.1f}<small>/10</small></div>'
                          f'</div>')
 
     # ── Build market signals HTML (Claude-generated) ──────────────────────────
@@ -950,35 +1632,172 @@ def gw_home():
             'No signals yet — run the intelligence pipeline.</p>'
         )
 
-    # ── Build renewal radar HTML ──────────────────────────────────────────────
-    renewal_rows = ""
-    for r in renewals[:5]:
-        val_str = _fmt_value(r.get("contract_value") or r.get("awarded_amount"))
-        src = r.get("source", "")
-        src_label = "confirmed" if src == "end_date" else "est."
-        renewal_rows += (
-            f'<div class="nr" style="padding:.75rem 1.1rem;">'
+    # ── Build renewal pipeline HTML (three tiers) ─────────────────────────────
+    def _renewal_row_html(r: dict, tier: str) -> str:
+        val_str      = _fmt_value(r.get("contract_value"))
+        window_label = r.get("window_label", "")
+        supplier     = r.get("supplier_name") or ""
+        source       = r.get("data_source", "mbie")
+        if tier == "imminent":
+            wl_colour = "var(--red)"
+        elif tier == "approaching":
+            wl_colour = "#e07b39"
+        else:
+            wl_colour = "var(--gold)"
+        supplier_line = (
+            f'<div class="nagency" style="font-size:.72rem;">'
+            f'<span style="color:var(--muted);">Incumbent:</span> {supplier[:60]}</div>'
+        ) if supplier else ""
+        source_label = {"gets": "GETS", "mbie": "MBIE", "market_sounding": "ROI/RFI"}.get(source, "MBIE")
+        return (
+            f'<div class="nr" style="padding:.6rem 1.1rem;">'
             f'<div class="nmain">'
-            f'<div class="ntitle" style="font-size:.83rem;">{(r.get("title") or "")[:70]}</div>'
-            f'<div class="nagency">{r.get("agency_name") or r.get("posting_agency","")}</div>'
-            f'<div class="nmeta">'
+            f'<div class="ntitle" style="font-size:.82rem;">{(r.get("title") or "")[:65]}</div>'
+            f'<div class="nagency">{(r.get("agency_name") or "")[:55]}</div>'
+            f'{supplier_line}'
+            f'<div style="margin-top:.25rem;font-size:.76rem;font-weight:600;color:{wl_colour};">'
+            f'⏱ {window_label}</div>'
+            f'<div class="nmeta" style="margin-top:.2rem;">'
             f'{_sector_badge(r.get("sector_tag",""))}'
-            f'<span class="badge bk">{src_label}</span>'
+            f'<span class="badge bk" style="font-size:.62rem;">{source_label}</span>'
             f'</div></div>'
             f'<div style="flex-shrink:0;text-align:right;">'
-            f'<div style="font-size:.88rem;font-weight:700;color:var(--gold);">{val_str}</div>'
-            f'<div style="font-size:.65rem;color:var(--muted);">value</div>'
+            f'<div style="font-size:.85rem;font-weight:700;color:var(--gold);">{val_str}</div>'
+            f'<div style="font-size:.65rem;color:var(--muted);">contract value</div>'
             f'</div></div>'
         )
-    renewal_card = ""
-    if renewals:
-        renewal_card = (
-            f'<div class="card" style="margin-top:1.25rem;">'
-            f'<div class="ch"><span class="ct">Renewal Radar</span>'
-            f'<span style="font-size:.72rem;color:var(--muted);">Contracts approaching renewal · next 90 days</span></div>'
-            f'{renewal_rows}'
-            f'</div>'
+
+    def _tier_section(label: str, tier_key: str, colour: str) -> str:
+        items = _pipeline.get(tier_key, [])
+        if not items:
+            return ""
+        hdr = (
+            f'<div style="padding:.5rem 1.1rem;font-size:.68rem;font-weight:700;'
+            f'letter-spacing:.07em;text-transform:uppercase;color:{colour};'
+            f'border-bottom:1px solid var(--border);background:rgba(0,0,0,.15);">'
+            f'{label} — {len(items)} contract{"s" if len(items)!=1 else ""}</div>'
         )
+        rows = "".join(_renewal_row_html(r, tier_key) for r in items)
+        return hdr + rows
+
+    _imminent_html   = _tier_section("Imminent (within 90 days)",     "imminent",        "var(--red)")
+    _approching_html = _tier_section("Approaching (90–180 days)",      "approaching",     "#e07b39")
+    _sounding_html   = _tier_section("Market Soundings — ROI/RFI/EOI", "market_sounding", "var(--gold)")
+
+    _renewal_body = _imminent_html + _approching_html + _sounding_html
+    _data_note = _pipeline.get("data_note", "")
+
+    if not _renewal_body:
+        _renewal_body = (
+            f'<div style="padding:1rem 1.1rem;font-size:.82rem;color:var(--muted);">'
+            + (_data_note or "No renewal data available for your sectors.")
+            + '</div>'
+        )
+        _data_note = ""
+
+    _data_note_html = (
+        f'<div style="padding:.6rem 1.1rem;font-size:.76rem;color:var(--muted);">'
+        f'{_data_note}</div>'
+    ) if _data_note else ""
+
+    renewal_card = (
+        f'<div class="card" style="margin-top:1.25rem;">'
+        f'<div class="ch"><span class="ct">Renewal Pipeline</span>'
+        f'<span style="font-size:.72rem;color:var(--muted);">'
+        f'Sourced from GETS award notices and market soundings</span></div>'
+        f'{_renewal_body}{_data_note_html}'
+        f'</div>'
+    )
+
+    # ── Demo items section (shown only when client has < 3 real artefacts) ──────
+    real_artefact_count = (
+        len(_list_artefacts(current_user.slug, "*pursuit*.html"))
+        + len(_list_artefacts(current_user.slug, "competitor_*.html"))
+    )
+
+    demo_section = ""
+    if real_artefact_count < 3:
+        _manifest_data = _load_demo_manifest()
+        _sectors_data  = _manifest_data.get("sectors", {})
+
+        # Pick the best matching sector demo: first preferred sector with demo
+        # content, otherwise just the first sector that has items.
+        _best_sector = None
+        if eff_sectors:
+            for _sk in eff_sectors:
+                if _sectors_data.get(_sk, {}).get("items"):
+                    _best_sector = _sk
+                    break
+        if not _best_sector:
+            for _sk, _sd in _sectors_data.items():
+                if _sd.get("items"):
+                    _best_sector = _sk
+                    break
+
+        if _best_sector:
+            _smeta = _DEMO_SECTOR_META.get(_best_sector, {})
+            _sdata = _sectors_data[_best_sector]
+            _firm  = _sdata.get("firm", {})
+            _items = _sdata.get("items", [])
+
+            _type_labels = {
+                "pursuit_package":    "Pursuit Package",
+                "competitor_profile": "Competitor Profile",
+                "watch_brief":        "Watch Brief",
+            }
+            _type_icons = {
+                "pursuit_package": "🎯",
+                "competitor_profile": "📊",
+                "watch_brief": "📬",
+            }
+            _demo_rows = ""
+            for it in _items:
+                _html_path = it.get("html_path", "")
+                if not _html_path:
+                    continue
+                _kind = it.get("type", "")
+                _type_name = _type_labels.get(_kind, "Report")
+                _icon = _type_icons.get(_kind, "📄")
+                _view_url = url_for(
+                    "demo_file",
+                    filepath=_html_path.replace("output/artefacts/demo/", ""),
+                )
+                _demo_rows += (
+                    f'<div style="display:flex;align-items:center;gap:.75rem;'
+                    f'padding:.55rem 0;border-bottom:1px solid var(--border);">'
+                    f'<span style="font-size:1rem;">{_icon}</span>'
+                    f'<span style="flex:1;font-size:.82rem;color:var(--muted);">{_type_name}</span>'
+                    f'<a href="{_view_url}" target="_blank" class="btn bg-out sm" '
+                    f'style="font-size:.74rem;padding:.28rem .7rem;">View &rarr;</a>'
+                    f'</div>'
+                )
+
+            _sector_label = _smeta.get("label", _best_sector.title())
+            _firm_name    = _firm.get("name", "Demo Client")
+            demo_section = (
+                f'<div class="card" style="margin-top:1.25rem;'
+                f'border:1px dashed rgba(42,157,143,.35);">'
+                f'<div class="ch" style="border-bottom:1px dashed rgba(42,157,143,.2);">'
+                f'<span class="ct">Sample Intelligence — {_sector_label}</span>'
+                f'<span style="font-size:.68rem;color:var(--gold);background:rgba(42,157,143,.12);'
+                f'padding:.15rem .5rem;border-radius:4px;border:1px solid rgba(42,157,143,.3);">'
+                f'EXAMPLE</span>'
+                f'</div>'
+                f'<div style="background:rgba(42,157,143,.05);border-bottom:1px dashed rgba(42,157,143,.2);'
+                f'padding:.65rem 1.1rem;font-size:.78rem;color:var(--muted);">'
+                f'These examples show what Groundwork generates for your sector. '
+                f'Your live intelligence will appear here as it is produced.</div>'
+                f'<div class="cb" style="padding:.65rem 1.1rem;">'
+                f'<div style="font-size:.72rem;color:var(--muted);margin-bottom:.5rem;">'
+                f'Shown as: <strong style="color:var(--text);">{_firm_name}</strong> '
+                f'({_sector_label})</div>'
+                f'{_demo_rows}'
+                f'<div style="padding-top:.65rem;">'
+                f'<a href="{url_for("demo")}?sector={_best_sector}" '
+                f'style="font-size:.75rem;color:var(--gold);">View full demo for this sector &rarr;</a>'
+                f'</div>'
+                f'</div></div>'
+            )
 
     wl_link = f'<a href="{url_for("gw_watchlist")}" class="btn bg-out sm">Full watchlist &rarr;</a>'
     prefs_link = (f'<a href="{url_for("onboarding")}" '
@@ -987,8 +1806,8 @@ def gw_home():
     # Sector preference indicator
     if eff_sectors:
         pills = "".join(
-            f'<span style="background:rgba(201,168,76,.15);color:var(--gold);'
-            f'border:1px solid rgba(201,168,76,.3);border-radius:4px;'
+            f'<span style="background:rgba(42,157,143,.15);color:var(--gold);'
+            f'border:1px solid rgba(42,157,143,.3);border-radius:4px;'
             f'padding:.1rem .4rem;font-size:.7rem;font-weight:600;margin-right:.3rem;">'
             f'{s}</span>'
             for s in eff_sectors
@@ -1016,27 +1835,391 @@ def gw_home():
             f'<div class="cb" style="padding:.85rem 1rem;">{signals_html}</div></div>'
             f'</div>'
             f'</div>'
-            f'{renewal_card}')
+            f'{renewal_card}'
+            f'{demo_section}')
     return _page("Dashboard — Groundwork", body, "home")
 
 
 @app.route("/groundwork/watchlist")
 @login_required
 def gw_watchlist():
-    wl = _latest_watchlist()
-    if not wl:
+    # Fetch active notices pool for watchlist view
+    try:
+        from preferences import get_user_preferences
+        db_prefs = get_user_preferences(current_user.id)
+        db_sectors = db_prefs.get("sectors") or []
+        if db_sectors:
+            preferred_sectors = db_sectors
+        else:
+            preferred_sectors = list(current_user.preferred_sectors or []) or None
+
+        pool = db.fetchall("""
+            SELECT r.notice_id, r.title, r.agency, r.source_url, r.close_date,
+                   r.category_raw,
+                   p.sector_tag, p.days_until_close, p.value_band,
+                   p.geographic_scope,
+                   e.summary, e.evaluation_weighting, e.red_flags, e.strategic_framing
+              FROM parsed_notices p
+              JOIN raw_notices r    ON r.notice_id = p.notice_id
+              LEFT JOIN enriched_notices e ON e.notice_id = p.notice_id
+             WHERE (p.days_until_close IS NULL OR p.days_until_close >= 0)
+             ORDER BY p.days_until_close ASC NULLS LAST
+             LIMIT 100
+        """)
+
+        pool = [dict(r) for r in pool]
+        # Sector-preferred notices bubble up first, then urgency+value within each group
+        if preferred_sectors:
+            matched   = [r for r in pool if (r.get("sector_tag") or "other") in preferred_sectors]
+            unmatched = [r for r in pool if (r.get("sector_tag") or "other") not in preferred_sectors]
+            matched.sort(key=_notice_sort_key)
+            unmatched.sort(key=_notice_sort_key)
+            pool = matched + unmatched
+        else:
+            pool.sort(key=_notice_sort_key)
+
+    except Exception as exc:
+        logger.error("gw_watchlist: %s", exc)
+        pool = []
+        preferred_sectors = None
+
+    # Collect distinct sectors for filter pills
+    all_sectors = sorted({(r.get("sector_tag") or "other") for r in pool})
+
+    if not pool:
         body = ('<div class="ptitle">Daily Watchlist</div>'
                 '<div class="card cb"><p style="color:var(--muted);">No watchlist yet. Run Layer 1 pipeline.</p></div>')
         return _page("Watchlist", body, "watchlist")
-    rel = str(wl.relative_to(OUTPUT_DIR))
-    src = url_for("serve_output_file", filepath=rel)
-    date_str = wl.stem.replace("watchlist_", "")
-    body = (f'<div class="ptitle">Daily Watchlist</div>'
-            f'<div class="psub">{date_str} &middot; '
-            f'<a href="{src}" target="_blank">Open full screen &rarr;</a> &middot; '
-            f'<a href="{src}?dl=1">Download HTML</a></div>'
-            f'<iframe src="{src}" style="width:100%;height:calc(100vh - 210px);'
-            f'border:1px solid var(--border);border-radius:8px;" loading="lazy"></iframe>')
+
+    run_date = date.today().isoformat()
+
+    # ── Sector filter bar HTML ─────────────────────────────────────────────────
+    sector_pills = (
+        '<button class="sf-pill sf-active" data-sector="all" onclick="sfFilter(this)">All Sectors</button>'
+    )
+    for s in all_sectors:
+        label = s.replace("_", " ").title()
+        sector_pills += (
+            f'<button class="sf-pill" data-sector="{s}" onclick="sfFilter(this)">{label}</button>'
+        )
+
+    filter_bar = (
+        f'<div id="sf-bar" style="display:flex;flex-wrap:wrap;gap:.45rem;'
+        f'padding:.85rem 0 1rem;margin-bottom:.25rem;">'
+        f'{sector_pills}'
+        f'</div>'
+    )
+
+    filter_css = """<style>
+/* ── Sector filter pills (portal chrome — keep explicit colours) ── */
+.sf-pill{border:1px solid #c8d0d8;background:#eef1f4;color:#1e2d40;
+  border-radius:999px;padding:.28rem .85rem;font-size:.75rem;font-weight:600;
+  cursor:pointer;transition:background .15s,color .15s,border-color .15s;
+  white-space:nowrap;font-family:inherit;}
+.sf-pill:hover{border-color:#2a9d8f;color:#2a9d8f;}
+.sf-pill.sf-active{background:#2a9d8f;color:#fff;border-color:#2a9d8f;}
+@media(max-width:480px){.sf-pill{font-size:.7rem;padding:.22rem .65rem;}}
+
+/* ── Light-document wrapper — overrides dark portal variables for the
+      watchlist report area only. Nav/sidebar are unaffected. ── */
+#wl-doc{
+  background:#f5f0eb;
+  border-radius:10px;
+  padding:1rem 1.1rem 1.25rem;
+  margin-top:.5rem;
+  /* Override dark-theme CSS vars for all descendants */
+  --surf:#ffffff;
+  --surf2:#f0ece6;
+  --border:#d8dde3;
+  --text:#1e2d40;
+  --muted:#556b7d;
+  --navy:#1e2d40;
+  --navy-l:#eef2f7;
+  --gold:#2a9d8f;
+  --gold-l:#e0f4f2;
+  --red:#c0392b;
+  --green:#2e7d4f;
+}
+/* Card backgrounds and text inside the light doc */
+#wl-doc .wl-card{
+  background:#ffffff !important;
+  border-color:#d8dde3 !important;
+  color:#1e2d40;
+}
+
+/* ── Bidder cards (output.py classes, now styled for light doc) ── */
+#wl-doc .bidder-card{background:#f5f8fa;border:1px solid #d8dde3;
+  border-radius:6px;padding:.65rem .85rem;margin-bottom:.5rem;}
+#wl-doc .bidder-header{display:flex;align-items:center;gap:.5rem;margin-bottom:.3rem;flex-wrap:wrap;}
+#wl-doc .bidder-name{font-size:.83rem;font-weight:700;color:#1e2d40;flex:1;min-width:0;}
+#wl-doc .bidder-meta{font-size:.72rem;color:#556b7d;}
+#wl-doc .bidder-pills{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.35rem;}
+#wl-doc .bidder-pill{font-size:.68rem;font-weight:600;padding:.15rem .45rem;
+  border-radius:4px;border:1px solid currentColor;}
+#wl-doc .bidder-context{font-size:.78rem;color:#556b7d;line-height:1.55;margin-bottom:.3rem;}
+#wl-doc .bidder-reasoning{display:flex;flex-direction:column;gap:.2rem;}
+#wl-doc .bidder-bullet{font-size:.74rem;color:#556b7d;line-height:1.4;}
+#wl-doc .bidder-src-badge{font-size:.62rem;font-weight:600;padding:.12rem .45rem;
+  border-radius:4px;border:1px solid transparent;}
+#wl-doc .bidder-src-mbie{background:#eafaf1;color:#2e7d4f;border-color:#a9dfbf;}
+#wl-doc .bidder-src-inferred{background:#eef2f7;color:#4a6080;border-color:#b0bcd4;}
+</style>"""
+
+    filter_js = """<script>
+function sfFilter(btn){
+  document.querySelectorAll('.sf-pill').forEach(function(p){p.classList.remove('sf-active');});
+  btn.classList.add('sf-active');
+  var sector=btn.getAttribute('data-sector');
+  document.querySelectorAll('.wl-card').forEach(function(card){
+    if(sector==='all'||card.getAttribute('data-sector')===sector){
+      card.style.display='';
+    }else{
+      card.style.display='none';
+    }
+  });
+}
+</script>"""
+
+    # ── Batch-fetch all enriched fields and bidders for the pool ─────────────
+    try:
+        from output import _recommended_actions, _bidder_card
+    except Exception as _oe:
+        logger.warning("Could not import output helpers: %s", _oe)
+        _recommended_actions = lambda item: []
+        _bidder_card = lambda b: ""
+
+    # Bidders: one query for all notice IDs, group in Python (avoids N+1)
+    notice_ids = [n["notice_id"] for n in pool if n.get("notice_id")]
+    bidders_by_notice: dict = {}
+    if notice_ids:
+        try:
+            from canonical_suppliers import deduplicate_bidders
+            from bidders import _firm_is_excluded, _notice_is_specialist
+            placeholders = ",".join(["%s"] * len(notice_ids))
+            raw_bidders = db.fetchall(
+                f"""
+                SELECT b.notice_id, b.firm_name, b.size, b.strategic_importance,
+                       b.intelligence_maturity, b.relevance_score, b.match_type,
+                       b.reasoning, b.company_context, b.context_confidence, b.sector
+                  FROM bidder_pool b
+                 WHERE b.notice_id IN ({placeholders})
+                 ORDER BY b.notice_id,
+                          CASE b.strategic_importance WHEN 'high' THEN 0
+                                                      WHEN 'medium' THEN 1
+                                                      ELSE 2 END,
+                          b.relevance_score DESC NULLS LAST
+                """,
+                tuple(notice_ids),
+            )
+            # Build a notice_ctx lookup for exclusion checking
+            notice_ctx_map: dict = {}
+            for n in pool:
+                notice_ctx_map[n["notice_id"]] = {
+                    "notice_id": n["notice_id"],
+                    "title": n.get("title", ""),
+                    "agency": n.get("agency", ""),
+                    "sector_tag": n.get("sector_tag", ""),
+                }
+            # Group, apply exclusions, deduplicate, cap at TOP_N
+            from collections import defaultdict
+            grouped: dict = defaultdict(list)
+            for row in raw_bidders:
+                grouped[row["notice_id"]].append(dict(row))
+            for nid, rows in grouped.items():
+                ctx = notice_ctx_map.get(nid, {})
+                is_specialist = _notice_is_specialist(ctx) if ctx else False
+                filtered = []
+                for row in rows:
+                    r_sectors = [row.get("sector") or ""]
+                    if is_specialist and row.get("match_type") == "csv_inferred":
+                        continue
+                    if _firm_is_excluded(r_sectors, ctx):
+                        continue
+                    filtered.append(row)
+                deduped = deduplicate_bidders(filtered)
+                bidders_by_notice[nid] = deduped[:config.TOP_N_BIDDERS_PER_NOTICE]
+        except Exception as _be:
+            logger.warning("Watchlist bidder batch-fetch failed: %s", _be)
+
+    # ── Pre-fetch intel sector map once for all cards ─────────────────────────
+    intel_map = _intel_sector_map()
+
+    # ── Notice cards ──────────────────────────────────────────────────────────
+    cards_html = ""
+    for i, n in enumerate(pool, 1):
+        sector = n.get("sector_tag") or "other"
+        dtc = n.get("days_until_close")
+        summary = n.get("summary") or ""
+
+        if dtc is not None and dtc <= 7:
+            dtc_badge = f'<span class="badge br">⚡ {dtc}d — URGENT</span>'
+        elif dtc is not None and dtc <= 21:
+            dtc_badge = f'<span class="badge bk">{dtc} days</span>'
+        elif dtc is not None:
+            dtc_badge = f'<span class="badge bg">{dtc} days</span>'
+        else:
+            dtc_badge = '<span class="badge bk">Close TBC</span>'
+
+        sector_match_badge = ""
+        if preferred_sectors and sector in preferred_sectors:
+            sector_match_badge = ('<span class="badge" style="background:rgba(42,157,143,.15);'
+                                  'color:var(--gold);border:1px solid rgba(42,157,143,.35);">'
+                                  '✓ Matches your sectors</span>')
+
+        intel_source = intel_map.get(sector)
+        strategic_badge = ""
+        if intel_source:
+            strategic_badge = (f'<span class="badge" style="background:rgba(42,157,143,.1);'
+                               f'color:var(--gold);border:1px solid rgba(42,157,143,.3);">'
+                               f'⚡ {intel_source}</span>')
+
+        src_link = n.get("source_url", "#")
+
+        # ── Detail sections ───────────────────────────────────────────────────
+        # Intelligence summary (full, not truncated)
+        if summary:
+            summary_html = f'<p style="margin:0;color:var(--text);line-height:1.6;">{summary}</p>'
+        else:
+            summary_html = '<p style="margin:0;color:var(--muted);font-style:italic;">AI summary will appear here once enrichment runs.</p>'
+
+        # Strategic framing
+        framing = n.get("strategic_framing") or ""
+        framing_html = ""
+        if framing:
+            framing_html = (
+                f'<div style="margin-top:.75rem;padding:.6rem .85rem;'
+                f'background:rgba(42,157,143,.07);border-left:3px solid var(--gold);'
+                f'border-radius:0 6px 6px 0;">'
+                f'<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;'
+                f'letter-spacing:.06em;color:var(--gold);margin-bottom:.25rem;">Strategic framing</div>'
+                f'<div style="font-size:.82rem;color:var(--text);line-height:1.55;">{framing}</div>'
+                f'</div>'
+            )
+
+        # Red flags
+        red_flags_raw = n.get("red_flags") or ""
+        flags = [f.strip() for f in red_flags_raw.split(";") if f.strip()]
+        if flags:
+            flags_html = "".join(
+                f'<div style="display:flex;gap:.5rem;align-items:flex-start;margin-bottom:.3rem;">'
+                f'<span style="color:#e05555;flex-shrink:0;font-size:.85rem;">⚠</span>'
+                f'<span style="font-size:.8rem;color:var(--text);line-height:1.5;">{f}</span></div>'
+                for f in flags
+            )
+        else:
+            flags_html = '<div style="font-size:.8rem;color:var(--muted);font-style:italic;">No red flags identified</div>'
+
+        # Recommended actions
+        actions = _recommended_actions(n)
+        if actions:
+            actions_html = "".join(
+                f'<div style="display:flex;gap:.6rem;align-items:flex-start;margin-bottom:.5rem;">'
+                f'<span style="flex-shrink:0;width:1.35rem;height:1.35rem;border-radius:50%;'
+                f'background:var(--gold);color:#fff;font-size:.68rem;font-weight:700;'
+                f'display:flex;align-items:center;justify-content:center;">{i2+1}</span>'
+                f'<span style="font-size:.8rem;color:var(--text);line-height:1.5;">{a}</span></div>'
+                for i2, a in enumerate(actions)
+            )
+        else:
+            actions_html = '<div style="font-size:.8rem;color:var(--muted);">No actions available.</div>'
+
+        # Likely bidders
+        notice_id = n.get("notice_id", "")
+        bidders = bidders_by_notice.get(notice_id, [])
+        if bidders:
+            # _bidder_card returns output.py-styled HTML; wrap in portal-compatible container
+            bidders_html = "".join(_bidder_card(b) for b in bidders)
+        else:
+            bidders_html = '<div style="font-size:.8rem;color:var(--muted);">No bidder data available.</div>'
+
+        # Meta row: value band, close date, scope
+        value_labels = {
+            "under_100k": "< $100K", "100k_500k": "$100K–$500K",
+            "500k_2m": "$500K–$2M", "2m_10m": "$2M–$10M",
+            "10m_plus": "$10M+", "unknown": "Value TBC",
+        }
+        value_label = value_labels.get(n.get("value_band") or "unknown", "Value TBC")
+        close_str = str(n.get("close_date") or "TBC")
+        scope = n.get("geographic_scope") or "—"
+
+        detail_html = (
+            f'<div style="border-top:1px solid var(--border);margin-top:.75rem;padding-top:.9rem;">'
+            # Meta row
+            f'<div style="display:flex;flex-wrap:wrap;gap:.75rem 1.5rem;'
+            f'margin-bottom:1rem;font-size:.78rem;">'
+            f'<div><span style="color:var(--muted);">Value </span>'
+            f'<strong>{value_label}</strong></div>'
+            f'<div><span style="color:var(--muted);">Close </span>'
+            f'<strong>{close_str}</strong></div>'
+            f'<div><span style="color:var(--muted);">Scope </span>'
+            f'<strong>{scope}</strong></div>'
+            f'</div>'
+            # Three-column body (stacks on mobile via flex-wrap)
+            f'<div style="display:flex;flex-wrap:wrap;gap:1.25rem;align-items:flex-start;">'
+            # Left: intelligence summary + framing + red flags
+            f'<div style="flex:2;min-width:240px;">'
+            f'<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;'
+            f'letter-spacing:.06em;color:var(--muted);margin-bottom:.45rem;">Intelligence summary</div>'
+            f'{summary_html}'
+            f'{framing_html}'
+            f'<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;'
+            f'letter-spacing:.06em;color:var(--muted);margin:.85rem 0 .4rem;">Red flags</div>'
+            f'{flags_html}'
+            f'</div>'
+            # Middle: recommended actions
+            f'<div style="flex:1;min-width:200px;">'
+            f'<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;'
+            f'letter-spacing:.06em;color:var(--muted);margin-bottom:.45rem;">Recommended actions</div>'
+            f'{actions_html}'
+            f'</div>'
+            # Right: likely bidders
+            f'<div style="flex:1;min-width:200px;">'
+            f'<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;'
+            f'letter-spacing:.06em;color:var(--muted);margin-bottom:.45rem;">Likely bidders</div>'
+            f'{bidders_html}'
+            f'</div>'
+            f'</div>'  # end body columns
+            f'</div>'  # end detail panel
+        )
+
+        cards_html += (
+            f'<div class="wl-card" data-sector="{sector}" '
+            f'style="background:var(--surf);border:1px solid var(--border);'
+            f'border-radius:8px;padding:.9rem 1.1rem;margin-bottom:.6rem;">'
+            f'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:.75rem;">'
+            f'<div style="flex:1;min-width:0;">'
+            f'<div style="font-size:.88rem;font-weight:600;color:var(--navy);'
+            f'margin-bottom:.25rem;line-height:1.4;">'
+            f'<span style="color:var(--muted);font-size:.75rem;font-weight:400;margin-right:.4rem;">#{i}</span>'
+            f'{n.get("title","")[:90]}</div>'
+            f'<div style="font-size:.75rem;color:var(--muted);margin-bottom:.45rem;">{n.get("agency","")}</div>'
+            f'<div style="display:flex;flex-wrap:wrap;gap:.35rem;align-items:center;">'
+            f'{_sector_badge(sector)}'
+            f'{_value_badge(n.get("value_band"))}'
+            f'{dtc_badge}'
+            f'{sector_match_badge}'
+            f'{strategic_badge}'
+            f'</div>'
+            f'</div>'
+            f'<div style="flex-shrink:0;text-align:right;">'
+            f'<a href="{src_link}" target="_blank" style="font-size:.72rem;color:var(--muted);'
+            f'display:block;white-space:nowrap;">GETS &nearr;</a>'
+            f'</div>'
+            f'</div>'
+            f'{detail_html}'
+            f'</div>'
+        )
+
+    body = (
+        f'{filter_css}'
+        f'<div class="ptitle">Daily Watchlist</div>'
+        f'<div class="psub">{run_date} &middot; {len(pool)} active notices</div>'
+        f'<div id="wl-doc">'
+        f'{filter_bar}'
+        f'<div id="wl-list">{cards_html}</div>'
+        f'</div>'
+        f'{filter_js}'
+    )
     return _page("Watchlist — Groundwork", body, "watchlist")
 
 
@@ -1262,8 +2445,8 @@ def admin_client(username: str):
 
     sector_pills = ""
     for s in (u.preferred_sectors or []):
-        sector_pills += (f'<span style="background:rgba(201,168,76,.15);color:var(--gold);'
-                         f'border:1px solid rgba(201,168,76,.3);border-radius:4px;'
+        sector_pills += (f'<span style="background:rgba(42,157,143,.15);color:var(--gold);'
+                         f'border:1px solid rgba(42,157,143,.3);border-radius:4px;'
                          f'padding:.1rem .4rem;font-size:.7rem;font-weight:600;margin-right:.3rem;">'
                          f'{s}</span>')
     sector_display = sector_pills or '<span style="color:var(--muted);font-size:.78rem;">Sector-neutral (all sectors equal)</span>'
@@ -1371,6 +2554,425 @@ def admin_add_client():
             f'<button type="submit" class="btn bg-gold">Create account</button>'
             f'</form></div></div>')
     return _page("Add Client — Admin", body, "admin")
+
+
+# ── Intel Library admin page ─────────────────────────────────────────────────
+
+@app.route("/intel")
+@login_required
+@admin_required
+def intel_dash():
+    """Strategic intelligence library — admin only."""
+    from intel_library.scheduler_jobs import get_library_stats
+    import json as _json
+
+    stats = get_library_stats()
+
+    # ── Section 1: Library overview ──────────────────────────────────────────
+    last_refresh_str = "Never"
+    if stats.get("last_refresh"):
+        try:
+            lr = stats["last_refresh"]
+            if hasattr(lr, "strftime"):
+                last_refresh_str = lr.strftime("%-d %b %Y %H:%M")
+            else:
+                last_refresh_str = str(lr)[:16]
+        except Exception:
+            pass
+
+    s1 = (
+        f'<div class="psub" style="margin-bottom:1.5rem;">Strategic intelligence document library — '
+        f'{stats["sources_active"]} active sources, {stats["signals_total"]} signals extracted</div>'
+        f'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;margin-bottom:2rem;">'
+        f'<div class="stat"><div class="sval">{stats["sources_active"]}</div>'
+        f'<div class="sl">Active sources</div></div>'
+        f'<div class="stat"><div class="sval">{stats["sources_total"]}</div>'
+        f'<div class="sl">Total sources</div></div>'
+        f'<div class="stat"><div class="sval">{stats["signals_total"]}</div>'
+        f'<div class="sl">Signals extracted</div></div>'
+        f'<div class="stat"><div class="sval">{stats["signals_30d"]}</div>'
+        f'<div class="sl">Signals (30 days)</div></div>'
+        f'<div class="stat"><div class="sval" style="color:#2a9d8f;">{stats["budget_signals"]}</div>'
+        f'<div class="sl">Budget 2026 signals</div></div>'
+        f'<div class="stat"><div class="sval" style="font-size:1rem;padding-top:.2rem;">'
+        f'{last_refresh_str}</div>'
+        f'<div class="sl">Last refresh</div></div>'
+        f'</div>'
+    )
+
+    # ── Section 2: Source table ───────────────────────────────────────────────
+    try:
+        sources = db.fetchall(
+            """
+            SELECT s.id, s.title, s.short_name, s.publisher, s.url,
+                   s.document_type, s.update_frequency, s.nz_relevance_score,
+                   s.is_active, s.last_checked, s.notes,
+                   c.name AS category_name,
+                   COALESCE(u.total_references, 0) AS total_references,
+                   u.avg_significance, u.last_used,
+                   (SELECT COUNT(*) FROM intel_signals sig WHERE sig.source_id = s.id) AS signal_count,
+                   (SELECT summary FROM intel_snapshots sn WHERE sn.source_id = s.id
+                    ORDER BY sn.created_at DESC LIMIT 1) AS latest_summary
+            FROM intel_sources s
+            LEFT JOIN intel_categories c ON c.id = s.category_id
+            LEFT JOIN v_source_usage_summary u ON u.source_id = s.id
+            ORDER BY
+                CASE WHEN s.short_name IN ('BEFU2026','Budget2026-Full') THEN 0 ELSE 1 END ASC,
+                s.nz_relevance_score DESC NULLS LAST,
+                s.title ASC
+            """
+        )
+    except Exception as exc:
+        logger.warning("Intel /intel source fetch failed: %s", exc)
+        sources = []
+
+    def _doc_badge(dt):
+        colours = {
+            "forecast": "#2a9d8f", "strategy": "#3b82f6", "policy": "#8b5cf6",
+            "report": "#f59e0b", "guidance": "#10b981", "news": "#ef4444", "speech": "#ec4899",
+        }
+        bg = colours.get(dt, "#64748b")
+        return f'<span style="background:{bg};color:#fff;padding:1px 7px;border-radius:4px;font-size:.72rem;font-weight:700;">{dt}</span>'
+
+    def _relevance_dots(score):
+        if not score:
+            return "—"
+        filled = "●" * score
+        empty  = "○" * (10 - score)
+        return f'<span style="color:#2a9d8f;font-size:.85rem;">{filled}</span><span style="color:#253d5c;font-size:.85rem;">{empty}</span>'
+
+    rows_html = ""
+    for src in sources:
+        is_budget = (src.get("short_name") or "") in ("BEFU2026", "Budget2026-Full")
+        row_style = 'background:rgba(42,157,143,.06);border-left:3px solid #2a9d8f;' if is_budget else ""
+        active_badge = ('<span class="badge bg">ACTIVE</span>' if src.get("is_active")
+                        else '<span class="badge br">INACTIVE</span>')
+        budget_badge = '<span class="badge bg" style="margin-left:.25rem;">BUDGET&nbsp;2026</span>' if is_budget else ""
+        title_cell = (
+            f'<td style="max-width:300px;">'
+            f'<a href="{src.get("url","#")}" target="_blank" rel="noopener" '
+            f'style="color:var(--text);font-size:.88rem;line-height:1.35;">'
+            f'{src.get("title","")[:80]}</a>'
+            f'{budget_badge}</td>'
+        )
+        last_checked = "—"
+        if src.get("last_checked"):
+            try:
+                lc = src["last_checked"]
+                last_checked = lc.strftime("%-d %b") if hasattr(lc, "strftime") else str(lc)[:10]
+            except Exception:
+                pass
+        last_used_str = "—"
+        if src.get("last_used"):
+            try:
+                lu = src["last_used"]
+                last_used_str = lu.strftime("%-d %b") if hasattr(lu, "strftime") else str(lu)[:10]
+            except Exception:
+                pass
+
+        rows_html += (
+            f'<tr style="{row_style}">'
+            f'{title_cell}'
+            f'<td><code style="font-size:.78rem;color:var(--gold);">{src.get("short_name") or "—"}</code></td>'
+            f'<td style="font-size:.82rem;color:var(--muted);">{(src.get("publisher") or "")[:30]}</td>'
+            f'<td style="font-size:.78rem;color:var(--muted);">{(src.get("category_name") or "")[:25]}</td>'
+            f'<td>{_doc_badge(src.get("document_type",""))}</td>'
+            f'<td style="font-size:.82rem;text-align:center;">{last_checked}</td>'
+            f'<td style="text-align:center;">{src.get("signal_count",0)}</td>'
+            f'<td style="text-align:center;">{src.get("total_references",0)}</td>'
+            f'<td style="font-size:.82rem;text-align:center;">'
+            f'{src.get("avg_significance") or "—"}</td>'
+            f'<td style="font-size:.82rem;text-align:center;">{last_used_str}</td>'
+            f'<td>{active_badge}</td>'
+            f'</tr>'
+        )
+        # Expandable row for latest summary + top signals
+        if src.get("latest_summary"):
+            rows_html += (
+                f'<tr style="{"background:rgba(42,157,143,.03);" if is_budget else ""}">'
+                f'<td colspan="11" style="padding:.6rem 1rem;font-size:.82rem;color:var(--muted);">'
+                f'<em>{src["latest_summary"][:300]}</em></td></tr>'
+            )
+
+    s2 = (
+        f'<div class="card" style="margin-bottom:2rem;">'
+        f'<div class="ch" style="display:flex;align-items:center;justify-content:space-between;">'
+        f'<span style="font-weight:700;">Source Library</span>'
+        f'<a href="/intel/run?job=weekly" class="btn bg-out sm" '
+        f'style="font-size:.78rem;padding:.3rem .8rem;" '
+        f'onclick="return confirm(\'Run full source refresh now?\')">Refresh all sources</a>'
+        f'</div>'
+        f'<div style="overflow-x:auto;">'
+        f'<table class="dt" style="width:100%;font-size:.83rem;">'
+        f'<thead><tr>'
+        f'<th>Title</th><th>Short name</th><th>Publisher</th><th>Category</th>'
+        f'<th>Type</th><th>Last checked</th><th>Signals</th>'
+        f'<th>Uses in GW</th><th>Avg sig.</th><th>Last used</th><th>Status</th>'
+        f'</tr></thead>'
+        f'<tbody>{rows_html}</tbody></table></div></div>'
+    )
+
+    # Add source form
+    s2 += (
+        f'<div class="card" style="margin-bottom:2rem;">'
+        f'<div class="ch"><span style="font-weight:700;">Add New Source</span></div>'
+        f'<div style="padding:1.25rem;">'
+        f'<form method="POST" action="/intel/add-source">'
+        f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;">'
+        f'<div class="fg"><label class="fl">Title *</label>'
+        f'<input name="title" class="fc2" required placeholder="Document title"></div>'
+        f'<div class="fg"><label class="fl">Short name</label>'
+        f'<input name="short_name" class="fc2" placeholder="e.g. BEFU2026"></div>'
+        f'<div class="fg"><label class="fl">Publisher</label>'
+        f'<input name="publisher" class="fc2" placeholder="e.g. The Treasury"></div>'
+        f'<div class="fg"><label class="fl">URL *</label>'
+        f'<input name="url" class="fc2" required placeholder="https://..."></div>'
+        f'<div class="fg"><label class="fl">PDF URL</label>'
+        f'<input name="pdf_url" class="fc2" placeholder="https://...pdf"></div>'
+        f'<div class="fg"><label class="fl">Document type *</label>'
+        f'<select name="document_type" class="fc2">'
+        f'<option value="policy">policy</option><option value="forecast">forecast</option>'
+        f'<option value="strategy">strategy</option><option value="report">report</option>'
+        f'<option value="guidance">guidance</option><option value="news">news</option>'
+        f'<option value="speech">speech</option>'
+        f'</select></div>'
+        f'<div class="fg"><label class="fl">Update frequency</label>'
+        f'<input name="update_frequency" class="fc2" placeholder="e.g. quarterly, annual"></div>'
+        f'<div class="fg"><label class="fl">NZ relevance (1-10)</label>'
+        f'<input name="nz_relevance_score" class="fc2" type="number" min="1" max="10" value="7"></div>'
+        f'</div>'
+        f'<div class="fg" style="margin-top:.75rem;"><label class="fl">Notes</label>'
+        f'<textarea name="notes" class="fc2" rows="2" placeholder="Procurement context..."></textarea></div>'
+        f'<button type="submit" class="btn bg-gold" style="margin-top:.75rem;">Add Source</button>'
+        f'</form></div></div>'
+    )
+
+    # ── Section 3: Signal feed ────────────────────────────────────────────────
+    try:
+        recent_signals = db.fetchall(
+            """
+            SELECT sig.id, sig.signal_type, sig.signal_title, sig.signal_body,
+                   sig.affected_sectors, sig.affected_agencies, sig.dollar_value,
+                   sig.timeframe, sig.confidence, sig.extracted_at,
+                   src.short_name, src.title AS source_title
+            FROM v_active_signals sig
+            JOIN intel_sources src ON src.id = sig.source_id
+            ORDER BY sig.extracted_at DESC
+            LIMIT 50
+            """
+        )
+    except Exception:
+        recent_signals = []
+
+    def _conf_badge(c):
+        clr = {"high": "#2a9d8f", "medium": "#f59e0b", "low": "#64748b"}.get(c, "#64748b")
+        return f'<span style="background:{clr}22;color:{clr};padding:1px 7px;border-radius:4px;font-size:.72rem;font-weight:700;text-transform:uppercase;">{c}</span>'
+
+    def _type_badge(t):
+        icons = {
+            "budget_increase": "💰", "policy_change": "📋",
+            "new_initiative": "🚀", "risk": "⚠️", "opportunity": "🎯",
+        }
+        return icons.get(t, "•") + " " + t.replace("_", " ").title()
+
+    def _fmt_nzd(v):
+        if not v: return ""
+        try:
+            v = int(v)
+            if v >= 1_000_000_000: return f"${v/1_000_000_000:.1f}B"
+            if v >= 1_000_000: return f"${v/1_000_000:.0f}M"
+            if v >= 1_000: return f"${v/1_000:.0f}K"
+            return f"${v:,}"
+        except Exception: return ""
+
+    sig_cards = ""
+    for sig in recent_signals:
+        is_budget = (sig.get("short_name") or "") in ("BEFU2026", "Budget2026-Full", "FSR2026")
+        border = "border-left:3px solid #2a9d8f;" if is_budget else "border-left:3px solid var(--border);"
+        src_label = sig.get("short_name") or sig.get("source_title", "")[:40]
+        sectors_str = ", ".join(sig.get("affected_sectors") or [])
+        agencies_str = ", ".join(sig.get("affected_agencies") or [])
+        dv_str = _fmt_nzd(sig.get("dollar_value"))
+        extracted_str = ""
+        if sig.get("extracted_at"):
+            try:
+                ea = sig["extracted_at"]
+                extracted_str = ea.strftime("%-d %b %Y") if hasattr(ea, "strftime") else str(ea)[:10]
+            except Exception:
+                pass
+
+        budget_tag = ('<span class="badge bg" style="margin-left:.4rem;font-size:.68rem;">BUDGET 2026</span>'
+                      if is_budget else "")
+        sig_cards += (
+            f'<div class="nr" style="padding:.9rem 1rem;{border}">'
+            f'<div style="display:flex;align-items:flex-start;gap:.75rem;">'
+            f'<div style="flex:1;">'
+            f'<div style="font-weight:700;font-size:.9rem;margin-bottom:.25rem;">'
+            f'{sig.get("signal_title","")}{budget_tag}</div>'
+            f'<div style="font-size:.82rem;color:var(--muted);margin-bottom:.5rem;">'
+            f'{sig.get("signal_body","")[:250]}</div>'
+            f'<div style="display:flex;flex-wrap:wrap;gap:.4rem;font-size:.75rem;color:var(--muted);">'
+            + (f'<span>Sectors: <strong style="color:var(--text);">{sectors_str}</strong></span>' if sectors_str else "")
+            + (f'<span>Agencies: <strong style="color:var(--text);">{agencies_str}</strong></span>' if agencies_str else "")
+            + (f'<span>Value: <strong style="color:#2a9d8f;">{dv_str}</strong></span>' if dv_str else "")
+            + (f'<span>Timeframe: {sig.get("timeframe","")}</span>' if sig.get("timeframe") else "")
+            + f'<span>Source: <code style="color:var(--gold);">{src_label}</code></span>'
+            + f'<span>{extracted_str}</span>'
+            + f'</div></div>'
+            f'<div style="flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:.35rem;">'
+            f'{_conf_badge(sig.get("confidence","medium"))}'
+            f'<span style="font-size:.72rem;color:var(--muted);">{_type_badge(sig.get("signal_type",""))}</span>'
+            f'</div></div></div>'
+        )
+
+    s3 = (
+        f'<div class="card" style="margin-bottom:2rem;">'
+        f'<div class="ch"><span style="font-weight:700;">Signal Feed</span>'
+        f'<span style="font-size:.8rem;color:var(--muted);margin-left:.75rem;">50 most recent</span></div>'
+        f'<div style="max-height:600px;overflow-y:auto;">'
+        + (sig_cards if sig_cards else '<div style="padding:2rem;color:var(--muted);text-align:center;">No signals extracted yet. Run the extractor to populate.</div>')
+        + f'</div></div>'
+    )
+
+    # ── Section 4: Usage log ──────────────────────────────────────────────────
+    try:
+        usage_rows = db.fetchall(
+            """
+            SELECT u.id, u.used_in, u.usage_type, u.significance_score, u.used_at,
+                   src.short_name, src.title AS source_title
+            FROM intel_source_usage u
+            JOIN intel_sources src ON src.id = u.source_id
+            WHERE u.usage_type != 'signal_extracted'
+            ORDER BY u.used_at DESC
+            LIMIT 100
+            """
+        )
+    except Exception:
+        usage_rows = []
+
+    usage_html = ""
+    for u in usage_rows:
+        used_str = ""
+        if u.get("used_at"):
+            try:
+                ua = u["used_at"]
+                used_str = ua.strftime("%-d %b %Y %H:%M") if hasattr(ua, "strftime") else str(ua)[:16]
+            except Exception:
+                pass
+        src_label = u.get("short_name") or u.get("source_title", "")[:30]
+        usage_html += (
+            f'<tr>'
+            f'<td style="font-size:.82rem;">{used_str}</td>'
+            f'<td><code style="font-size:.78rem;color:var(--gold);">{src_label}</code></td>'
+            f'<td style="font-size:.82rem;">{u.get("used_in","")[:50]}</td>'
+            f'<td>{_doc_badge(u.get("usage_type",""))}</td>'
+            f'<td style="text-align:center;">{u.get("significance_score","—")}</td>'
+            f'</tr>'
+        )
+
+    s4 = (
+        f'<div class="card" style="margin-bottom:2rem;">'
+        f'<div class="ch"><span style="font-weight:700;">Usage Log</span>'
+        f'<span style="font-size:.8rem;color:var(--muted);margin-left:.75rem;">How intel sources have influenced Groundwork outputs</span></div>'
+        f'<div style="overflow-x:auto;">'
+        f'<table class="dt" style="width:100%;font-size:.83rem;">'
+        f'<thead><tr><th>Date</th><th>Source</th><th>Used in</th><th>Artefact type</th><th>Significance</th></tr></thead>'
+        f'<tbody>'
+        + (usage_html if usage_html else '<tr><td colspan="5" style="padding:1.5rem;color:var(--muted);text-align:center;">No usage recorded yet.</td></tr>')
+        + f'</tbody></table></div></div>'
+    )
+
+    body = (
+        f'<div class="ptitle" style="display:flex;align-items:center;justify-content:space-between;">'
+        f'<div>'
+        f'<h1 class="ph">Intelligence Library</h1>'
+        f'<div class="psub">Strategic document monitoring — {stats["sources_active"]} sources, '
+        f'{stats["signals_total"]} signals</div>'
+        f'</div>'
+        f'<div style="display:flex;gap:.5rem;">'
+        f'<a href="/intel/run?job=daily" class="btn bg-out sm" '
+        f'style="font-size:.78rem;" '
+        f'onclick="return confirm(\'Fetch Beehive daily sources now?\')">Daily fetch</a>'
+        f'<a href="/intel/run?job=initial" class="btn bg-gold sm" '
+        f'style="font-size:.78rem;" '
+        f'onclick="return confirm(\'Run initial Budget 2026 fetch? This calls Claude for each source.\')">Initial Budget fetch</a>'
+        f'</div></div>'
+        f'{s1}{s2}{s3}{s4}'
+    )
+    return _page("Intelligence Library", body, "admin")
+
+
+@app.route("/intel/run")
+@login_required
+@admin_required
+def intel_run_job():
+    """Trigger an intel library job from the admin UI."""
+    from intel_library.scheduler_jobs import (
+        fetch_beehive_daily, refresh_all_sources, initial_budget_fetch,
+    )
+    job = request.args.get("job", "")
+    try:
+        if job == "daily":
+            result = fetch_beehive_daily()
+            msg = f"Daily fetch complete — {result['succeeded']} sources processed."
+        elif job == "weekly":
+            result = refresh_all_sources()
+            msg = f"Weekly refresh complete — {result['succeeded']} sources processed."
+        elif job == "initial":
+            result = initial_budget_fetch()
+            msg = f"Initial Budget 2026 fetch complete — {result['succeeded']} sources processed."
+        else:
+            msg = f"Unknown job: {job}"
+    except Exception as exc:
+        msg = f"Job failed: {exc}"
+        logger.error("intel_run_job error: %s", exc)
+    _flash(msg)
+    return redirect(url_for("intel_dash"))
+
+
+@app.route("/intel/add-source", methods=["POST"])
+@login_required
+@admin_required
+def intel_add_source():
+    """Add a new intel source from the admin form."""
+    title       = request.form.get("title", "").strip()
+    short_name  = request.form.get("short_name", "").strip() or None
+    publisher   = request.form.get("publisher", "").strip() or None
+    url_val     = request.form.get("url", "").strip() or None
+    pdf_url     = request.form.get("pdf_url", "").strip() or None
+    doc_type    = request.form.get("document_type", "report")
+    update_freq = request.form.get("update_frequency", "").strip() or None
+    notes       = request.form.get("notes", "").strip() or None
+    try:
+        nz_score = int(request.form.get("nz_relevance_score", 7))
+    except ValueError:
+        nz_score = 7
+
+    if not title:
+        _flash("Title is required.", "error")
+        return redirect(url_for("intel_dash"))
+
+    try:
+        existing = db.fetchone("SELECT id FROM intel_sources WHERE title = %s", (title,))
+        if existing:
+            _flash(f"Source already exists: {title[:60]}", "error")
+        else:
+            db.execute(
+                """
+                INSERT INTO intel_sources
+                    (title, short_name, publisher, url, pdf_url, document_type,
+                     update_frequency, nz_relevance_score, notes, is_active)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)
+                """,
+                (title, short_name, publisher, url_val, pdf_url, doc_type,
+                 update_freq, nz_score, notes),
+            )
+            _flash(f"Source added: {title[:60]}")
+    except Exception as exc:
+        logger.error("intel_add_source error: %s", exc)
+        _flash(f"Error adding source: {exc}", "error")
+
+    return redirect(url_for("intel_dash"))
 
 
 # ── Error handlers ────────────────────────────────────────────────────────────

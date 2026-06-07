@@ -207,6 +207,16 @@ def run_parsing() -> int:
                 raw.get("category_raw") or "",
                 raw.get("description") or "",
             )
+            # Sector conflict check: auto-correct high-confidence mismatches
+            from sector_classifier import resolve_sector_conflict as _rsc
+            _rsc_result = _rsc(
+                notice_title=raw.get("title") or "",
+                notice_description=raw.get("description") or "",
+                stored_sector=sector,
+                notice_id=raw["notice_id"],
+            )
+            sector = _rsc_result["sector"]
+
             value_band, val_min, val_max = assign_value_band(raw.get("estimated_value"))
             duration = extract_duration(raw.get("description"))
             geo = extract_geographic_scope(raw.get("description"), raw.get("title"))

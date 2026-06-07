@@ -18,7 +18,7 @@ import argparse
 import json
 import logging
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Optional
@@ -280,6 +280,53 @@ def _get_relevant_flags(agency: str, sector: str) -> list[dict]:
     )
 
 
+def _get_national_market_context(sector: str) -> dict:
+    """
+    National market data for this sector — last 3 years, all agencies.
+    Provides baseline for: how many similar contracts exist nationally,
+    typical contract size, and who dominates the sector across all buyers.
+    """
+    three_years_ago = (date.today() - timedelta(days=3 * 365)).isoformat()
+
+    stats = db.fetchone(
+        """
+        SELECT COUNT(DISTINCT n.rfx_id) AS total_contracts,
+               AVG(n.awarded_amount)     AS avg_value,
+               SUM(n.awarded_amount)     AS total_value
+          FROM mbie_award_notices n
+          JOIN mbie_award_categories c ON c.rfx_id = n.rfx_id
+         WHERE n.is_awarded
+           AND c.sector_tag = %s
+           AND n.awarded_date >= %s
+        """,
+        (sector, three_years_ago),
+    )
+
+    top3 = db.fetchall(
+        """
+        SELECT s.business_name, COUNT(DISTINCT n.rfx_id) AS wins,
+               SUM(n.awarded_amount) AS total_value
+          FROM mbie_award_notices n
+          JOIN mbie_award_suppliers s ON s.rfx_id = n.rfx_id
+          JOIN mbie_award_categories c ON c.rfx_id = n.rfx_id
+         WHERE n.is_awarded
+           AND c.sector_tag = %s
+           AND n.awarded_date >= %s
+         GROUP BY s.business_name
+         ORDER BY wins DESC
+         LIMIT 3
+        """,
+        (sector, three_years_ago),
+    )
+
+    return {
+        "total_contracts": int(stats["total_contracts"] or 0) if stats else 0,
+        "avg_value": float(stats["avg_value"] or 0) if stats else 0,
+        "total_value": float(stats["total_value"] or 0) if stats else 0,
+        "top3_national": [dict(r) for r in top3],
+    }
+
+
 def _get_notice_bidders(notice_id: str) -> list[dict]:
     """Bidders from bidder_pool with any available context."""
     return db.fetchall(
@@ -362,8 +409,17 @@ Unique suppliers engaged: {agency_unique_suppliers}
 Awards in {sector} sector specifically: {agency_sector_awards}
 Top procurement sectors: {agency_top_sectors}
 
+=== NATIONAL MARKET CONTEXT ({sector} sector, last 3 years, all NZ agencies) ===
+Similar contracts awarded nationally: {national_total_contracts} contracts ({national_total_value} combined)
+Average contract value nationally: {national_avg_value}
+Top 3 suppliers nationally in this category:
+{national_top3_text}
+Most frequent supplier to {agency} in {sector} (from above competitive table): {most_frequent_agency_supplier}
+
 === PATTERN FLAGS ===
 {flags_text}
+
+Be specific — use the actual data provided above. Do not be generic. Tone: direct and analytical, written for a senior BD professional who reads intelligence reports.
 
 Return a JSON object with EXACTLY these keys. Be specific and cite data where available.
 
@@ -371,9 +427,7 @@ Return a JSON object with EXACTLY these keys. Be specific and cite data where av
 
 "strategic_fit_score": Integer 1-10. Base this on: client's sector capability, prior agency relationship, competitive positioning.
 
-"win_probability_pct": Integer 0-100. Evidence-based estimate. Account for: client history with this agency, incumbent strength, field size, days to close, known red flags. Be honest — most competitive fields have 20-40% win probability for a strong bidder.
-
-"win_probability_rationale": One paragraph explaining the probability estimate with specific references to the data.
+"win_probability_rationale": One paragraph assessing the competitive position — referencing the incumbent, client's sector track record, days to close, and any known red flags. Do NOT include a percentage figure.
 
 "go_nogo": Exactly one of "GO", "CONDITIONAL GO", or "NO GO"
 
@@ -434,9 +488,36 @@ def _call_claude(context: dict) -> Optional[dict]:
         f"- [{f['severity'].upper()}] {f['description'][:120]}" for f in flags
     ) or "No active intelligence flags for this agency/sector."
 
+    # National market context
+    nm = context.get("national_market", {})
+    nat_top3 = nm.get("top3_national", [])
+    if nat_top3:
+        national_top3_text = "\n".join(
+            f"  {i+1}. {r['business_name']}: {r['wins']} wins nationally "
+            f"({_fmt_value(r.get('total_value'))} total)"
+            for i, r in enumerate(nat_top3)
+        )
+    else:
+        national_top3_text = "  Insufficient MBIE data for national ranking."
+
     # Agency stats
     ag = context.get("agency_stats", {})
     n = context.get("notice", {})
+
+    # Most frequent supplier to this specific agency (top of competitive table)
+    most_frequent_agency_supplier = "Not identified in MBIE data."
+    if comps:
+        top_comp = comps[0]
+        if top_comp.get("agency_wins", 0) > 0:
+            most_frequent_agency_supplier = (
+                f"{top_comp['supplier_name']} — {top_comp['agency_wins']} wins with "
+                f"{n.get('agency', 'this agency')}, avg {_fmt_value(top_comp.get('avg_value'))}"
+            )
+        else:
+            most_frequent_agency_supplier = (
+                f"{top_comp['supplier_name']} — {top_comp['wins']} sector wins nationally "
+                f"(no recorded wins with this specific agency)"
+            )
     e = context.get("enrichment", {})
 
     prompt = _PURSUIT_PROMPT.format(
@@ -471,6 +552,11 @@ def _call_claude(context: dict) -> Optional[dict]:
         agency_sector_awards=ag.get("sector_awards", 0),
         agency_top_sectors=", ".join(f"{s[0]} ({s[1]})" for s in ag.get("top_sectors", [])) or "Insufficient data",
         flags_text=flags_text,
+        national_total_contracts=nm.get("total_contracts", 0),
+        national_total_value=_fmt_value(nm.get("total_value", 0)),
+        national_avg_value=_fmt_value(nm.get("avg_value", 0)),
+        national_top3_text=national_top3_text,
+        most_frequent_agency_supplier=most_frequent_agency_supplier,
     )
 
     try:
@@ -497,9 +583,9 @@ def _call_claude(context: dict) -> Optional[dict]:
 _CSS = """
 :root {
   --bg:#f5f6f8; --surface:#ffffff; --surf2:#f0f2f5; --border:#e2e6ea;
-  --text:#2c3e50; --muted:#6c757d; --navy:#1a2d4a; --gold:#c9a84c;
-  --gold-l:#f7eedb; --navy-l:#e8ecf3; --red:#c0392b; --red-l:#fdecea;
-  --green:#27ae60; --accent:#c9a84c;
+  --text:#2c3e50; --muted:#6c757d; --navy:#1a2d4a; --gold:#2a9d8f;
+  --gold-l:#e0f4f2; --navy-l:#e8ecf3; --red:#c0392b; --red-l:#fdecea;
+  --green:#27ae60; --accent:#2a9d8f;
   --font:'Inter',system-ui,-apple-system,sans-serif;
 }
 *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
@@ -525,7 +611,7 @@ a:hover { color:var(--gold); }
 .cover-meta { display:flex; flex-wrap:wrap; gap:.65rem; margin-bottom:1.1rem; }
 .meta-chip { font-size:.7rem; padding:.22rem .6rem; border-radius:999px; border:1px solid; font-weight:600; }
 .chip-blue  { background:var(--navy-l); color:var(--navy); border-color:#b0bcd4; }
-.chip-gold  { background:var(--gold-l); color:#7a5c00; border-color:var(--gold); }
+.chip-gold  { background:var(--gold-l); color:#1a6b62; border-color:var(--gold); }
 .chip-red   { background:var(--red-l); color:var(--red); border-color:#f1a9a0; }
 .chip-green { background:#eafaf1; color:var(--green); border-color:#a9dfbf; }
 .chip-grey  { background:var(--surf2); color:var(--muted); border-color:var(--border); }
@@ -537,7 +623,7 @@ a:hover { color:var(--gold); }
 .verdict.nogo { background:var(--red-l); border-color:#f1a9a0; }
 .verdict-badge { font-size:1.1rem; font-weight:800; letter-spacing:.04em; flex-shrink:0; }
 .verdict.go   .verdict-badge { color:var(--green); }
-.verdict.cond .verdict-badge { color:#7a5c00; }
+.verdict.cond .verdict-badge { color:#1a6b62; }
 .verdict.nogo .verdict-badge { color:var(--red); }
 .verdict-text { font-size:.85rem; color:var(--text); line-height:1.55; }
 .prob-ring { flex-shrink:0; text-align:center; }
@@ -557,12 +643,12 @@ td { padding:.55rem .75rem; border-bottom:1px solid var(--border); color:var(--t
 tr:last-child td { border-bottom:none; }
 tbody tr:hover td { background:var(--surf2); }
 .risk-high   { color:var(--red);   font-weight:600; }
-.risk-medium { color:#7a5c00;      font-weight:600; }
+.risk-medium { color:#1a6b62;      font-weight:600; }
 .risk-low    { color:var(--green); font-weight:600; }
 .action-item { display:flex; align-items:flex-start; gap:.85rem; padding:.75rem 1rem; border:1px solid var(--border); border-radius:6px; margin-bottom:.5rem; background:var(--surface); }
 .action-priority { flex-shrink:0; font-size:.65rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; padding:.2rem .5rem; border-radius:4px; }
 .pri-critical { background:var(--red-l); color:var(--red); }
-.pri-high     { background:var(--gold-l); color:#7a5c00; }
+.pri-high     { background:var(--gold-l); color:#1a6b62; }
 .pri-medium   { background:var(--navy-l); color:var(--navy); }
 .action-body  { flex:1; }
 .action-text  { font-size:.83rem; color:var(--text); margin-bottom:.2rem; }
@@ -637,6 +723,7 @@ def _render_html(
     client_name: str,
     is_demo: bool = False,
     demo_watermark: str = "",
+    win_pos: Optional[dict] = None,
 ) -> str:
     n = notice
     a = analysis
@@ -657,10 +744,15 @@ def _render_html(
         urgency_chip = "chip-blue"
         urgency_label = f"{dtc} days to close" if dtc else "Close date TBC"
 
-    score_val = float(n.get("composite_score") or 0)
     verdict = a.get("go_nogo", "GO")
-    prob = a.get("win_probability_pct", 0)
     vc = _verdict_class(verdict)
+
+    # Win position band (replaces probability percentage)
+    wp = win_pos or {}
+    wp_label   = wp.get("band", "Competitive")
+    wp_colour  = wp.get("colour", "#d4a017")
+    wp_summary = wp.get("summary", "")
+    wp_top3    = wp.get("top3", [])
 
     # Competitive table rows
     competitors = context.get("competitors", [])
@@ -780,7 +872,7 @@ def _render_html(
       <span class="meta-chip chip-blue">{sector}</span>
       <span class="meta-chip {urgency_chip}">{_safe(urgency_label)}</span>
       <span class="meta-chip chip-grey">Close: {_safe(close_str)}</span>
-      <span class="meta-chip chip-grey">Score: {score_val:.1f}/10</span>
+      <span class="meta-chip" style="background:{wp_colour}22;color:{wp_colour};border:1px solid {wp_colour}66;">{_safe(wp_label)}</span>
     </div>
     <div class="cover-client">
       Prepared for: <strong>{_safe(client_name)}</strong> &nbsp;|&nbsp;
@@ -792,13 +884,27 @@ def _render_html(
   <!-- Verdict banner -->
   <div class="verdict {vc}">
     <div class="prob-ring">
-      <div class="prob-pct">{prob}%</div>
-      <div class="prob-label">Est. win prob.</div>
+      <div class="prob-pct" style="font-size:1rem;color:{wp_colour};">{_safe(wp_label)}</div>
+      <div class="prob-label">Win position</div>
     </div>
     <div style="width:1px;height:48px;background:var(--border);"></div>
     <div class="verdict-badge">{_safe(verdict)}</div>
     <div class="verdict-text">{_safe(a.get('go_nogo_rationale', ''))}</div>
   </div>
+
+  <!-- Win position detail -->
+  <div style="background:rgba(42,157,143,.06);border:1px solid rgba(42,157,143,.2);border-radius:8px;padding:1rem 1.25rem;margin-bottom:1.75rem;font-size:.82rem;">
+    <div style="font-weight:700;color:var(--navy);margin-bottom:.45rem;">Competitive Position Assessment</div>
+    <div style="margin-bottom:.6rem;color:{wp_colour};font-weight:600;">{_safe(wp_summary)}</div>
+    {"".join(
+      f'<div style="display:flex;gap:.5rem;align-items:baseline;margin-bottom:.25rem;">'
+      f'<span style="flex-shrink:0;font-size:.68rem;font-weight:700;padding:.1rem .4rem;border-radius:3px;'
+      f'background:{"rgba(42,157,143,.15)" if f["score"] > 0 else ("rgba(224,85,85,.12)" if f["score"] < 0 else "rgba(150,150,150,.12)")};'
+      f'color:{"#2a9d8f" if f["score"] > 0 else ("#e05555" if f["score"] < 0 else "#888")};">'
+      f'{"+" if f["score"] > 0 else ""}{f["score"]}</span>'
+      f'<span style="color:var(--text);">{_safe(f["reason"])}</span></div>'
+      for f in wp_top3
+    )}</div>
 
   <!-- 01 Executive Summary -->
   <div class="section" id="exec">
@@ -821,7 +927,7 @@ def _render_html(
         <tr><td>Client wins in this sector (MBIE)</td><td>{ch.get('sector_wins', 0)} contracts | {_fmt_value(ch.get('sector_total_value', 0))}</td></tr>
         <tr><td>Client wins with this agency</td><td>{ch.get('agency_wins', 0)} contracts</td></tr>
         <tr><td>Strategic fit score</td><td>{a.get('strategic_fit_score', 'N/A')} / 10</td></tr>
-        <tr><td>Composite priority score (Layer 1)</td><td>{score_val:.2f} / 10</td></tr>
+        <tr><td>Win position band</td><td><span style="color:{wp_colour};font-weight:600;">{_safe(wp_label)}</span> (score {wp.get('score', 0):+d} across 8 factors)</td></tr>
         <tr><td>Days until close</td><td>{dtc if dtc is not None else 'Unknown'}</td></tr>
       </tbody>
     </table>
@@ -945,6 +1051,7 @@ def generate_pursuit_package(
     agency_stats = _get_agency_stats(agency, sector)
     flags = _get_relevant_flags(agency, sector)
     citation = _mbie_citation(sector, agency)
+    national_market = _get_national_market_context(sector)
 
     context = {
         "client_name": client_name,
@@ -962,6 +1069,7 @@ def generate_pursuit_package(
         "agency_stats": agency_stats,
         "flags": [dict(f) for f in flags],
         "mbie_citation": citation,
+        "national_market": national_market,
     }
 
     # 2. Call Claude
@@ -970,9 +1078,17 @@ def generate_pursuit_package(
     if not analysis:
         raise RuntimeError("Claude synthesis failed — no analysis returned")
 
+    # 2b. Calculate win position band (replaces win_probability_pct)
+    from win_position import calculate_win_position
+    win_pos = calculate_win_position(
+        notice=dict(notice),
+        client_profile={"name": client_name},
+    )
+
     # 3. Render HTML
     html = _render_html(notice, analysis, context, client_name,
-                        is_demo=is_demo, demo_watermark=demo_watermark)
+                        is_demo=is_demo, demo_watermark=demo_watermark,
+                        win_pos=win_pos)
 
     # 4. Save
     if output_dir is None:
