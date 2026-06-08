@@ -14,3 +14,4 @@ schedule>=1.2.0
 pdfplumber>=0.11.0
 gunicorn>=21.2.0
 # force rebuild
+bcrypt>=4.0.0
