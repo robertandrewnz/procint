@@ -1,25 +1,20 @@
 """
-renewal_radar.py — Renewal Pipeline: three-tier contract renewal intelligence.
+renewal_radar.py — Contract Expiry Radar.
 
-Sources (in priority order):
-  1. mbie_award_notices WHERE contract_expiry IS NOT NULL
-     (backfilled by enrich_award_durations.py)
-     — only rows with EXPLICIT expiry dates, not calculated from duration alone.
-  2. contract_awards WHERE end_date IS NOT NULL
-     (from GETS award detail pages when accessible)
-  3. raw_notices WHERE category_raw IN ('ROI', 'RFI', 'EOI')
-     (market soundings — active Requests for Information / Expressions of Interest)
+Shows ONLY contracts where MBIE award data contains BOTH an award date AND a stated
+contract term/duration, and where award_date + contract_term calculates to an expiry
+date within the next 6 months (180 days).
 
 Quality filters applied:
-  • Financial year-end false signals removed (30 Jun, 31 Dec of any year)
-  • ROI/RFI/EOI notices always shown as "market soundings" tier regardless of timing
+  • Only records with awarded_date AND contract_duration_months both present
+  • Expiry dates falling on 30 June or 31 December are suppressed (FY boundary artefacts)
+  • ROI/RFI/EOI market sounding notices are excluded — these appear in the main watchlist
 
-Three output tiers:
-  • imminent       — explicit end_date within next 90 days
-  • approaching    — explicit end_date 90–180 days
-  • market_sounding — active ROI/RFI/EOI notices (likely procurement 3–12 months out)
+Two output tiers:
+  • imminent    — expiry within next 90 days
+  • approaching — expiry 90–180 days out
 
-Label: "Renewal Pipeline — sourced from GETS award notices and market soundings"
+Label: "Contract Expiry Radar — contracts with calculable expiry dates in the next 6 months"
 """
 from __future__ import annotations
 
@@ -86,9 +81,9 @@ def _coerce_date(val) -> Optional[date]:
 
 def _query_mbie(today: date, cutoff: date, sector_where: str, sector_params: list) -> list[dict]:
     """
-    MBIE award notices with explicit contract_expiry.
-    Only rows where enrich_award_durations found an EXPLICIT date — we trust
-    the mbie source flag for this rather than re-detecting here.
+    MBIE award notices where BOTH awarded_date AND contract_duration_months are present
+    and the calculated expiry (contract_expiry) falls within the next 6 months.
+    Supplier name joined from mbie_award_suppliers (most recent winner for the rfx_id).
     """
     try:
         rows = db.fetchall(
@@ -97,7 +92,7 @@ def _query_mbie(today: date, cutoff: date, sector_where: str, sector_params: lis
                 m.rfx_id            AS source_id,
                 m.title,
                 m.posting_agency    AS agency_name,
-                NULL::TEXT          AS supplier_name,
+                s.business_name     AS supplier_name,
                 m.awarded_amount    AS contract_value,
                 m.awarded_date,
                 m.contract_duration_months AS duration_months,
@@ -106,7 +101,13 @@ def _query_mbie(today: date, cutoff: date, sector_where: str, sector_params: lis
                 'mbie'              AS data_source,
                 NULL::TEXT          AS source_url
               FROM mbie_award_notices m
+              LEFT JOIN LATERAL (
+                  SELECT business_name FROM mbie_award_suppliers
+                  WHERE rfx_id = m.rfx_id
+                  LIMIT 1
+              ) s ON true
              WHERE m.contract_expiry IS NOT NULL
+               AND m.contract_duration_months IS NOT NULL
                AND m.contract_expiry >= %s
                AND m.contract_expiry <= %s
                AND m.awarded_date IS NOT NULL
@@ -238,26 +239,27 @@ def get_renewal_radar(
     for tier in ("imminent", "approaching"):
         for row in pipeline.get(tier, []):
             result.append(row)
-    # Append market soundings last
-    for row in pipeline.get("market_sounding", []):
-        result.append(row)
     return result[:10]
 
 
 def get_renewal_pipeline(
     user_sectors: Optional[list] = None,
-    days_ahead: int = 365,
+    days_ahead: int = 180,
 ) -> dict:
     """
-    Return a three-tier renewal pipeline dict:
+    Return Contract Expiry Radar results — two tiers, expiry within 6 months.
+    Only includes contracts where BOTH awarded_date AND contract_duration_months
+    are present so the expiry date is genuinely calculable, not assumed.
+    ROI/RFI/EOI market soundings are excluded — they appear in the main watchlist.
+
+    Result dict:
       {
-        "imminent":       [...],   # explicit end_date within 90 days
-        "approaching":    [...],   # explicit end_date 90-180 days
-        "market_sounding":[...],   # active ROI/RFI/EOI notices
-        "data_note":      str,     # shown when results are sparse
+        "imminent":    [...],   # expiry within 90 days
+        "approaching": [...],   # expiry 90–180 days
+        "data_note":   str,     # shown when results are sparse
       }
-    Each row has: title, agency_name, supplier_name, contract_value,
-    expiry_date, sector_tag, window_label, data_source, source_url.
+    Each row: title, agency_name, supplier_name, contract_value,
+    awarded_date, expiry_date, duration_months, sector_tag, data_source.
     """
     today  = date.today()
     cutoff = today + timedelta(days=APPROACHING_DAYS)
@@ -269,13 +271,13 @@ def get_renewal_pipeline(
         sector_where = f"AND sector_tag IN ({placeholders})"
         sector_params = list(user_sectors)
 
-    # Pull award sources
+    # Only pull from award sources (no market soundings)
     mbie_rows  = _query_mbie(today, cutoff, sector_where, sector_params)
     gets_rows  = _query_gets_awards(today, cutoff, sector_where, sector_params)
     award_rows = _merge_and_filter(gets_rows + mbie_rows)
 
-    # Split into tiers
-    imminent   = []
+    # Split into imminent vs approaching tiers
+    imminent    = []
     approaching = []
     for row in sorted(award_rows, key=lambda r: _coerce_date(r.get("expiry_date")) or date.max):
         ed = _coerce_date(row.get("expiry_date"))
@@ -289,22 +291,10 @@ def get_renewal_pipeline(
         elif days_left <= APPROACHING_DAYS:
             approaching.append(row)
 
-    # Market soundings tier
-    sounding_rows = _query_market_soundings(user_sectors)
-    market_soundings = []
-    for row in sounding_rows:
-        ed = _coerce_date(row.get("expiry_date"))
-        row["expiry_date"]  = ed
-        row["window_label"] = (
-            f"Market sounding closes {ed.strftime('%-d %b %Y')}" if ed
-            else "Market sounding — close date TBC"
-        )
-        market_soundings.append(row)
-
-    # Apply sector conflict resolution to all results
+    # Apply sector conflict resolution
     try:
         from sector_classifier import resolve_sector_conflict
-        for group in (imminent, approaching, market_soundings):
+        for group in (imminent, approaching):
             for row in group:
                 if row.get("sector_tag"):
                     res = resolve_sector_conflict(
@@ -316,23 +306,21 @@ def get_renewal_pipeline(
     except Exception as exc:
         logger.debug("Sector resolution in renewal radar failed: %s", exc)
 
-    total = len(imminent) + len(approaching) + len(market_soundings)
+    total = len(imminent) + len(approaching)
     data_note = ""
     if total == 0:
         data_note = (
-            "No renewal data currently available. "
-            "The pipeline builds incrementally as GETS award notices are processed "
-            "and contract durations are enriched."
+            "No contracts with calculable expiry dates found in the next 6 months for your sectors."
         )
     elif total < 3:
         data_note = (
-            f"Limited data — {total} result{'s' if total != 1 else ''} available. "
-            "The pipeline grows as more award notices are ingested and enriched."
+            "Showing contracts with calculable expiry dates only. "
+            "Many government contracts do not publish contract duration — "
+            "this radar shows confirmed term-based expiries only."
         )
 
     return {
-        "imminent":        imminent[:8],
-        "approaching":     approaching[:8],
-        "market_sounding": market_soundings[:8],
-        "data_note":       data_note,
+        "imminent":    imminent[:8],
+        "approaching": approaching[:8],
+        "data_note":   data_note,
     }

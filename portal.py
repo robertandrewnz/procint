@@ -648,7 +648,12 @@ _VALUE_BAND_RANK = {
 }
 
 def _value_badge(band: str) -> str:
-    label = _VALUE_BAND_LABELS.get(band or "unknown", "TBC")
+    """Return a value band badge. Returns empty string for unknown/TBC bands — no noise."""
+    if not band or band == "unknown":
+        return ""
+    label = _VALUE_BAND_LABELS.get(band, "")
+    if not label or label == "TBC":
+        return ""
     return f'<span class="badge bn">{label}</span>'
 
 def _intel_sector_map() -> dict:
@@ -1237,7 +1242,7 @@ def demo():
             f'<a href="{url_for("demo")}" style="font-size:.82rem;color:var(--muted);padding:.3rem .5rem;text-decoration:none;">← All sectors</a>'
             f'<a href="{url_for("login")}" class="btn bg-out" style="margin-left:auto;font-size:.82rem;">Client Login</a>'
             f'</nav>'
-            f'<div style="max-width:680px;margin:0 auto;padding:2.5rem 1.5rem 4rem;">'
+            f'<div style="max-width:900px;margin:0 auto;padding:2.5rem 1.5rem 4rem;">'
             f'<div style="font-size:2rem;margin-bottom:.5rem;">{meta["icon"]}</div>'
             f'<div class="ptitle">{meta["label"]} — Sample Intelligence</div>'
             f'<div class="psub" style="margin-bottom:1.5rem;">'
@@ -1308,7 +1313,7 @@ def demo():
         f'<a href="{url_for("homepage")}#pricing" style="font-size:.82rem;color:var(--muted);padding:.3rem .5rem;text-decoration:none;">Pricing</a>'
         f'<a href="{url_for("login")}" class="btn bg-out" style="margin-left:auto;font-size:.82rem;">Client Login</a>'
         f'</nav>'
-        f'<div style="max-width:840px;margin:0 auto;padding:2.5rem 1.5rem 4rem;">'
+        f'<div style="max-width:900px;margin:0 auto;padding:2.5rem 1.5rem 4rem;">'
         f'<div class="ptitle">Groundwork Demo</div>'
         f'<div class="psub">Choose your sector to see real sample intelligence</div>'
         f'<p style="font-size:.88rem;color:var(--muted);max-width:560px;line-height:1.7;margin-bottom:2rem;">'
@@ -1686,34 +1691,68 @@ def gw_home():
             'No signals yet — run the intelligence pipeline.</p>'
         )
 
-    # ── Build renewal pipeline HTML (three tiers) ─────────────────────────────
-    def _renewal_row_html(r: dict, tier: str) -> str:
-        val_str      = _fmt_value(r.get("contract_value"))
-        window_label = r.get("window_label", "")
-        supplier     = r.get("supplier_name") or ""
-        source       = r.get("data_source", "mbie")
-        if tier == "imminent":
-            wl_colour = "var(--red)"
-        elif tier == "approaching":
-            wl_colour = "#e07b39"
+    # ── Build Contract Expiry Radar HTML ─────────────────────────────────────
+    def _expiry_row_html(r: dict, tier: str) -> str:
+        val_str   = _fmt_value(r.get("contract_value"))
+        supplier  = r.get("supplier_name") or ""
+        ed        = r.get("expiry_date")
+        ad        = r.get("awarded_date")
+        # Expiry label
+        if ed:
+            from datetime import date as _date
+            today_d = _date.today()
+            try:
+                if hasattr(ed, "strftime"):
+                    ed_date = ed
+                else:
+                    from datetime import datetime as _dt
+                    ed_date = _dt.strptime(str(ed)[:10], "%Y-%m-%d").date()
+                months_left = round((ed_date - today_d).days / 30.44)
+                expiry_str  = ed_date.strftime("%-d %b %Y")
+                months_label = (
+                    "this month" if months_left <= 1
+                    else f"in {months_left} month{'s' if months_left != 1 else ''}"
+                )
+            except Exception:
+                expiry_str   = str(ed)[:10]
+                months_label = ""
         else:
-            wl_colour = "var(--gold)"
+            expiry_str   = "Unknown"
+            months_label = ""
+
+        award_str = ""
+        if ad:
+            try:
+                if hasattr(ad, "strftime"):
+                    award_str = ad.strftime("%b %Y")
+                else:
+                    from datetime import datetime as _dt
+                    award_str = _dt.strptime(str(ad)[:10], "%Y-%m-%d").date().strftime("%b %Y")
+            except Exception:
+                award_str = str(ad)[:7]
+
+        wl_colour = "var(--red)" if tier == "imminent" else "#e07b39"
         supplier_line = (
-            f'<div class="nagency" style="font-size:.72rem;">'
-            f'<span style="color:var(--muted);">Incumbent:</span> {supplier[:60]}</div>'
+            f'<div style="font-size:.72rem;margin-top:.15rem;">'
+            f'<span style="color:var(--muted);">Incumbent: </span>'
+            f'<span style="color:var(--text);">{supplier[:60]}</span></div>'
         ) if supplier else ""
-        source_label = {"gets": "GETS", "mbie": "MBIE", "market_sounding": "ROI/RFI"}.get(source, "MBIE")
+        award_line = (
+            f'<div style="font-size:.72rem;color:var(--muted);">Awarded {award_str}</div>'
+        ) if award_str else ""
         return (
-            f'<div class="nr" style="padding:.6rem 1.1rem;">'
+            f'<div class="nr" style="padding:.65rem 1.1rem;">'
             f'<div class="nmain">'
-            f'<div class="ntitle" style="font-size:.82rem;">{(r.get("title") or "")[:65]}</div>'
+            f'<div class="ntitle" style="font-size:.82rem;">{(r.get("title") or "")[:70]}</div>'
             f'<div class="nagency">{(r.get("agency_name") or "")[:55]}</div>'
             f'{supplier_line}'
-            f'<div style="margin-top:.25rem;font-size:.76rem;font-weight:600;color:{wl_colour};">'
-            f'⏱ {window_label}</div>'
-            f'<div class="nmeta" style="margin-top:.2rem;">'
+            f'<div style="margin-top:.3rem;font-size:.76rem;font-weight:600;color:{wl_colour};">'
+            f'⏱ Expires {expiry_str}'
+            f'{" — " + months_label if months_label else ""}'
+            f'</div>'
+            f'{award_line}'
+            f'<div class="nmeta" style="margin-top:.25rem;">'
             f'{_sector_badge(r.get("sector_tag",""))}'
-            f'<span class="badge bk" style="font-size:.62rem;">{source_label}</span>'
             f'</div></div>'
             f'<div style="flex-shrink:0;text-align:right;">'
             f'<div style="font-size:.85rem;font-weight:700;color:var(--gold);">{val_str}</div>'
@@ -1721,7 +1760,7 @@ def gw_home():
             f'</div></div>'
         )
 
-    def _tier_section(label: str, tier_key: str, colour: str) -> str:
+    def _expiry_tier_section(label: str, tier_key: str, colour: str) -> str:
         items = _pipeline.get(tier_key, [])
         if not items:
             return ""
@@ -1731,20 +1770,19 @@ def gw_home():
             f'border-bottom:1px solid var(--border);background:rgba(0,0,0,.15);">'
             f'{label} — {len(items)} contract{"s" if len(items)!=1 else ""}</div>'
         )
-        rows = "".join(_renewal_row_html(r, tier_key) for r in items)
+        rows = "".join(_expiry_row_html(r, tier_key) for r in items)
         return hdr + rows
 
-    _imminent_html   = _tier_section("Imminent (within 90 days)",     "imminent",        "var(--red)")
-    _approching_html = _tier_section("Approaching (90–180 days)",      "approaching",     "#e07b39")
-    _sounding_html   = _tier_section("Market Soundings — ROI/RFI/EOI", "market_sounding", "var(--gold)")
+    _imminent_html   = _expiry_tier_section("Expires within 3 months",  "imminent",   "var(--red)")
+    _approching_html = _expiry_tier_section("Expires in 3–6 months",     "approaching","#e07b39")
 
-    _renewal_body = _imminent_html + _approching_html + _sounding_html
+    _renewal_body = _imminent_html + _approching_html
     _data_note = _pipeline.get("data_note", "")
 
     if not _renewal_body:
         _renewal_body = (
             f'<div style="padding:1rem 1.1rem;font-size:.82rem;color:var(--muted);">'
-            + (_data_note or "No renewal data available for your sectors.")
+            + (_data_note or "No contracts with calculable expiry dates found in the next 6 months for your sectors.")
             + '</div>'
         )
         _data_note = ""
@@ -1756,9 +1794,9 @@ def gw_home():
 
     renewal_card = (
         f'<div class="card" style="margin-top:1.25rem;">'
-        f'<div class="ch"><span class="ct">Renewal Pipeline</span>'
+        f'<div class="ch"><span class="ct">Contract Expiry Radar</span>'
         f'<span style="font-size:.72rem;color:var(--muted);">'
-        f'Sourced from GETS award notices and market soundings</span></div>'
+        f'Contracts with calculable expiry dates in the next 6 months</span></div>'
         f'{_renewal_body}{_data_note_html}'
         f'</div>'
     )
@@ -2277,12 +2315,39 @@ function sfFilter(btn){
             f'</div>'
         )
 
+    legend_html = """
+<div id="wl-key" style="margin-bottom:.6rem;">
+  <button onclick="(function(){var b=document.getElementById('wl-key-body');var t=document.getElementById('wl-key-toggle');if(b.style.display==='none'){b.style.display='block';t.textContent='Key ▲';}else{b.style.display='none';t.textContent='Key ▼';}})()"
+    style="background:none;border:none;font-size:.72rem;color:var(--muted);cursor:pointer;
+           padding:.2rem 0;font-family:inherit;font-weight:600;letter-spacing:.02em;"
+    id="wl-key-toggle">Key ▼</button>
+  <div id="wl-key-body" style="display:none;background:rgba(0,0,0,.06);border-radius:6px;
+       padding:.75rem 1rem;margin-top:.35rem;font-size:.76rem;color:var(--text);line-height:1.8;">
+    <div style="display:flex;flex-wrap:wrap;gap:.4rem 2rem;">
+      <div><span style="color:var(--red);font-weight:700;">⚡ Urgent badge</span> — closes within 7 days</div>
+      <div><span style="background:rgba(42,157,143,.15);color:var(--gold);border:1px solid rgba(42,157,143,.35);
+           font-size:.68rem;font-weight:600;padding:.12rem .4rem;border-radius:3px;">✓ Matches your sectors</span>
+           — notice matches your saved sector preferences</div>
+      <div><span style="background:rgba(42,157,143,.1);color:var(--gold);border:1px solid rgba(42,157,143,.3);
+           font-size:.68rem;font-weight:600;padding:.12rem .4rem;border-radius:3px;">⚡ Budget 2026</span>
+           — alignment signal with government policy and investment</div>
+    </div>
+    <div style="margin-top:.5rem;display:flex;flex-wrap:wrap;gap:.4rem 2rem;">
+      <div><strong>Value bands:</strong>
+        Under $100K &nbsp;·&nbsp; $100K–$500K &nbsp;·&nbsp; $500K–$2M &nbsp;·&nbsp; $2M–$10M &nbsp;·&nbsp; $10M+
+      </div>
+      <div><strong>GETS ↗</strong> — link to view the full notice on the Government Electronic Tenders Service</div>
+    </div>
+  </div>
+</div>"""
+
     body = (
         f'{filter_css}'
         f'<div class="ptitle">Daily Watchlist</div>'
         f'<div class="psub">{run_date} &middot; {len(pool)} active notices</div>'
         f'<div id="wl-doc">'
         f'{filter_bar}'
+        f'{legend_html}'
         f'<div id="wl-list">{cards_html}</div>'
         f'</div>'
         f'{filter_js}'
