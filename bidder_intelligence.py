@@ -265,8 +265,8 @@ def _is_agency_name(bidder_name: str, agency_name: str) -> bool:
     if not a_norm or not b_norm:
         return False
 
-    # Full match after normalisation
-    if a_norm == b_norm or a_norm in b_norm or b_norm in a_norm:
+    # Full match after normalisation (exact only — substring would over-match)
+    if a_norm == b_norm:
         return True
 
     # Token overlap: ≥2 significant tokens shared
@@ -277,14 +277,19 @@ def _is_agency_name(bidder_name: str, agency_name: str) -> bool:
         return True
 
     # Initialisms: "TDC" matches "Tararua District Council", "WCC" → "Wellington City Council"
-    meaningful = [t for t in a_lower.split() if t not in _AGENCY_STOP_WORDS and len(t) > 1]
-    if meaningful:
-        initialism = "".join(w[0] for w in meaningful)
-        # 2- or 3-letter initialsim must be a whole word in bidder name
-        if 2 <= len(initialism) <= 4:
-            pattern = r"\b" + re.escape(initialism) + r"\b"
-            if re.search(pattern, b_lower):
-                return True
+    # Use ALL words (not filtered) so "T-D-C" generates from "Tararua District Council"
+    # Skip if bidder has a parenthetical expansion — that signals a different named entity
+    # (e.g. "ACC (Accident Compensation Corporation)" has its own expansion, not the agency's)
+    has_expansion = bool(re.search(r"\([a-z]{4,}", b_lower))
+    if not has_expansion:
+        all_words = [t for t in re.sub(r"[^a-z0-9 ]", " ", a_lower).split() if len(t) > 1]
+        if all_words:
+            initialism = "".join(w[0] for w in all_words)
+            # 2- to 4-letter initialism must appear as a standalone word/token in bidder name
+            if 2 <= len(initialism) <= 4:
+                pattern = r"(?<![a-z])" + re.escape(initialism) + r"(?![a-z])"
+                if re.search(pattern, b_lower):
+                    return True
 
     return False
 
