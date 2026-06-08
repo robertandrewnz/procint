@@ -11,3 +11,5 @@ flask-login>=0.6.3
 bcrypt>=4.1.0
 weasyprint>=60.0
 schedule>=1.2.0
+pdfplumber>=0.11.0
+gunicorn>=21.2.0

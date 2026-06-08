@@ -3734,6 +3734,7 @@ if __name__ == "__main__":
         sys.exit(0)
 
     host = config.PORTAL_HOST
-    port = config.PORTAL_PORT
+    # Railway injects PORT; fall back to PORTAL_PORT for local dev
+    port = int(os.environ.get("PORT", config.PORTAL_PORT))
     logger.info("Groundwork portal starting at http://%s:%s", host, port)
     app.run(host=host, port=port, debug=False)

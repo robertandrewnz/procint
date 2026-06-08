@@ -334,7 +334,7 @@ CLAUDE_MAX_TOKENS_L3: int = int(os.getenv("CLAUDE_MAX_TOKENS_L3", "4096"))
 
 # Portal auth (single shared password per deployment)
 PORTAL_PASSWORD: str = os.getenv("PORTAL_PASSWORD", "changeme")
-PORTAL_HOST: str = os.getenv("PORTAL_HOST", "127.0.0.1")
+PORTAL_HOST: str = os.getenv("PORTAL_HOST", "0.0.0.0")
 PORTAL_PORT: int = int(os.getenv("PORTAL_PORT", "5000"))
 PORTAL_SECRET_KEY: str = os.getenv("PORTAL_SECRET_KEY", "change-this-secret-key")
 
