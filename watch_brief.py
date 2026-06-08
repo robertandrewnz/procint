@@ -99,8 +99,12 @@ def _market_signals() -> list[dict]:
 
 
 def _competitor_moves(client_name: str, sectors: Optional[list[str]]) -> list[dict]:
-    """Recent MBIE awards (last 90 days) in client-relevant sectors."""
-    cutoff = date.today() - timedelta(days=90)
+    """
+    Top 3 most significant MBIE awards in the last 6 months in client-relevant
+    sectors, excluding the client itself.  Ordered by awarded_amount descending
+    so the highest-value competitor wins surface first.
+    """
+    cutoff = date.today() - timedelta(days=180)   # 6 months
     sector_filter = ""
     params: list = [cutoff]
     if sectors:
@@ -120,40 +124,43 @@ def _competitor_moves(client_name: str, sectors: Optional[list[str]]) -> list[di
            AND n.awarded_amount > 0
            {sector_filter}
            AND LOWER(s.business_name) NOT LIKE LOWER(%s)
-         ORDER BY n.awarded_date DESC
-         LIMIT 8
+         ORDER BY n.awarded_amount DESC NULLS LAST
+         LIMIT 3
         """,
         params + [f"%{client_name.split()[0]}%"],
     )
     return [dict(r) for r in rows]
 
 
-def _renewal_radar() -> list[dict]:
+def _renewal_radar(sectors: Optional[list[str]] = None) -> list[dict]:
     """
-    Contracts approaching expiry in next 90 days.
-    Uses the Layer 2 contract_awards table (populated by awards.py scraper).
-    Falls back to empty list if no end_date data exists yet.
+    Contracts approaching expiry in next 12 months.
+    Uses the enriched renewal_radar module (MBIE + GETS award notices with
+    duration data extracted from title/description text).
+    Returns rows with keys: title, posting_agency, awarded_amount,
+    days_remaining, incumbent, sector_tag, window_label.
     """
-    window = date.today() + timedelta(days=config.RENEWAL_WINDOW_DAYS)
     try:
-        return db.fetchall(
-            """
-            SELECT ca.title, ca.agency_name_raw AS posting_agency,
-                   ca.award_date, ca.contract_value AS awarded_amount,
-                   ca.end_date, o.name AS incumbent,
-                   ca.sector_tag,
-                   (ca.end_date - CURRENT_DATE) AS days_remaining
-              FROM contract_awards ca
-              LEFT JOIN organisations o ON o.org_id = ca.supplier_org_id
-             WHERE ca.end_date IS NOT NULL
-               AND ca.end_date BETWEEN CURRENT_DATE AND %s
-               AND ca.contract_value > 0
-             ORDER BY ca.end_date ASC
-             LIMIT 8
-            """,
-            (window,),
-        )
-    except Exception:
+        from renewal_radar import get_renewal_radar
+        from datetime import date as _date
+        rows = get_renewal_radar(user_sectors=sectors, days_ahead=365)
+        today = _date.today()
+        result = []
+        for r in rows:
+            expiry = r.get("expiry_date")
+            days_remaining = (expiry - today).days if expiry else None
+            result.append({
+                "title":          r.get("title", ""),
+                "posting_agency": r.get("agency_name", ""),
+                "awarded_amount": r.get("contract_value"),
+                "days_remaining": days_remaining,
+                "incumbent":      r.get("supplier_name") or "Unknown",
+                "sector_tag":     r.get("sector_tag", ""),
+                "window_label":   r.get("window_label", ""),
+            })
+        return result
+    except Exception as exc:
+        logger.warning("_renewal_radar failed: %s", exc)
         return []
 
 
@@ -174,31 +181,68 @@ def _loss_streak_flags() -> list[dict]:
 # ── Claude insight synthesis ──────────────────────────────────────────────────
 
 def _generate_insight(opportunities: list[dict], signals: list[dict],
-                      client_name: str) -> str:
-    """One synthesised market observation from Claude."""
+                      client_name: str,
+                      competitor_moves: Optional[list[dict]] = None,
+                      renewals: Optional[list[dict]] = None) -> str:
+    """One synthesised market observation from Claude, grounded in actual notice data."""
     if not opportunities:
         return "Insufficient data for market observation this week."
 
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-    top_sectors = list({o.get("sector_tag", "other") for o in opportunities})
-    top_agencies = [o.get("agency", "") for o in opportunities[:3]]
-    signal_descs = [s.get("description", "")[:100] for s in signals[:2]]
+    client_api = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+
+    # Top opportunities with title, agency, value, sector
+    opp_lines = "\n".join(
+        f"  {i+1}. \"{o.get('title', '')[:70]}\" — {o.get('agency', '')} "
+        f"({(o.get('sector_tag') or 'other').replace('_',' ')}) — "
+        f"{_fmt_value(o.get('composite_score'))} score — closes in {o.get('days_until_close', 'TBC')} days"
+        for i, o in enumerate(opportunities[:5])
+    )
+
+    # Competitor moves with supplier, agency, value
+    comp_lines = "\n".join(
+        f"  {cm.get('supplier_name', '')} → {cm.get('posting_agency', '')[:45]} "
+        f"({(cm.get('sector_tag') or '').replace('_',' ')}) — {_fmt_value(cm.get('awarded_amount'))} — {str(cm.get('awarded_date', ''))[:10]}"
+        for cm in (competitor_moves or [])[:5]
+    ) or "  None recorded in MBIE data for this period."
+
+    # Renewals with window, title, agency, incumbent, value
+    def _ren_window(r):
+        wl = r.get("window_label")
+        if wl:
+            return wl
+        dr = r.get("days_remaining")
+        return f"{dr}d" if dr is not None else "?"
+    ren_lines = "\n".join(
+        f"  {_ren_window(r)} — "
+        f"\"{r.get('title', '')[:55]}\" — "
+        f"{r.get('posting_agency', '')} — incumbent: {r.get('incumbent', 'unknown')} — "
+        f"{_fmt_value(r.get('awarded_amount'))}"
+        for r in (renewals or [])[:5]
+    ) or "  No contracts with recorded durations approaching renewal in next 12 months."
+
+    # Pattern signals
+    signal_lines = "\n".join(
+        f"  [{(s.get('severity') or 'medium').upper()}] {s.get('description', '')[:120]}"
+        for s in signals[:3]
+    ) or "  No unusual market signals detected."
 
     prompt = (
-        f"You are a procurement intelligence analyst. Based on the following NZ government "
-        f"procurement data for the week, write exactly ONE short paragraph (3-4 sentences) "
-        f"that synthesises the single most strategically significant market observation. "
-        f"Cite specific agencies or sectors. Do not use bullet points. Return plain text only.\n\n"
-        f"Client: {client_name}\n"
-        f"Active sectors: {', '.join(top_sectors)}\n"
-        f"Most active agencies: {', '.join(top_agencies)}\n"
-        f"Pattern signals: {'; '.join(signal_descs) or 'None this week'}\n"
-        f"Number of active high-priority opportunities: {len(opportunities)}"
+        f"You are a procurement intelligence analyst writing a weekly market observation for {client_name}, "
+        f"a supplier competing for NZ government contracts.\n\n"
+        f"Based on the data below, write exactly ONE paragraph (4-5 sentences) covering the single most "
+        f"strategically significant market development this week. "
+        f"Name specific agencies, suppliers, or contracts. Do not use bullet points. Return plain text only.\n\n"
+        f"=== TOP OPPORTUNITIES THIS WEEK ===\n{opp_lines}\n\n"
+        f"=== COMPETITOR AWARD ACTIVITY (last 6 months) ===\n{comp_lines}\n\n"
+        f"=== CONTRACTS APPROACHING RENEWAL (next 12 months) ===\n{ren_lines}\n\n"
+        f"=== MARKET SIGNALS ===\n{signal_lines}\n\n"
+        f"Tone: direct, analytical, no filler. Written for someone who reads intelligence reports, not marketing copy."
     )
+
     try:
-        msg = client.messages.create(
+        msg = client_api.messages.create(
             model=config.CLAUDE_MODEL_L3,
-            max_tokens=300,
+            max_tokens=350,
             messages=[{"role": "user", "content": prompt}],
         )
         return msg.content[0].text.strip()
@@ -211,9 +255,9 @@ def _generate_insight(opportunities: list[dict], signals: list[dict],
 
 _BRIEF_CSS = """:root {
   --bg:#f5f6f8; --surface:#ffffff; --surf2:#f0f2f5; --border:#e2e6ea;
-  --text:#2c3e50; --muted:#6c757d; --navy:#1a2d4a; --gold:#c9a84c;
-  --gold-l:#f7eedb; --navy-l:#e8ecf3; --red:#c0392b; --red-l:#fdecea;
-  --green:#27ae60; --accent:#c9a84c;
+  --text:#2c3e50; --muted:#6c757d; --navy:#1a2d4a; --gold:#2a9d8f;
+  --gold-l:#e0f4f2; --navy-l:#e8ecf3; --red:#c0392b; --red-l:#fdecea;
+  --green:#27ae60; --accent:#2a9d8f;
 }
 *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
 body { background:var(--bg); color:var(--text);
@@ -239,13 +283,13 @@ a:hover { color:var(--gold); }
 .opp-header { display:flex; justify-content:space-between; align-items:flex-start;
   margin-bottom:.4rem; gap:1rem; }
 .opp-title { font-size:.9rem; font-weight:600; color:var(--navy); flex:1; }
-.opp-score { font-size:1rem; font-weight:800; color:var(--gold); flex-shrink:0; }
+.opp-score-chips { display:flex; gap:.35rem; flex-shrink:0; }
 .opp-agency { font-size:.75rem; color:var(--muted); margin-bottom:.5rem; }
 .opp-chips  { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:.6rem; }
 .chip { font-size:.65rem; font-weight:600; padding:.18rem .5rem;
   border-radius:999px; border:1px solid; }
 .chip-blue  { background:var(--navy-l); color:var(--navy); border-color:#b0bcd4; }
-.chip-gold  { background:var(--gold-l); color:#7a5c00; border-color:var(--gold); }
+.chip-gold  { background:var(--gold-l); color:#1a6b62; border-color:var(--gold); }
 .chip-red   { background:var(--red-l);  color:var(--red); border-color:#f1a9a0; }
 .chip-grey  { background:var(--surf2);  color:var(--muted); border-color:var(--border); }
 .opp-summary { font-size:.82rem; color:var(--muted); line-height:1.6; }
@@ -257,7 +301,7 @@ a:hover { color:var(--gold); }
 .signal-sev { flex-shrink:0; font-size:.65rem; font-weight:700;
   padding:.18rem .45rem; border-radius:4px; text-transform:uppercase; }
 .sev-high   { background:var(--red-l);  color:var(--red); }
-.sev-medium { background:var(--gold-l); color:#7a5c00; }
+.sev-medium { background:var(--gold-l); color:#1a6b62; }
 .sev-low    { background:var(--navy-l); color:var(--navy); }
 table { width:100%; border-collapse:collapse; font-size:.82rem; margin-bottom:.5rem; }
 thead tr { background:var(--navy); }
@@ -291,7 +335,7 @@ tbody tr:hover td { background:var(--surf2); }
   .brief-title { font-size:1.1rem; }
   .opp-card { padding:.75rem .9rem; }
   .opp-header { flex-direction:column; gap:.25rem; }
-  .opp-score { font-size:.95rem; }
+  .opp-score-chips { flex-wrap:wrap; }
   .opp-title { font-size:.86rem; }
   .signal-row { flex-wrap:wrap; }
   .signal-sev { min-height:44px; display:flex; align-items:center; }
@@ -330,11 +374,24 @@ def _render_brief_html(
         summary_text = opp.get("summary") or opp.get("strategic_framing") or ""
         summary_text = summary_text[:220] + ("..." if len(summary_text) > 220 else "")
 
+        # Value band label (no numeric scores shown in demo)
+        vband = opp.get("value_band") or ""
+        vband_labels = {
+            "10m_plus": "$10M+", "2m_10m": "$2M–$10M",
+            "500k_2m": "$500K–$2M", "100k_500k": "$100K–$500K",
+            "under_100k": "<$100K",
+        }
+        vband_label = vband_labels.get(vband, "")
+        vband_html = (
+            f'<span class="chip" style="background:#0ea5e922;color:#0ea5e9;border-color:#0ea5e944;">'
+            f'{vband_label}</span>'
+        ) if vband_label else ""
+
         opp_cards += (
             f'<div class="opp-card">'
             f'<div class="opp-header">'
             f'<div class="opp-title">#{i} &nbsp;{_safe(opp.get("title", ""))}</div>'
-            f'<div class="opp-score">{float(opp.get("composite_score") or 0):.1f}/10</div>'
+            f'<div class="opp-score-chips">{vband_html}</div>'
             f'</div>'
             f'<div class="opp-agency">{_safe(opp.get("agency", ""))}</div>'
             f'<div class="opp-chips">'
@@ -380,19 +437,20 @@ def _render_brief_html(
     ren_rows = ""
     for r in renewals:
         dr = r.get("days_remaining")
-        colour = "var(--red)" if dr and dr <= 30 else "var(--amber)"
+        colour = "var(--red)" if dr is not None and dr <= 45 else "var(--gold)"
+        window = r.get("window_label") or (f"{dr}d" if dr is not None else "TBC")
         ren_rows += (
-            f'<tr><td style="color:{colour};font-weight:600;">{dr}d</td>'
+            f'<tr><td style="color:{colour};font-weight:600;white-space:nowrap;">{_safe(window)}</td>'
             f"<td>{_safe(r.get('title', ''))[:55]}</td>"
             f"<td>{_safe(r.get('posting_agency', ''))[:35]}</td>"
             f"<td>{_safe(r.get('incumbent', ''))[:30]}</td>"
             f"<td>{_fmt_value(r.get('awarded_amount'))}</td></tr>"
         )
     ren_table = (
-        f"<table><thead><tr><th>Days</th><th>Contract</th><th>Agency</th><th>Incumbent</th><th>Value</th></tr></thead>"
+        f"<table><thead><tr><th>Window</th><th>Contract</th><th>Agency</th><th>Incumbent</th><th>Value</th></tr></thead>"
         f"<tbody>{ren_rows}</tbody></table>"
         if ren_rows
-        else '<div style="font-size:.82rem;color:var(--muted);font-style:italic;">No contracts approaching renewal in MBIE data within 90 days.</div>'
+        else '<div style="font-size:.82rem;color:var(--muted);font-style:italic;">No contracts with recorded durations expiring in the next 12 months. Run <code>python enrich_award_durations.py --all</code> to extract durations from award notice text.</div>'
     )
 
     week_label = run_date.strftime("Week of %-d %B %Y")
@@ -429,12 +487,12 @@ def _render_brief_html(
 </div>
 
 <div class="section">
-  <div class="section-title">Competitor Moves — Last 90 Days</div>
+  <div class="section-title">Competitor Moves — Last 6 Months</div>
   {comp_table}
 </div>
 
 <div class="section">
-  <div class="section-title">Renewal Radar — Next 90 Days</div>
+  <div class="section-title">Renewal Pipeline — Next 12 Months</div>
   {ren_table}
 </div>
 
@@ -472,7 +530,8 @@ def generate_watch_brief(
     signals = _market_signals()
     comp_moves = _competitor_moves(client_name, sectors)
     renewals = _renewal_radar()
-    insight = _generate_insight(opportunities, signals, client_name)
+    insight = _generate_insight(opportunities, signals, client_name,
+                               competitor_moves=comp_moves, renewals=renewals)
 
     html = _render_brief_html(
         client_name=client_name,

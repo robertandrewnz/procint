@@ -52,14 +52,34 @@ ALL_SECTORS = list(config.SECTOR_KEYWORDS.keys())
 
 # ── Pass 1 helpers ─────────────────────────────────────────────────────────────
 
+def _kw_matches(kw: str, text_lower: str) -> bool:
+    """
+    True when *kw* appears in *text_lower* as a whole word / whole phrase.
+
+    Short acronyms (≤4 chars, all-uppercase in the original list) are matched
+    with strict word boundaries so that e.g. "SOC" does not hit "associated"
+    or "SIEM" does not hit "system".  Multi-word phrases and longer terms use
+    a simple substring check (they are specific enough not to false-match).
+    """
+    kl = kw.lower()
+    # Multi-word phrases: substring is fine (phrase length prevents accidents)
+    if " " in kl:
+        return kl in text_lower
+    # Short single tokens (≤ 4 chars): require word boundaries
+    if len(kl) <= 4:
+        return bool(re.search(r"\b" + re.escape(kl) + r"\b", text_lower))
+    # Longer single tokens: substring is safe (e.g. "chipsealing", "wastewater")
+    return kl in text_lower
+
+
 def _keyword_scores(text: str) -> dict[str, int]:
     """
     Count how many keywords from each sector appear in *text* (case-insensitive,
-    whole-phrase matching).  Returns {sector: match_count}.
+    word-boundary-safe matching).  Returns {sector: match_count}.
     """
     t = text.lower()
     return {
-        sector: sum(1 for kw in kws if kw.lower() in t)
+        sector: sum(1 for kw in kws if _kw_matches(kw, t))
         for sector, kws in config.SECTOR_KEYWORDS.items()
     }
 

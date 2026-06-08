@@ -87,6 +87,8 @@ SECTOR_KEYWORDS: dict[str, list[str]] = {
         "weathertightening", "weatherproofing", "remediation works",
         "new build", "building works", "structural upgrade",
         "consent works", "construction contract",
+        "retaining wall", "civil works", "earthworks", "site works",
+        "deck replacement", "structural works", "building upgrade", "building renovation",
     ],
     # ── Facilities Management ─────────────────────────────────────────────────
     # Building operations and soft services. Does NOT include road/transport
@@ -124,6 +126,8 @@ SECTOR_KEYWORDS: dict[str, list[str]] = {
         "database", "data platform", "data warehouse",
         "technology services", "digital services",
         "all-of-government", "AoG ICT",
+        "contact centre", "contact center",
+        "digital platform", "technology solution", "ICT solution",
     ],
     # ── Defence ──────────────────────────────────────────────────────────────
     # Military and national security. 1 match is sufficient (threshold = 1).

@@ -54,8 +54,7 @@ DEMO_SECTORS: dict = {
         "label":       "Cybersecurity",
         "icon":        "🔒",
         "tagline":     "Government security assessments, pen testing & compliance advisory",
-        # DB sector_tag used for notice + MBIE queries (portal tag is 'security', not 'cybersecurity')
-        "db_tag":      "security",
+        "db_tag":      "cybersecurity",
         "firm": {
             "name":        "Sentinel Digital",
             "description": "mid-sized NZ cybersecurity consultancy, 45 staff, Wellington-based, "
@@ -82,8 +81,7 @@ DEMO_SECTORS: dict = {
         "label":       "Construction",
         "icon":        "🏛",
         "tagline":     "Civil construction, roading and infrastructure delivery",
-        # No 'construction' sector tag in DB — use 'infrastructure' for notice + MBIE queries
-        "db_tag":      "infrastructure",
+        "db_tag":      "construction",
         "firm": {
             "name":        "Meridian Civil",
             "description": "regional civil contractor, 80 staff, South Island focus, "
@@ -150,13 +148,34 @@ DEMO_SECTORS: dict = {
 
 # ── Data queries ──────────────────────────────────────────────────────────────
 
-def _top_notice_for_sector(sector: str, db_tag: str) -> Optional[dict]:  # noqa: C901
+def _title_matches_sector(title: str, db_tag: str) -> bool:
     """
-    Return the most urgent active notice in the given sector.
-    Uses db_tag for the query (which may differ from the display sector key,
-    e.g. 'cybersecurity' display key → 'security' DB tag).
-    Ordered by days_until_close ASC (most urgent first), then value_band DESC.
+    Quick sanity check: does the notice title contain at least one keyword
+    from the expected sector? Rejects obviously wrong notices (e.g. 'Animal
+    Control' appearing in cybersecurity) without calling Claude.
     """
+    import config as _cfg
+    kws = _cfg.SECTOR_KEYWORDS.get(db_tag, [])
+    if not kws:
+        return True  # unknown sector — don't filter
+    title_lower = title.lower()
+    for kw in kws:
+        if " " in kw:
+            if kw.lower() in title_lower:
+                return True
+        else:
+            import re as _re
+            if len(kw) <= 4:
+                if _re.search(r"\b" + _re.escape(kw.lower()) + r"\b", title_lower):
+                    return True
+            else:
+                if kw.lower() in title_lower:
+                    return True
+    return False
+
+
+def _query_notices_for_sector(db_tag: str, active_only: bool = True) -> list[dict]:
+    """Raw DB query for notices tagged with the given sector."""
     rank_case = (
         "CASE p.value_band "
         "WHEN '10m_plus'   THEN 5 "
@@ -166,36 +185,123 @@ def _top_notice_for_sector(sector: str, db_tag: str) -> Optional[dict]:  # noqa:
         "WHEN 'under_100k' THEN 1 "
         "ELSE 0 END"
     )
-    # Pull top 5 candidates and apply sector conflict check
-    rows = db.fetchall(
+    date_clause = (
+        "AND (p.days_until_close IS NULL OR p.days_until_close >= 0)"
+        if active_only
+        else "AND (p.days_until_close IS NULL OR p.days_until_close >= -30)"
+    )
+    return db.fetchall(
         f"""
         SELECT r.notice_id, r.title, r.agency, r.description, p.sector_tag,
                p.days_until_close, p.value_band
           FROM parsed_notices p
           JOIN raw_notices r ON r.notice_id = p.notice_id
          WHERE p.sector_tag = %s
-           AND (p.days_until_close IS NULL OR p.days_until_close >= 0)
+           {date_clause}
          ORDER BY p.days_until_close ASC NULLS LAST, {rank_case} DESC
-         LIMIT 5
+         LIMIT 20
         """,
         (db_tag,),
     )
-    from sector_classifier import resolve_sector_conflict
-    for row in rows:
-        res = resolve_sector_conflict(
-            notice_title=row.get("title") or "",
-            notice_description=row.get("description") or "",
-            stored_sector=row.get("sector_tag") or "other",
-            notice_id=row.get("notice_id"),
-        )
-        # Skip if classifier strongly disagrees with the sector
-        if res["action"] == "corrected" and res["sector"] != db_tag:
-            logger.debug(
-                "Demo notice %s skipped — reclassified %s→%s",
-                row["notice_id"], db_tag, res["sector"],
-            )
+
+
+def _top_notice_for_sector(sector: str, db_tag: str) -> Optional[dict]:  # noqa: C901
+    """
+    Return the best notice for the demo sector using a two-pass filter:
+
+    Pass 1  — sector_tag = db_tag (hard filter, never crosses sectors)
+    Pass 2  — title must contain ≥1 keyword from the sector keyword list
+              (rejects misclassified notices that slipped through DB tagging)
+
+    If no active notice passes, tries a 30-day lookback on recently-closed
+    notices. Returns None if nothing valid exists — the artefact is skipped
+    rather than showing wrong-sector content.
+    """
+    for active_only in (True, False):
+        rows = _query_notices_for_sector(db_tag, active_only=active_only)
+        if not rows:
             continue
-        return dict(row)
+        for row in rows:
+            title = row.get("title") or ""
+            desc = row.get("description") or ""
+            # Hard reject: title must pass keyword check
+            if not _title_matches_sector(title, db_tag):
+                logger.debug(
+                    "Demo notice %s ('%s') rejected — title fails keyword check for '%s'",
+                    row["notice_id"], title[:60], db_tag,
+                )
+                continue
+            # Also check description if title alone is thin (e.g. "RFP 2026-01")
+            if len(title.split()) <= 3 and not _title_matches_sector(desc[:200], db_tag):
+                logger.debug(
+                    "Demo notice %s rejected — short title + desc fail keyword check for '%s'",
+                    row["notice_id"], db_tag,
+                )
+                continue
+            if not active_only:
+                logger.info(
+                    "Demo notice %s ('%s') found via 30-day lookback for '%s'",
+                    row["notice_id"], title[:60], db_tag,
+                )
+            return dict(row)
+
+    # Last-resort: for sectors with genuinely sparse tagging (e.g. cybersecurity),
+    # try a full-text title search regardless of sector_tag.
+    import config as _cfg
+    kws = _cfg.SECTOR_KEYWORDS.get(db_tag, [])
+    if kws:
+        # Build safe SQL conditions:
+        # - Multi-word phrases: LIKE %phrase% is safe (no substring ambiguity)
+        # - Short single tokens (≤4 chars): use PostgreSQL word-boundary regex \mTOK\M
+        # - Longer single tokens: LIKE %token% is safe
+        clauses = []
+        params: list = []
+        for kw in kws:
+            kl = kw.lower()
+            if " " in kl:
+                clauses.append("LOWER(r.title) LIKE %s")
+                params.append(f"%{kl}%")
+            elif len(kl) <= 4:
+                # PostgreSQL regex word-boundary: \m = start-of-word, \M = end-of-word
+                clauses.append("LOWER(r.title) ~ %s")
+                params.append(r"\m" + kl + r"\M")
+            else:
+                clauses.append("LOWER(r.title) LIKE %s")
+                params.append(f"%{kl}%")
+        kw_clauses = " OR ".join(clauses)
+        rank_case = (
+            "CASE p.value_band "
+            "WHEN '10m_plus'   THEN 5 "
+            "WHEN '2m_10m'     THEN 4 "
+            "WHEN '500k_2m'    THEN 3 "
+            "WHEN '100k_500k'  THEN 2 "
+            "WHEN 'under_100k' THEN 1 "
+            "ELSE 0 END"
+        )
+        fallback_rows = db.fetchall(
+            f"""
+            SELECT r.notice_id, r.title, r.agency, r.description, p.sector_tag,
+                   p.days_until_close, p.value_band
+              FROM parsed_notices p
+              JOIN raw_notices r ON r.notice_id = p.notice_id
+             WHERE ({kw_clauses})
+               AND (p.days_until_close IS NULL OR p.days_until_close >= -30)
+             ORDER BY p.days_until_close ASC NULLS LAST, {rank_case} DESC
+             LIMIT 10
+            """,
+            tuple(params),
+        )
+        for row in fallback_rows:
+            logger.info(
+                "Demo notice %s ('%s') found via keyword fallback for sector '%s'",
+                row["notice_id"], (row.get("title") or "")[:60], db_tag,
+            )
+            return dict(row)
+
+    logger.warning(
+        "No valid notice found for sector '%s' (db_tag='%s') — artefact skipped",
+        sector, db_tag,
+    )
     return None
 
 
