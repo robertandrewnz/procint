@@ -3733,8 +3733,7 @@ if __name__ == "__main__":
         _add_user(args.create_user, args.password, args.name, args.email, args.admin, sectors)
         sys.exit(0)
 
-    host = config.PORTAL_HOST
     # Railway injects PORT; fall back to PORTAL_PORT for local dev
     port = int(os.environ.get("PORT", config.PORTAL_PORT))
-    logger.info("Groundwork portal starting at http://%s:%s", host, port)
-    app.run(host=host, port=port, debug=False)
+    logger.info("Groundwork portal starting at http://0.0.0.0:%s", port)
+    app.run(host="0.0.0.0", port=port, debug=False)
