@@ -30,60 +30,158 @@ PLAYWRIGHT_TIMEOUT: int = 60_000   # ms
 
 # ── Sector taxonomy ───────────────────────────────────────────────────────────
 SECTORS = [
-    "FM",
     "infrastructure",
+    "construction",
+    "FM",
+    "cybersecurity",
     "ICT",
-    "advisory",
-    "health",
-    "security",
     "defence",
+    "health",
+    "advisory",
+    "security",
     "utilities",
     "professional_services",
     "other",
 ]
 
+# ── Classification confidence thresholds ──────────────────────────────────────
+# Minimum keyword match count for HIGH confidence per sector.
+# Sectors with unique/specific keywords (cybersecurity, defence) need only 1 match.
+# Sectors with generic vocabulary need 2+ to reduce false positives.
+SECTOR_HIGH_THRESHOLD: dict[str, int] = {
+    "infrastructure":     2,
+    "construction":       2,
+    "FM":                 2,
+    "cybersecurity":      1,   # highly specific terms — 1 match is definitive
+    "ICT":                2,
+    "defence":            1,   # NZDF/RNZAF/military are unambiguous
+    "health":             2,
+    "advisory":           2,
+    "security":           2,
+    "utilities":          2,
+    "professional_services": 2,
+}
+
 # Keywords used to map notice text/category to a sector tag
 SECTOR_KEYWORDS: dict[str, list[str]] = {
-    "FM": [
-        "facilities", "facility management", "cleaning", "maintenance", "property",
-        "building services", "FM", "grounds", "caretaking", "HVAC",
-        # Note: road/roading/marking are intentionally NOT here — those terms belong
-        # to the infrastructure sector. Including them here would match generic FM
-        # firms (OCS, ISS, Sodexo) against specialist roading contracts.
-    ],
+    # ── Infrastructure / Roading ──────────────────────────────────────────────
+    # Physical civil and transport infrastructure ONLY.
+    # Deliberately excludes "construction" and "contractor" (→ construction sector)
+    # and "maintenance" alone (→ FM if combined with building/property terms).
     "infrastructure": [
-        "infrastructure", "construction", "roading", "roads", "road", "highway",
-        "bridge", "water", "wastewater", "stormwater", "pipeline", "structural",
-        "civil", "pavement", "sealing", "marking", "kerb", "drainage", "earthworks",
-        "rehabilitation", "renewal", "reseal", "carriageway",
+        "roading", "road network", "road maintenance", "road rehabilitation",
+        "pavement", "sealed road", "unsealed road", "chipsealing", "resealing",
+        "carriageway", "highway", "state highway", "transport infrastructure",
+        "bridge", "culvert", "kerb", "drainage network", "earthworks",
+        "wastewater", "stormwater", "water supply", "pipeline", "three waters",
+        "waka kotahi", "NZTA", "horizontal infrastructure",
     ],
+    # ── Construction ─────────────────────────────────────────────────────────
+    # Building and structural works. Overlaps deliberately avoided with
+    # infrastructure (no "road", "pavement") and FM (no "maintenance" alone).
+    "construction": [
+        "building contractor", "main contractor", "construction services",
+        "refurbishment", "fitout", "fit-out", "fit out",
+        "school property", "school building", "school construction",
+        "roof replacement", "roofing", "demolition",
+        "weathertightening", "weatherproofing", "remediation works",
+        "new build", "building works", "structural upgrade",
+        "consent works", "construction contract",
+    ],
+    # ── Facilities Management ─────────────────────────────────────────────────
+    # Building operations and soft services. Does NOT include road/transport
+    # maintenance — those belong to infrastructure.
+    "FM": [
+        "facilities management", "facility management",
+        "building maintenance", "property services", "property management",
+        "grounds maintenance", "grounds keeping",
+        "cleaning services", "cleaning contract", "commercial cleaning",
+        "caretaking", "janitorial",
+        "HVAC maintenance", "HVAC services",
+        "building services contract", "FM services",
+        "estate management", "asset management services",
+    ],
+    # ── Cybersecurity ─────────────────────────────────────────────────────────
+    # Highly specific terms — 1 match is sufficient (threshold = 1).
+    "cybersecurity": [
+        "cyber security", "cybersecurity", "cyber resilience",
+        "security operations centre", "SOC", "SIEM",
+        "penetration testing", "pen testing",
+        "information security", "infosec",
+        "CISO", "zero trust", "IRAP", "NZISM",
+        "vulnerability assessment", "threat detection",
+        "incident response", "security audit",
+    ],
+    # ── ICT ───────────────────────────────────────────────────────────────────
+    # Digital and technology. "network" removed (too generic — hits road network,
+    # water network, bus network). "cyber" moved to cybersecurity.
     "ICT": [
-        "ICT", "information technology", "software", "cloud", "cyber", "digital",
-        "network", "systems integration", "SaaS", "platform", "data", "ERP",
+        "information technology", "digital transformation",
+        "ICT services", "ICT platform", "ICT infrastructure",
+        "software development", "software platform", "application development",
+        "system integration", "systems integration", "ERP",
+        "cloud services", "cloud migration", "SaaS",
+        "database", "data platform", "data warehouse",
+        "technology services", "digital services",
+        "all-of-government", "AoG ICT",
     ],
-    "advisory": [
-        "advisory", "consulting", "consultancy", "strategy", "review", "audit",
-        "assessment", "analysis", "research", "evaluation",
-    ],
-    "health": [
-        "health", "clinical", "medical", "hospital", "aged care", "mental health",
-        "pharmacy", "laboratory", "diagnostic",
-    ],
-    "security": [
-        "security", "guarding", "CCTV", "access control", "surveillance",
-        "protective services",
-    ],
+    # ── Defence ──────────────────────────────────────────────────────────────
+    # Military and national security. 1 match is sufficient (threshold = 1).
     "defence": [
-        "defence", "defense", "NZDF", "military", "navy", "army", "air force",
-        "intelligence", "national security",
+        "NZDF", "NZ Defence Force", "New Zealand Defence Force",
+        "RNZAF", "Royal New Zealand Air Force",
+        "RNZN", "Royal New Zealand Navy",
+        "NZ Army", "New Zealand Army",
+        "military", "defence force", "defense force",
+        "naval", "air base", "defence estate",
     ],
+    # ── Health ────────────────────────────────────────────────────────────────
+    "health": [
+        "health services", "health care", "healthcare",
+        "clinical services", "clinical systems",
+        "medical services", "medical supplies",
+        "hospital", "Te Whatu Ora", "Health NZ",
+        "nursing", "aged care", "residential care",
+        "pharmacy", "mental health", "addiction services",
+        "laboratory services", "diagnostic services",
+        "allied health",
+    ],
+    # ── Advisory / Professional ────────────────────────────────────────────────
+    # Requires 2+ matches to avoid grabbing notices that mention "review" once.
+    "advisory": [
+        "advisory services", "consulting services", "management consulting",
+        "strategic review", "policy review", "policy advisory",
+        "independent review", "business case",
+        "programme evaluation", "evaluation services",
+        "research services", "feasibility study",
+        "technical advisory", "specialist advice",
+    ],
+    # ── Security (physical) ──────────────────────────────────────────────────
+    # Physical / manned security. Requires 2+ to avoid grabbing ICT security.
+    "security": [
+        "security patrol", "security guard", "security officer",
+        "security services", "manned guarding",
+        "animal control", "parking enforcement",
+        "CCTV monitoring", "alarm response", "alarm monitoring",
+        "access control services", "protective services",
+        "event security",
+    ],
+    # ── Utilities ─────────────────────────────────────────────────────────────
     "utilities": [
-        "utilities", "energy", "electricity", "gas", "telecoms", "telecommunications",
-        "broadband", "waste management",
+        "electricity supply", "power supply", "energy procurement",
+        "gas supply", "utilities contract",
+        "telecommunications services", "broadband services",
+        "waste management", "recycling services",
+        "water services contract",
     ],
+    # ── Professional Services ────────────────────────────────────────────────
     "professional_services": [
-        "legal", "legal services", "accounting", "HR", "human resources",
-        "recruitment", "training", "professional services", "financial services",
+        "legal services", "legal advice",
+        "accounting services", "audit services",
+        "human resources", "HR services",
+        "recruitment services", "staffing services",
+        "financial services", "financial advisory",
+        "training services", "professional development",
     ],
 }
 

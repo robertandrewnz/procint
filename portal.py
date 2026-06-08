@@ -549,8 +549,9 @@ def _sidebar(active: str = "") -> str:
     if current_user.is_authenticated and current_user.is_admin_user:
         admin_links = (
             f'<div class="side-sec">Admin</div>'
-            f'{lnk(url_for("admin_dash"),  "⚙", "Admin",            "admin")}'
-            f'{lnk(url_for("intel_dash"),  "🛰", "Intel Library",    "intel")}'
+            f'{lnk(url_for("admin_dash"),         "⚙", "Admin",            "admin")}'
+            f'{lnk(url_for("admin_sector_review"), "⚠", "Sector Review",    "admin")}'
+            f'{lnk(url_for("intel_dash"),          "🛰", "Intel Library",    "intel")}'
         )
     return (f'<nav class="side">'
             f'<div class="side-sec">Intelligence</div>'
@@ -842,12 +843,45 @@ function toggleBilling(cb) {{
         f'<a href="{url_for("login")}" class="btn bg-out" style="margin-left:auto;font-size:.82rem;">Client Login</a>'
         f'</nav>'
         f'<div class="hero">{sent}'
-        f'<h1>Know before you bid. <span>Win when you do.</span></h1>'
-        f'<p class="hero-sub">Groundwork scores every NZ government tender against your strengths, '
-        f'tells you who you\'re up against, and gets you to the table as the best-informed '
-        f'bidder in the room.</p>'
+        f'<h1>Know before you bid.<br><span>Win when you do.</span></h1>'
+        f'<p class="hero-sub">Before your competitors know the tender exists, you know '
+        f'the field, the incumbents, and whether it\'s worth your team\'s time.</p>'
         f'<a href="#pricing" class="btn bg-gold" style="font-size:.9rem;padding:.65rem 1.75rem;">See pricing &darr;</a>'
         f'&nbsp; <a href="{url_for("demo")}" class="btn bg-out" style="font-size:.9rem;padding:.65rem 1.75rem;">View Demo &rarr;</a>'
+        f'<div style="margin-top:2.75rem;background:var(--surf);border:1px solid var(--card-border);'
+        f'border-radius:12px;padding:1.5rem 1.75rem;text-align:left;max-width:540px;margin-left:auto;margin-right:auto;">'
+        f'<div style="font-size:.62rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;'
+        f'color:var(--gold);margin-bottom:.9rem;">Sample Output</div>'
+        f'<div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-bottom:.75rem;">'
+        f'<span style="font-size:.65rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;'
+        f'background:rgba(42,157,143,.13);color:var(--gold);border:1px solid rgba(42,157,143,.28);'
+        f'border-radius:4px;padding:.15rem .55rem;">Infrastructure</span>'
+        f'<span style="font-size:.7rem;color:var(--muted);">Wellington City Council</span>'
+        f'</div>'
+        f'<div style="font-size:1rem;font-weight:700;color:var(--text);margin-bottom:1rem;line-height:1.35;">'
+        f'Facilities Management Services 2026&ndash;2029</div>'
+        f'<div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin-bottom:.4rem;">'
+        f'<span style="font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;'
+        f'background:rgba(212,160,23,.14);color:#d4a017;border:1px solid rgba(212,160,23,.32);'
+        f'border-radius:5px;padding:.25rem .75rem;">Conditional Go</span>'
+        f'</div>'
+        f'<div style="font-size:.78rem;color:var(--muted);margin-bottom:1.1rem;line-height:1.55;">'
+        f'Competitive &mdash; moderate agency fit, one known incumbent, 14 days to close</div>'
+        f'<div style="font-size:.7rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;'
+        f'color:var(--muted);margin-bottom:.5rem;">Critical Actions</div>'
+        f'<ol style="margin:0;padding-left:1.1rem;display:flex;flex-direction:column;gap:.4rem;">'
+        f'<li style="font-size:.8rem;color:var(--text);line-height:1.5;">'
+        f'Request pre-bid briefing before close</li>'
+        f'<li style="font-size:.8rem;color:var(--text);line-height:1.5;">'
+        f'Review incumbent contract history (2 prior awards, avg $2.1M)</li>'
+        f'<li style="font-size:.8rem;color:var(--text);line-height:1.5;">'
+        f'Confirm H&amp;S capability evidence for WCC evaluation criteria</li>'
+        f'</ol>'
+        f'<div style="border-top:1px solid var(--border);margin-top:1.1rem;padding-top:.85rem;'
+        f'font-size:.74rem;color:var(--muted);font-style:italic;line-height:1.55;">'
+        f'Groundwork doesn&rsquo;t find you more tenders. It tells you which ones are worth your time.'
+        f'</div>'
+        f'</div>'
         f'</div>'
         f'<div class="tiers" id="tiers">'
         f'<div class="tier"><div class="tier-lbl">Foundation</div>'
@@ -2554,6 +2588,176 @@ def admin_add_client():
             f'<button type="submit" class="btn bg-gold">Create account</button>'
             f'</form></div></div>')
     return _page("Add Client — Admin", body, "admin")
+
+
+# ── Sector review admin page ──────────────────────────────────────────────────
+
+@app.route("/admin/sector-review", methods=["GET", "POST"])
+@login_required
+@admin_required
+def admin_sector_review():
+    """
+    Human review queue for low-confidence sector classifications.
+    GET  — list all notices flagged needs_sector_review=TRUE.
+    POST — apply a manual correction for a single notice.
+    """
+    from sector_classifier import apply_human_correction, ALL_SECTORS
+
+    flash_msg = ""
+
+    if request.method == "POST":
+        nid              = request.form.get("notice_id", "").strip()
+        new_sector       = request.form.get("sector", "").strip()
+        note             = request.form.get("note", "").strip()
+        corrector        = current_user.username if hasattr(current_user, "username") else "admin"
+        if nid and new_sector in ALL_SECTORS:
+            ok = apply_human_correction(nid, new_sector, corrector, note)
+            flash_msg = (
+                f'<div class="al al-ok">Sector updated for notice {nid[:12]}… → {new_sector}</div>'
+                if ok else
+                f'<div class="al al-er">Failed to update notice {nid[:12]}…</div>'
+            )
+        else:
+            flash_msg = '<div class="al al-er">Invalid notice ID or sector.</div>'
+
+    # ── Fetch pending notices ─────────────────────────────────────────────────
+    pending = db.fetchall(
+        """
+        SELECT
+            p.notice_id,
+            p.sector_tag,
+            p.classification_method,
+            p.classification_confidence,
+            p.classification_reasoning,
+            p.parsed_at,
+            r.title,
+            r.agency,
+            r.description
+          FROM parsed_notices p
+          JOIN raw_notices r ON r.notice_id = p.notice_id
+         WHERE p.needs_sector_review = TRUE
+         ORDER BY p.parsed_at DESC
+         LIMIT 100
+        """
+    )
+
+    # ── Sector distribution (before/after awareness) ──────────────────────────
+    dist = db.fetchall(
+        """
+        SELECT sector_tag, COUNT(*) AS n,
+               SUM(CASE WHEN classification_method='keyword' THEN 1 ELSE 0 END) AS kw,
+               SUM(CASE WHEN classification_method='claude'  THEN 1 ELSE 0 END) AS cl,
+               SUM(CASE WHEN classification_method='human'   THEN 1 ELSE 0 END) AS hu,
+               SUM(CASE WHEN classification_method IS NULL   THEN 1 ELSE 0 END) AS legacy
+          FROM parsed_notices
+         GROUP BY sector_tag
+         ORDER BY n DESC
+        """
+    )
+
+    # ── Sector options for dropdown ───────────────────────────────────────────
+    sector_opts = "".join(
+        f'<option value="{s}">{s}</option>' for s in sorted(ALL_SECTORS)
+    )
+
+    # ── Distribution table ────────────────────────────────────────────────────
+    dist_rows = "".join(
+        f'<tr><td>{r["sector_tag"] or "(null)"}</td>'
+        f'<td style="text-align:right;font-weight:700;">{r["n"]}</td>'
+        f'<td style="text-align:right;color:var(--muted);">{r["kw"] or 0}</td>'
+        f'<td style="text-align:right;color:var(--muted);">{r["cl"] or 0}</td>'
+        f'<td style="text-align:right;color:var(--muted);">{r["hu"] or 0}</td>'
+        f'<td style="text-align:right;color:var(--muted);">{r["legacy"] or 0}</td>'
+        f'</tr>'
+        for r in dist
+    )
+
+    # ── Pending review cards ──────────────────────────────────────────────────
+    if not pending:
+        review_body = (
+            '<div class="al al-ok" style="margin-top:1rem;">'
+            '✓ No notices currently require sector review.</div>'
+        )
+    else:
+        cards = []
+        for r in pending:
+            nid    = _esc(r["notice_id"])
+            title  = _esc(r["title"] or "—")
+            agency = _esc(r["agency"] or "—")
+            sector = _esc(r["sector_tag"] or "other")
+            method = _esc(r["classification_method"] or "legacy")
+            conf   = _esc(r["classification_confidence"] or "—")
+            reason = _esc((r["classification_reasoning"] or "")[:200])
+            desc   = _esc((r["description"] or "")[:250])
+
+            cards.append(
+                f'<div class="card" style="margin-bottom:1rem;">'
+                f'<div class="ch" style="display:flex;justify-content:space-between;align-items:center;">'
+                f'<span class="ct">⚠ {title[:80]}</span>'
+                f'<span style="font-size:.7rem;color:var(--muted);">{nid[:12]}…</span>'
+                f'</div>'
+                f'<div class="cb">'
+                f'<div style="font-size:.78rem;color:var(--muted);margin-bottom:.75rem;">'
+                f'{agency} &nbsp;·&nbsp; '
+                f'Current sector: <strong style="color:var(--text);">{sector}</strong> &nbsp;·&nbsp; '
+                f'Method: {method} &nbsp;·&nbsp; Confidence: {conf}'
+                f'</div>'
+                f'<div style="font-size:.78rem;color:var(--muted);margin-bottom:.75rem;'
+                f'font-style:italic;">{reason}</div>'
+                f'<div style="font-size:.75rem;color:var(--muted);margin-bottom:1rem;'
+                f'line-height:1.55;max-height:4rem;overflow:hidden;">{desc}</div>'
+                f'<form method="POST" style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:flex-end;">'
+                f'<input type="hidden" name="notice_id" value="{nid}">'
+                f'<div>'
+                f'<label class="fl">Correct sector</label>'
+                f'<select name="sector" class="fc2" style="min-width:180px;">'
+                f'<option value="{sector}" selected>{sector}</option>'
+                f'{sector_opts}'
+                f'</select>'
+                f'</div>'
+                f'<div style="flex:1;min-width:200px;">'
+                f'<label class="fl">Note (optional)</label>'
+                f'<input name="note" class="fc2" placeholder="reason for correction">'
+                f'</div>'
+                f'<button type="submit" class="btn bg-gold sm" style="align-self:flex-end;">'
+                f'Save &rarr;</button>'
+                f'</form>'
+                f'</div></div>'
+            )
+        review_body = "".join(cards)
+
+    body = (
+        f'<div class="ptitle">Sector Review Queue</div>'
+        f'<div class="psub">Low-confidence classifications flagged for manual verification</div>'
+        f'{flash_msg}'
+
+        # Stats bar
+        f'<div style="display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:1.5rem;">'
+        f'<div class="card" style="flex:1;min-width:140px;padding:1rem 1.25rem;">'
+        f'<div style="font-size:1.6rem;font-weight:800;color:var(--red);">{len(pending)}</div>'
+        f'<div style="font-size:.72rem;color:var(--muted);text-transform:uppercase;'
+        f'letter-spacing:.08em;">Pending review</div></div>'
+        f'</div>'
+
+        # Sector distribution
+        f'<div class="card" style="margin-bottom:1.5rem;">'
+        f'<div class="ch"><span class="ct">Sector distribution — all notices</span></div>'
+        f'<div class="cb">'
+        f'<table class="dt"><thead><tr>'
+        f'<th>Sector</th><th style="text-align:right;">Total</th>'
+        f'<th style="text-align:right;">Keyword</th>'
+        f'<th style="text-align:right;">Claude</th>'
+        f'<th style="text-align:right;">Human</th>'
+        f'<th style="text-align:right;">Legacy</th>'
+        f'</tr></thead><tbody>{dist_rows}</tbody></table>'
+        f'</div></div>'
+
+        # Review cards
+        f'<div class="ptitle" style="font-size:1rem;margin-top:1rem;">Notices awaiting review</div>'
+        f'{review_body}'
+    )
+
+    return _page("Sector Review — Admin", body, "admin")
 
 
 # ── Intel Library admin page ─────────────────────────────────────────────────
