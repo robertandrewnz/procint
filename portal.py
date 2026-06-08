@@ -1658,11 +1658,17 @@ def gw_home():
                              f'color:var(--gold);border:1px solid rgba(42,157,143,.3);">'
                              f'⚡ {intel_source}</span>')
 
+        _dash_notice_id = n.get("notice_id", "")
+        _dash_gets_ref = (
+            f'<div style="font-size:.68rem;color:var(--muted);margin:.05rem 0 .25rem;">'
+            f'GETS ref: {_dash_notice_id}</div>'
+        ) if _dash_notice_id else ""
         notices_html += (f'<div class="nr">'
                          f'<div class="nrank">{i}</div>'
                          f'<div class="nmain">'
                          f'<div class="ntitle">{n.get("title","")[:80]}</div>'
                          f'<div class="nagency">{n.get("agency","")}</div>'
+                         f'{_dash_gets_ref}'
                          f'<div class="nmeta">'
                          f'{_sector_badge(sector)}'
                          f'{_value_badge(n.get("value_band"))}'
@@ -1996,9 +2002,28 @@ def gw_watchlist():
             f'<button class="sf-pill" data-sector="{s}" onclick="sfFilter(this)">{label}</button>'
         )
 
+    request_base_url = url_for("gw_request")
     filter_bar = (
+        # Search bar (above pills)
+        f'<div id="sf-search-wrap" style="position:relative;margin-bottom:.7rem;">'
+        f'<input id="sf-search" type="search" autocomplete="off"'
+        f' placeholder="Search notices by title, agency or sector..."'
+        f' oninput="wlSearch(this.value)"'
+        f' style="width:100%;padding:.55rem .75rem .55rem 2.1rem;'
+        f'border:1px solid var(--border);border-radius:6px;'
+        f'background:var(--surf);color:var(--text);font-size:.82rem;font-family:inherit;'
+        f'outline:none;transition:border-color .15s;"'
+        f' onfocus="this.style.borderColor=\'#2a9d8f\'" onblur="this.style.borderColor=\'\'">'
+        f'<span style="position:absolute;left:.65rem;top:50%;transform:translateY(-50%);'
+        f'font-size:.85rem;color:var(--muted);pointer-events:none;">&#128269;</span>'
+        f'<button id="sf-clear" onclick="wlClearSearch()" title="Clear search"'
+        f' style="display:none;position:absolute;right:.5rem;top:50%;transform:translateY(-50%);'
+        f'background:none;border:none;font-size:1rem;color:var(--muted);cursor:pointer;'
+        f'line-height:1;padding:.1rem .3rem;">&#215;</button>'
+        f'</div>'
+        # Sector pills (below search)
         f'<div id="sf-bar" style="display:flex;flex-wrap:wrap;gap:.45rem;'
-        f'padding:.85rem 0 1rem;margin-bottom:.25rem;">'
+        f'padding-bottom:.85rem;margin-bottom:.25rem;">'
         f'{sector_pills}'
         f'</div>'
     )
@@ -2059,17 +2084,50 @@ def gw_watchlist():
 </style>"""
 
     filter_js = """<script>
+var _wlActiveSector='all', _wlSearchTerm='';
+
+function _wlApplyFilters(){
+  var matched=0;
+  document.querySelectorAll('.wl-card').forEach(function(card){
+    var sectorOk = _wlActiveSector==='all' || card.getAttribute('data-sector')===_wlActiveSector;
+    var searchOk = true;
+    if(_wlSearchTerm){
+      var hay = (
+        (card.getAttribute('data-title')||'') + ' ' +
+        (card.getAttribute('data-agency')||'') + ' ' +
+        (card.getAttribute('data-sector')||'')
+      ).toLowerCase();
+      searchOk = hay.indexOf(_wlSearchTerm) !== -1;
+    }
+    var show = sectorOk && searchOk;
+    card.style.display = show ? '' : 'none';
+    if(show) matched++;
+  });
+  var noRes = document.getElementById('wl-no-results');
+  if(noRes) noRes.style.display = matched===0 ? 'block' : 'none';
+}
+
 function sfFilter(btn){
   document.querySelectorAll('.sf-pill').forEach(function(p){p.classList.remove('sf-active');});
   btn.classList.add('sf-active');
-  var sector=btn.getAttribute('data-sector');
-  document.querySelectorAll('.wl-card').forEach(function(card){
-    if(sector==='all'||card.getAttribute('data-sector')===sector){
-      card.style.display='';
-    }else{
-      card.style.display='none';
-    }
-  });
+  _wlActiveSector = btn.getAttribute('data-sector');
+  _wlApplyFilters();
+}
+
+function wlSearch(val){
+  _wlSearchTerm = val.trim().toLowerCase();
+  var clr = document.getElementById('sf-clear');
+  if(clr) clr.style.display = val ? 'block' : 'none';
+  _wlApplyFilters();
+}
+
+function wlClearSearch(){
+  var inp = document.getElementById('sf-search');
+  if(inp){ inp.value=''; inp.focus(); }
+  _wlSearchTerm='';
+  var clr = document.getElementById('sf-clear');
+  if(clr) clr.style.display='none';
+  _wlApplyFilters();
 }
 </script>"""
 
@@ -2287,9 +2345,19 @@ function sfFilter(btn){
             f'</div>'  # end detail panel
         )
 
+        notice_id = n.get("notice_id", "")
+        title_attr = (n.get("title") or "").replace('"', '&quot;')
+        agency_attr = (n.get("agency") or "").replace('"', '&quot;')
+        gets_ref_html = (
+            f'<div style="font-size:.68rem;color:var(--muted);margin-top:.1rem;'
+            f'margin-bottom:.35rem;letter-spacing:.01em;">'
+            f'GETS ref: {notice_id}</div>'
+        ) if notice_id else ""
+        req_url = f'{request_base_url}?notice_id={notice_id}'
         cards_html += (
-            f'<div class="wl-card" data-sector="{sector}" '
-            f'style="background:var(--surf);border:1px solid var(--border);'
+            f'<div class="wl-card" data-sector="{sector}"'
+            f' data-title="{title_attr}" data-agency="{agency_attr}"'
+            f' style="background:var(--surf);border:1px solid var(--border);'
             f'border-radius:8px;padding:.9rem 1.1rem;margin-bottom:.6rem;">'
             f'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:.75rem;">'
             f'<div style="flex:1;min-width:0;">'
@@ -2297,7 +2365,8 @@ function sfFilter(btn){
             f'margin-bottom:.25rem;line-height:1.4;">'
             f'<span style="color:var(--muted);font-size:.75rem;font-weight:400;margin-right:.4rem;">#{i}</span>'
             f'{n.get("title","")[:90]}</div>'
-            f'<div style="font-size:.75rem;color:var(--muted);margin-bottom:.45rem;">{n.get("agency","")}</div>'
+            f'<div style="font-size:.75rem;color:var(--muted);margin-bottom:.1rem;">{n.get("agency","")}</div>'
+            f'{gets_ref_html}'
             f'<div style="display:flex;flex-wrap:wrap;gap:.35rem;align-items:center;">'
             f'{_sector_badge(sector)}'
             f'{_value_badge(n.get("value_band"))}'
@@ -2306,9 +2375,14 @@ function sfFilter(btn){
             f'{strategic_badge}'
             f'</div>'
             f'</div>'
-            f'<div style="flex-shrink:0;text-align:right;">'
+            f'<div style="flex-shrink:0;text-align:right;display:flex;flex-direction:column;gap:.4rem;align-items:flex-end;">'
             f'<a href="{src_link}" target="_blank" style="font-size:.72rem;color:var(--muted);'
-            f'display:block;white-space:nowrap;">GETS &nearr;</a>'
+            f'white-space:nowrap;">GETS &nearr;</a>'
+            f'<a href="{req_url}" style="font-size:.7rem;color:var(--gold);white-space:nowrap;'
+            f'border:1px solid rgba(42,157,143,.4);border-radius:4px;padding:.15rem .5rem;'
+            f'text-decoration:none;transition:background .12s;"'
+            f' onmouseover="this.style.background=\'rgba(42,157,143,.1)\'"'
+            f' onmouseout="this.style.background=\'\'">Request package &#8250;</a>'
             f'</div>'
             f'</div>'
             f'{detail_html}'
@@ -2349,6 +2423,8 @@ function sfFilter(btn){
         f'{filter_bar}'
         f'{legend_html}'
         f'<div id="wl-list">{cards_html}</div>'
+        f'<div id="wl-no-results" style="display:none;padding:2rem 1rem;text-align:center;'
+        f'color:var(--muted);font-size:.85rem;">No notices match your search.</div>'
         f'</div>'
         f'{filter_js}'
     )
@@ -2470,6 +2546,8 @@ def serve_artefact_file(client_slug: str, filepath: str):
 @app.route("/groundwork/request", methods=["GET", "POST"])
 @login_required
 def gw_request():
+    # Pre-fill notice_id from query string (e.g. ?notice_id=32705858)
+    prefill_notice_id = request.args.get("notice_id", "").strip()
     sent = False
     if request.method == "POST":
         rtype   = request.form.get("type", "pursuit")
@@ -2484,6 +2562,21 @@ def gw_request():
         _send_email(subject, html, _admin_emails())
         sent = True
     ok = '<div class="al al-ok">Request submitted — BidEdge will be in touch.</div>' if sent else ""
+    # Notice ID field — read-only if pre-filled from watchlist, editable otherwise
+    if prefill_notice_id:
+        notice_id_field = (
+            f'<div class="fg"><label class="fl">GETS Notice ID</label>'
+            f'<input name="notice_id" class="fc2" value="{prefill_notice_id}" readonly'
+            f' style="background:var(--surf2,rgba(255,255,255,.04));color:var(--muted);'
+            f'cursor:not-allowed;">'
+            f'<div class="fh">Pre-filled from your watchlist. Not editable.</div></div>'
+        )
+    else:
+        notice_id_field = (
+            f'<div class="fg"><label class="fl">GETS Notice ID (for pursuit packages)</label>'
+            f'<input name="notice_id" class="fc2" placeholder="e.g. 34060392">'
+            f'<div class="fh">Find the notice ID in the GETS URL or your watchlist.</div></div>'
+        )
     body = (f'<div class="ptitle">Request Intelligence</div>'
             f'<div class="psub">Your request goes directly to the BidEdge team.</div>'
             f'{ok}'
@@ -2498,9 +2591,7 @@ def gw_request():
             f'<option value="brief">Weekly Watch Brief (immediate)</option>'
             f'<option value="other">Other</option>'
             f'</select></div>'
-            f'<div class="fg"><label class="fl">GETS Notice ID (for pursuit packages)</label>'
-            f'<input name="notice_id" class="fc2" placeholder="e.g. 34060392">'
-            f'<div class="fh">Find the notice ID in the GETS URL or watchlist.</div></div>'
+            f'{notice_id_field}'
             f'<div class="fg"><label class="fl">Details</label>'
             f'<textarea name="details" class="fc2" placeholder="Please describe what you need..."></textarea></div>'
             f'<div class="fg"><label class="fl">Priority</label>'
