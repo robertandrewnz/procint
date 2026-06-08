@@ -563,6 +563,8 @@ def _sidebar(active: str = "") -> str:
             f'<div class="side-sec">Actions</div>'
             f'{lnk(url_for("gw_request"),     "✉", "Request",      "request")}'
             f'{admin_links}'
+            f'<div class="side-sec" style="margin-top:auto;padding-top:1rem;">Support</div>'
+            f'{lnk(url_for("gw_help"),        "?", "Help",          "help")}'
             f'</nav>')
 
 
@@ -683,6 +685,98 @@ def _notice_sort_key(n: dict):
 
 
 # ── Public routes ─────────────────────────────────────────────────────────────
+
+@app.route("/about")
+def about():
+    body = f"""
+<style>
+.about-nav{{display:flex;align-items:center;padding:1.1rem 2.5rem;
+  background:var(--nav-bg,rgba(15,24,41,.97));border-bottom:1px solid var(--border);
+  gap:1.5rem;position:sticky;top:0;z-index:100;}}
+.about-nav .pub-brand{{flex:1;font-size:1rem;font-weight:800;color:var(--text);
+  letter-spacing:-.02em;}}
+.about-nav .pub-brand span{{color:var(--gold);font-weight:400;}}
+.about-content{{max-width:680px;margin:0 auto;padding:4rem 2rem 5rem;}}
+.about-h1{{font-size:2rem;font-weight:900;color:var(--text);letter-spacing:-.03em;
+  line-height:1.2;margin-bottom:.6rem;}}
+.about-sub{{font-size:1rem;color:var(--muted);line-height:1.7;margin-bottom:3rem;}}
+.about-section{{margin-bottom:2.5rem;}}
+.about-section h2{{font-size:.75rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--gold);margin-bottom:.7rem;}}
+.about-section p{{font-size:.95rem;color:var(--muted);line-height:1.8;margin:0;}}
+.about-divider{{border:none;border-top:1px solid var(--border);margin:2.5rem 0;}}
+.about-footer{{text-align:center;padding:2.5rem 0 3rem;font-size:.8rem;color:var(--muted);}}
+.about-footer a{{color:var(--muted);text-decoration:none;}}
+.about-footer a:hover{{color:var(--text);}}
+</style>
+<div class="about-nav">
+  <div class="pub-brand">Groundwork <span>by BidEdge</span></div>
+  <a href="{url_for('homepage')}#how-it-works" style="font-size:.82rem;color:var(--muted);
+     text-decoration:none;transition:color .12s;"
+     onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">How it works</a>
+  <a href="{url_for('homepage')}#pricing" style="font-size:.82rem;color:var(--muted);
+     text-decoration:none;transition:color .12s;"
+     onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">Pricing</a>
+  <a href="{url_for('demo')}" style="font-size:.82rem;color:var(--muted);
+     text-decoration:none;transition:color .12s;"
+     onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">Demo</a>
+  <a href="{url_for('login')}" class="btn bg-out"
+     style="margin-left:auto;font-size:.82rem;">Client Login</a>
+</div>
+<div class="about-content">
+  <h1 class="about-h1">About BidEdge</h1>
+  <p class="about-sub">New Zealand procurement intelligence — built to help NZ organisations
+  compete more effectively for government contracts.</p>
+
+  <div class="about-section">
+    <h2>Who we are</h2>
+    <p>BidEdge is a New Zealand-owned procurement intelligence firm. We build tools that help NZ
+    organisations understand the government contracting market before they commit resources to
+    pursuits. Our platform, Groundwork, monitors every published GETS tender daily, enriches each
+    one with a decade of contract award history, and delivers actionable intelligence — so you know
+    the field, the incumbents, and whether it is worth your team's time.</p>
+  </div>
+
+  <hr class="about-divider">
+
+  <div class="about-section">
+    <h2>Our approach</h2>
+    <p>We believe in evidence over intuition. Every assessment Groundwork produces is grounded in
+    published procurement data — award histories, agency buying patterns, supplier win records — not
+    guesswork or market rumour. We tell clients what the data says, including when it says
+    don't bid. That honesty is the most useful thing we can offer.</p>
+  </div>
+
+  <hr class="about-divider">
+
+  <div class="about-section">
+    <h2>Ethical intelligence</h2>
+    <p>We only use publicly available information. We do not access confidential tender data,
+    maintain relationships with evaluators, or provide any service that would compromise the
+    integrity of a procurement process. Our job is to help you understand the market clearly —
+    not to game it. Every piece of intelligence Groundwork produces can be traced back to
+    a public source.</p>
+  </div>
+
+  <hr class="about-divider">
+
+  <div class="about-section">
+    <h2>Contact</h2>
+    <p>Questions, feedback, or requests — reach us at
+    <a href="mailto:robert@bidedge.co.nz"
+       style="color:var(--gold);text-decoration:none;">robert@bidedge.co.nz</a></p>
+  </div>
+</div>
+<div class="about-footer">
+  &copy; BidEdge Ltd &middot;
+  <a href="{url_for('homepage')}">Groundwork</a> &middot;
+  <a href="{url_for('homepage')}#pricing">Pricing</a> &middot;
+  <a href="{url_for('demo')}">Demo</a> &middot;
+  <a href="{url_for('login')}">Client Login</a>
+</div>
+"""
+    return _page("About — BidEdge", body, public=True, sidebar=False)
+
 
 @app.route("/")
 def homepage():
@@ -857,6 +951,10 @@ function toggleBilling(cb) {{
         f'{pricing_css}'
         f'<nav class="pub-nav">'
         f'<div class="pub-brand">Groundwork <span>by BidEdge</span></div>'
+        f'<a href="#how-it-works" style="font-size:.82rem;color:var(--muted);padding:.3rem .5rem;'
+        f'text-decoration:none;transition:color .12s;" '
+        f'onmouseover="this.style.color=\'var(--text)\'" '
+        f'onmouseout="this.style.color=\'var(--muted)\'">How it works</a>'
         f'<a href="#pricing" style="font-size:.82rem;color:var(--muted);padding:.3rem .5rem;'
         f'text-decoration:none;transition:color .12s;" '
         f'onmouseover="this.style.color=\'var(--text)\'" '
@@ -865,6 +963,10 @@ function toggleBilling(cb) {{
         f'text-decoration:none;transition:color .12s;" '
         f'onmouseover="this.style.color=\'var(--text)\'" '
         f'onmouseout="this.style.color=\'var(--muted)\'">Demo</a>'
+        f'<a href="{url_for("about")}" style="font-size:.82rem;color:var(--muted);padding:.3rem .5rem;'
+        f'text-decoration:none;transition:color .12s;" '
+        f'onmouseover="this.style.color=\'var(--text)\'" '
+        f'onmouseout="this.style.color=\'var(--muted)\'">About</a>'
         f'<a href="{url_for("login")}" class="btn bg-out" style="margin-left:auto;font-size:.82rem;">Client Login</a>'
         f'</nav>'
         f'<div class="hero">{sent}'
@@ -926,6 +1028,66 @@ function toggleBilling(cb) {{
         f'<ul><li>Competitor intelligence profiles</li><li>Contract renewal radar (90-day)</li>'
         f'<li>Longitudinal pattern detection</li><li>Dedicated BidEdge analyst support</li></ul></div>'
         f'</div>'
+        f"""
+<section id="how-it-works" style="padding:5rem 2rem 4rem;text-align:center;">
+  <h2 style="font-size:2rem;font-weight:900;color:var(--text);margin-bottom:.6rem;
+    letter-spacing:-.02em;">How Groundwork works</h2>
+  <p style="color:var(--muted);font-size:.95rem;max-width:480px;margin:0 auto 3rem;
+    line-height:1.7;">Three steps. No subscriptions to GETS. No spreadsheets.</p>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2rem;
+    max-width:860px;margin:0 auto;">
+    <div style="text-align:left;background:var(--surf);border:1px solid var(--border);
+      border-radius:12px;padding:2rem 1.75rem;">
+      <div style="width:40px;height:40px;border-radius:50%;background:rgba(42,157,143,.15);
+        border:1.5px solid rgba(42,157,143,.4);display:flex;align-items:center;
+        justify-content:center;font-size:1rem;font-weight:900;color:var(--gold);
+        margin-bottom:1.25rem;flex-shrink:0;">1</div>
+      <div style="font-size:.72rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+        color:var(--gold);margin-bottom:.5rem;">Monitor</div>
+      <div style="font-size:1.05rem;font-weight:800;color:var(--text);margin-bottom:.65rem;
+        line-height:1.25;">Every NZ government tender, scored and ranked for your sectors.</div>
+      <div style="font-size:.84rem;color:var(--muted);line-height:1.7;">Every morning.
+        No noise, no manual searching — just the opportunities that are relevant to you,
+        ranked by strategic fit.</div>
+    </div>
+    <div style="text-align:left;background:var(--surf);border:1px solid var(--border);
+      border-radius:12px;padding:2rem 1.75rem;">
+      <div style="width:40px;height:40px;border-radius:50%;background:rgba(42,157,143,.15);
+        border:1.5px solid rgba(42,157,143,.4);display:flex;align-items:center;
+        justify-content:center;font-size:1rem;font-weight:900;color:var(--gold);
+        margin-bottom:1.25rem;flex-shrink:0;">2</div>
+      <div style="font-size:.72rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+        color:var(--gold);margin-bottom:.5rem;">Analyse</div>
+      <div style="font-size:1.05rem;font-weight:800;color:var(--text);margin-bottom:.65rem;
+        line-height:1.25;">Know who you're up against before you commit.</div>
+      <div style="font-size:.84rem;color:var(--muted);line-height:1.7;">See the incumbent,
+        the likely field, the agency's buying history, and a clear-eyed assessment of whether
+        the contract is worth your team's time and resources.</div>
+    </div>
+    <div style="text-align:left;background:var(--surf);border:1px solid var(--border);
+      border-radius:12px;padding:2rem 1.75rem;">
+      <div style="width:40px;height:40px;border-radius:50%;background:rgba(42,157,143,.15);
+        border:1.5px solid rgba(42,157,143,.4);display:flex;align-items:center;
+        justify-content:center;font-size:1rem;font-weight:900;color:var(--gold);
+        margin-bottom:1.25rem;flex-shrink:0;">3</div>
+      <div style="font-size:.72rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+        color:var(--gold);margin-bottom:.5rem;">Act</div>
+      <div style="font-size:1.05rem;font-weight:800;color:var(--text);margin-bottom:.65rem;
+        line-height:1.25;">Request a pursuit package for any opportunity.</div>
+      <div style="font-size:.84rem;color:var(--muted);line-height:1.7;">Get a full bid
+        intelligence brief before your competitors have read the notice — recommended actions,
+        competitor profiles, and everything you need to bid with confidence.</div>
+    </div>
+  </div>
+  <style>
+  @media(max-width:768px){{
+    #how-it-works > div[style*="grid-template-columns"]{{
+      grid-template-columns:1fr !important;max-width:100% !important;
+    }}
+  }}
+  </style>
+</section>
+"""
         f'{pricing_section}'
         f'<div style="text-align:center;padding:3rem 2rem;">'
         f'<h2 style="font-size:1.5rem;margin-bottom:.75rem;">Questions? Talk to us.</h2>'
@@ -933,8 +1095,10 @@ function toggleBilling(cb) {{
         f'<a href="{url_for("signup")}?plan=edge" class="btn bg-gold" style="font-size:.9rem;padding:.65rem 1.75rem;">Get in touch &rarr;</a>'
         f'</div>'
         f'<div class="pub-footer">&copy; BidEdge Ltd &middot; Groundwork Procurement Intelligence &middot; '
+        f'<a href="#how-it-works">How it works</a> &middot; '
         f'<a href="#pricing">Pricing</a> &middot; '
         f'<a href="{url_for("demo")}">Demo</a> &middot; '
+        f'<a href="{url_for("about")}">About</a> &middot; '
         f'<a href="{url_for("login")}">Client Login</a></div>'
     )
     return _page("BidEdge — Groundwork Procurement Intelligence", body, public=True, sidebar=False)
@@ -2506,6 +2670,138 @@ def _artefact_page(title: str, pattern: str, empty_msg: str, active: str) -> str
             f'<div class="fgrid">{cards}</div>'
             f'{_SHARE_JS}')
     return _page(title, body, active)
+
+
+@app.route("/groundwork/help")
+@login_required
+def gw_help():
+    body = """
+<style>
+.help-wrap{max-width:760px;}
+.help-section{margin-bottom:2.75rem;}
+.help-h2{font-size:1.15rem;font-weight:800;color:var(--text);margin:0 0 .6rem;
+  padding-bottom:.45rem;border-bottom:1px solid var(--border);letter-spacing:-.01em;}
+.help-p{font-size:.88rem;color:var(--muted);line-height:1.75;margin:.5rem 0;}
+.help-p strong{color:var(--text);}
+.help-ul{list-style:none;padding:0;margin:.5rem 0;}
+.help-ul li{font-size:.88rem;color:var(--muted);line-height:1.7;padding:.25rem 0 .25rem 1.4rem;
+  position:relative;}
+.help-ul li::before{content:"→";position:absolute;left:0;color:var(--gold);font-weight:700;}
+.help-tip{background:rgba(42,157,143,.07);border:1px solid rgba(42,157,143,.2);
+  border-left:3px solid var(--gold);border-radius:6px;padding:.75rem 1rem;
+  font-size:.84rem;color:var(--muted);line-height:1.7;margin:.75rem 0;}
+.help-tip strong{color:var(--text);}
+</style>
+<div class="ptitle">Help Guide</div>
+<div class="psub">How to get the most from Groundwork</div>
+<div class="help-wrap">
+
+  <div class="help-section">
+    <div class="help-h2">What Groundwork does</div>
+    <p class="help-p">Groundwork monitors every NZ government procurement notice published each day,
+    enriches each one with a decade of contract award history, and surfaces who's likely bidding,
+    who the incumbent is, and whether the opportunity is worth your team's time.
+    The goal is straightforward: replace the hours you spend reading GETS with a daily briefing
+    you can act on in minutes.</p>
+  </div>
+
+  <div class="help-section">
+    <div class="help-h2">The Daily Watchlist</div>
+    <p class="help-p">The <strong>Watchlist</strong> is your daily briefing. Each morning it shows
+    the most strategically relevant open notices for your sectors, ranked by opportunity score.</p>
+    <ul class="help-ul">
+      <li><strong>Sector filter pills</strong> — click any sector tag to show only notices in that
+      category. Click it again (or click All) to clear the filter. Your sector preferences control
+      which sectors appear by default.</li>
+      <li><strong>Search bar</strong> — type any word to filter cards in real time by title, agency,
+      or sector. The search works on top of any active sector filter.</li>
+      <li><strong>Urgency badges</strong> — a red or amber badge showing days until close means the
+      notice is closing soon. Green means plenty of time. No badge means the close date isn't
+      published yet.</li>
+      <li><strong>GETS ref</strong> — the reference number for the notice on the GETS portal. Click
+      the <em>GETS ↗</em> link on any card to open the original notice in a new tab.</li>
+      <li><strong>Request package →</strong> — click this on any card to go straight to the
+      Request form with the notice pre-filled.</li>
+    </ul>
+  </div>
+
+  <div class="help-section">
+    <div class="help-h2">Requesting a Pursuit Package</div>
+    <p class="help-p">A <strong>pursuit package</strong> is a full bid intelligence brief for a
+    specific opportunity. It covers: a win position assessment, the likely field of competitors,
+    the agency's procurement history and buying patterns, critical risks, and a set of recommended
+    actions before you commit to bidding.</p>
+    <ul class="help-ul">
+      <li><strong>When to use it</strong> — as soon as you identify a notice worth pursuing.
+      The earlier you request it, the more time you have to act on the intelligence before close.</li>
+      <li><strong>How to request one</strong> — click <em>Request package →</em> on a watchlist card,
+      or go to <em>Request</em> in the sidebar and enter the GETS notice ID manually.</li>
+      <li><strong>What you receive</strong> — a formatted HTML document delivered to your
+      Pursuits library, typically within 24 hours (urgent requests within 4 hours).</li>
+    </ul>
+    <div class="help-tip"><strong>Tip:</strong> Don't wait until the day before close to request a
+    pursuit package. Request it the moment the opportunity looks relevant — you need time to act on
+    the recommended actions.</div>
+  </div>
+
+  <div class="help-section">
+    <div class="help-h2">Requesting a Competitor Profile</div>
+    <p class="help-p">A <strong>competitor profile</strong> is an evidence-based summary of a
+    specific firm's NZ government contract history — what they win, who they win it from, how often,
+    and at what contract values.</p>
+    <ul class="help-ul">
+      <li><strong>When to use it</strong> — before a major bid when you keep seeing the same firm
+      shortlisted, or when you want to understand a market entrant before they show up in your
+      sectors.</li>
+      <li><strong>How to request one</strong> — go to <em>Request</em> in the sidebar, select
+      <em>Competitor Profile</em>, and name the firm. Include any context you have (sector, likely
+      regions, known client relationships).</li>
+    </ul>
+  </div>
+
+  <div class="help-section">
+    <div class="help-h2">The Weekly Watch Brief</div>
+    <p class="help-p">The <strong>Watch Brief</strong> is a weekly summary of market activity in your
+    sectors — significant notices that opened, contracts that were awarded, and any strategic signals
+    worth noting. It arrives on Monday morning and is archived in your <em>Watch Briefs</em>
+    library.</p>
+    <p class="help-p">It's designed to be read in under five minutes. If something in it warrants
+    deeper attention, it links directly to the relevant notices or pursuit packages.</p>
+  </div>
+
+  <div class="help-section">
+    <div class="help-h2">Setting your sector preferences</div>
+    <p class="help-p">Your sector preferences control which notices appear in your watchlist and
+    which sectors are highlighted throughout the platform. To update them:</p>
+    <ul class="help-ul">
+      <li>Go to your account settings (accessible from the top nav).</li>
+      <li>Select the sectors most relevant to your business. You can choose multiple.</li>
+      <li>Your watchlist will update the next time it's generated (usually overnight).</li>
+    </ul>
+    <div class="help-tip"><strong>Set your sectors on first login.</strong> Until you do,
+    the watchlist shows a broad default set that may not match your work.</div>
+  </div>
+
+  <div class="help-section">
+    <div class="help-h2">Getting the most from Groundwork</div>
+    <ul class="help-ul">
+      <li><strong>Set your sectors on day one.</strong> The platform is only as relevant as your
+      sector settings. Spend two minutes on this and everything else improves immediately.</li>
+      <li><strong>Check the watchlist every morning.</strong> Opportunities move fast. A notice that
+      opens today may close in 10 days. Seeing it on day one gives you options; seeing it on day
+      eight doesn't.</li>
+      <li><strong>Request pursuit packages early.</strong> The intelligence is most useful when you
+      still have time to act — confirm capability evidence, seek clarification, adjust your
+      approach. Requesting it the day before close is too late.</li>
+      <li><strong>Use competitor profiles before major bids, not after you've lost.</strong>
+      Understanding a competitor's win pattern before you price gives you a genuine advantage.
+      Post-loss analysis is useful, but it's the wrong order.</li>
+    </ul>
+  </div>
+
+</div>
+"""
+    return _page("Help — Groundwork", body, "help")
 
 
 @app.route("/groundwork/pursuits")
