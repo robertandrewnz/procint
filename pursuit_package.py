@@ -365,6 +365,7 @@ def _mbie_citation(sector: str, agency: str) -> str:
 _PURSUIT_SYSTEM = """You are a senior procurement strategy adviser at a boutique advisory firm in New Zealand.
 You are preparing an intelligence package for a client considering bidding on a government contract.
 Your analysis must be grounded strictly in the data provided — do not invent firms, award values, or procurement history not present in the context.
+When referencing contract award data, use neutral language: 'government contract award records', 'historical award data', 'published contract records', or 'contract award history'. Do NOT write 'MBIE data shows', 'according to MBIE', 'no MBIE record', or 'MBIE-recorded wins'. MBIE is a data source, not an authority — frame findings as market observations, not disqualifications.
 Respond ONLY with a valid JSON object, no preamble, no markdown fences."""
 
 _PURSUIT_PROMPT = """Prepare a pursuit intelligence package for:
