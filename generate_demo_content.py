@@ -56,12 +56,20 @@ DEMO_SECTORS: dict = {
         "tagline":     "Government security assessments, pen testing & compliance advisory",
         "db_tag":      "cybersecurity",
         "firm": {
-            "name":        "Sentinel Digital",
-            "description": "mid-sized NZ cybersecurity consultancy, 45 staff, Wellington-based, "
-                           "strong in government security assessments and zero-trust advisory",
-            "staff":       45,
-            "location":    "Wellington",
-            "strengths":   "IRAP-assessed team, NZISM compliance expertise, existing GCIO relationships",
+            "name":          "Sentinel Digital",
+            "description":   "mid-sized cybersecurity consultancy, 45 staff, Wellington-based, "
+                             "8 years operating. Holds All-of-Government security panel membership. "
+                             "Prior contracts with MBIE, DIA, and NZDF for security assessments, "
+                             "penetration testing, and SOC services. Seeking to expand into health "
+                             "sector cyber uplift under Budget 2026 funded programmes.",
+            "staff":         45,
+            "location":      "Wellington",
+            "years_operating": 8,
+            "key_clients":   "MBIE, Department of Internal Affairs (DIA), NZ Defence Force (NZDF)",
+            "sector_focus":  "Government cybersecurity, SOC services, NZISM compliance, health sector cyber uplift",
+            "strengths":     "AoG security panel member, IRAP-assessed team, NZISM compliance expertise, "
+                             "existing GCIO relationships, prior NZDF and DIA delivery, "
+                             "growing health sector capability",
         },
     },
     "FM": {
@@ -69,12 +77,24 @@ DEMO_SECTORS: dict = {
         "icon":        "🏗",
         "tagline":     "FM contracts for local government, social housing and public estates",
         "firm": {
-            "name":        "Cityworks NZ",
-            "description": "established FM contractor, 120 staff, national coverage, "
-                           "strong in local government and social housing portfolios",
-            "staff":       120,
-            "location":    "Auckland (national)",
-            "strengths":   "BWOF compliance, 15-year public sector track record, ISO 41001 certified",
+            "name":          "Cityworks NZ",
+            "description":   "established FM contractor, 120 staff, 15 years operating, national coverage. "
+                             "Strong track record in local government FM with Wellington City Council and "
+                             "Hutt City Council as anchor clients. Approved Kainga Ora panel supplier for "
+                             "social housing maintenance. Serves commercial property portfolio clients across "
+                             "the lower North Island and Auckland. Mid-market firm seeking to grow into "
+                             "university and tertiary sector FM. No prior University of Otago relationship "
+                             "but holds credible FM credentials across public and institutional sectors.",
+            "staff":         120,
+            "location":      "Auckland (national)",
+            "years_operating": 15,
+            "key_clients":   "Wellington City Council, Hutt City Council, Kainga Ora (social housing panel), "
+                             "commercial property portfolio clients",
+            "sector_focus":  "Local government FM, social housing maintenance, commercial property, "
+                             "tertiary sector growth",
+            "strengths":     "BWOF compliance expertise, 15-year public sector track record, "
+                             "ISO 41001 certified, Kainga Ora panel supplier, WCC and Hutt City anchor "
+                             "relationships, national mobilisation capability",
         },
     },
     "construction": {
@@ -83,12 +103,18 @@ DEMO_SECTORS: dict = {
         "tagline":     "Civil construction, roading and infrastructure delivery",
         "db_tag":      "construction",
         "firm": {
-            "name":        "Meridian Civil",
-            "description": "regional civil contractor, 80 staff, South Island focus, "
-                           "roading and infrastructure delivery",
-            "staff":       80,
-            "location":    "Christchurch (South Island)",
-            "strengths":   "NQS prequalified, strong NZTA and Waka Kotahi history, local supply chain",
+            "name":          "Meridian Civil",
+            "description":   "regional civil contractor, 80 staff, Christchurch-based, 12 years operating. "
+                             "Strong roading and drainage track record with Canterbury councils and NZTA. "
+                             "NZTA-approved contractor. Seeking to extend operations into Otago and "
+                             "Southland markets.",
+            "staff":         80,
+            "location":      "Christchurch (South Island)",
+            "years_operating": 12,
+            "key_clients":   "Canterbury councils, NZTA / Waka Kotahi (approved contractor)",
+            "sector_focus":  "Roading, drainage, civil infrastructure, South Island expansion into Otago/Southland",
+            "strengths":     "NQS prequalified, NZTA-approved contractor, strong Canterbury council relationships, "
+                             "local South Island supply chain, roading and drainage delivery expertise",
         },
     },
     "defence": {
@@ -96,12 +122,18 @@ DEMO_SECTORS: dict = {
         "icon":        "⚙️",
         "tagline":     "Defence facilities, critical infrastructure and security engineering",
         "firm": {
-            "name":        "Apex Engineering",
-            "description": "specialist engineering consultancy, 60 staff, defence and "
-                           "critical infrastructure focus, NZ Defence Force panel supplier",
-            "staff":       60,
-            "location":    "Wellington",
-            "strengths":   "NZ security cleared staff, NZDF panel history, SCIF-capable design team",
+            "name":          "Apex Engineering",
+            "description":   "specialist engineering consultancy, 60 staff, Wellington-based. "
+                             "Holds NZ security clearances. Prior NZDF contracts for infrastructure "
+                             "engineering including base facilities and critical infrastructure. "
+                             "Seeking to grow defence maintenance services portfolio.",
+            "staff":         60,
+            "location":      "Wellington",
+            "years_operating": 12,
+            "key_clients":   "NZ Defence Force (NZDF) — prior infrastructure engineering contracts",
+            "sector_focus":  "Defence facilities, critical infrastructure engineering, defence maintenance services",
+            "strengths":     "NZ security cleared staff, NZDF panel history, SCIF-capable design team, "
+                             "defence estate familiarity, infrastructure engineering specialisation",
         },
     },
     "ICT": {
@@ -109,12 +141,20 @@ DEMO_SECTORS: dict = {
         "icon":        "💻",
         "tagline":     "Digital transformation, cloud migration and systems integration",
         "firm": {
-            "name":        "Korepath Systems",
-            "description": "digital transformation integrator, 70 staff, central government focus, "
-                           "specialising in legacy modernisation and cloud platforms",
-            "staff":       70,
-            "location":    "Wellington",
-            "strengths":   "All-of-Government panel (AoG ICT), AWS & Azure partner, ServiceNow certified",
+            "name":          "Korepath Systems",
+            "description":   "digital transformation integrator, 70 staff, Auckland-based, "
+                             "10 years operating. DIA-approved supplier. Prior contracts with MSD, IRD, "
+                             "and MoE for system integration and platform development. "
+                             "Specialises in legacy modernisation and cloud platforms.",
+            "staff":         70,
+            "location":      "Auckland",
+            "years_operating": 10,
+            "key_clients":   "Ministry of Social Development (MSD), Inland Revenue (IRD), "
+                             "Ministry of Education (MoE) — system integration and platform delivery",
+            "sector_focus":  "Digital transformation, legacy modernisation, cloud platforms, central government ICT",
+            "strengths":     "DIA-approved supplier, All-of-Government panel (AoG ICT), "
+                             "AWS & Azure certified partner, ServiceNow certified, "
+                             "prior MSD/IRD/MoE delivery, central government relationships",
         },
     },
     "infrastructure": {
@@ -122,12 +162,19 @@ DEMO_SECTORS: dict = {
         "icon":        "🌐",
         "tagline":     "Water, transport and community infrastructure at scale",
         "firm": {
-            "name":        "Southern Civil Group",
-            "description": "infrastructure contractor, 150 staff, water and transport focus, "
-                           "operating across the South Island and lower North Island",
-            "staff":       150,
-            "location":    "Dunedin (national)",
-            "strengths":   "Three Waters delivery, horizontal infrastructure, Tier 2 NZQA registered",
+            "name":          "Southern Civil Group",
+            "description":   "infrastructure contractor, 150 staff, Hamilton-based. "
+                             "Strong Three Waters and transport infrastructure track record across "
+                             "Waikato and Bay of Plenty councils. Tier 2 NZQA registered.",
+            "staff":         150,
+            "location":      "Hamilton (national)",
+            "years_operating": 14,
+            "key_clients":   "Waikato councils, Bay of Plenty councils — Three Waters and transport infrastructure",
+            "sector_focus":  "Three Waters infrastructure, horizontal infrastructure, transport, "
+                             "community infrastructure delivery",
+            "strengths":     "Three Waters delivery expertise, horizontal infrastructure, "
+                             "Tier 2 NZQA registered, strong Waikato/BOP council relationships, "
+                             "large crew capacity for multi-site delivery",
         },
     },
     "health": {
@@ -135,12 +182,18 @@ DEMO_SECTORS: dict = {
         "icon":        "🏥",
         "tagline":     "Clinical systems, hospital ICT and health data platforms",
         "firm": {
-            "name":        "MedTech Solutions NZ",
-            "description": "health technology provider, 35 staff, clinical systems and hospital ICT, "
-                           "Health NZ approved supplier",
-            "staff":       35,
-            "location":    "Auckland",
-            "strengths":   "HL7 FHIR certified, Te Whatu Ora (Health NZ) panel, clinical workflow expertise",
+            "name":          "MedTech Solutions NZ",
+            "description":   "health technology provider, 35 staff, Auckland-based, 7 years operating. "
+                             "Prior contracts with Te Whatu Ora (Health NZ) for clinical systems and "
+                             "hospital ICT. Seeking to expand into Budget 2026 funded cyber uplift projects.",
+            "staff":         35,
+            "location":      "Auckland",
+            "years_operating": 7,
+            "key_clients":   "Te Whatu Ora (Health NZ) — clinical systems and hospital ICT delivery",
+            "sector_focus":  "Clinical systems, hospital ICT, health data platforms, health sector cyber uplift",
+            "strengths":     "HL7 FHIR certified, Te Whatu Ora (Health NZ) approved panel supplier, "
+                             "clinical workflow expertise, prior hospital ICT delivery, "
+                             "Budget 2026 health cyber uplift alignment",
         },
     },
 }
@@ -400,6 +453,7 @@ def generate_sector_set(
                     prospect_name=firm_name,
                     output_dir=sector_dir,
                     generate_pdf=False,
+                    firm_profile=firm,
                 )
                 # generate_demo_package writes DEMO_<slug>_<nid>.html
                 if result.get("html") and result["html"].exists():

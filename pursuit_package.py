@@ -366,12 +366,14 @@ _PURSUIT_SYSTEM = """You are a senior procurement strategy adviser at a boutique
 You are preparing an intelligence package for a client considering bidding on a government contract.
 Your analysis must be grounded strictly in the data provided — do not invent firms, award values, or procurement history not present in the context.
 When referencing contract award data, use neutral language: 'government contract award records', 'historical award data', 'published contract records', or 'contract award history'. Do NOT write 'MBIE data shows', 'according to MBIE', 'no MBIE record', or 'MBIE-recorded wins'. MBIE is a data source, not an authority — frame findings as market observations, not disqualifications.
+When a FIRM PROFILE section is provided, use it as the primary source of truth about the client's capabilities, history, and track record. The firm profile represents what is known about the client — treat it as verified background, not speculation.
+Narrative consistency rule: if go_nogo is "CONDITIONAL GO", the win_probability_rationale and go_nogo_rationale MUST describe a credible path to success and what conditions make the bid viable. Never use language that dismisses or disqualifies the client when the recommendation is GO or CONDITIONAL GO. "CONDITIONAL GO" means there is a realistic path — the narrative must describe that path.
 Respond ONLY with a valid JSON object, no preamble, no markdown fences."""
 
 _PURSUIT_PROMPT = """Prepare a pursuit intelligence package for:
 
 CLIENT: {client_name}
-NOTICE: {title}
+{firm_profile_section}NOTICE: {title}
 AGENCY: {agency}
 SECTOR: {sector}
 VALUE: {value_band}
@@ -483,6 +485,33 @@ def _call_claude(context: dict) -> Optional[dict]:
     else:
         client_data_note = f"Client has {ch['sector_wins']} confirmed sector wins in MBIE data since {str(ch.get('sector_first_win', ''))[:4]}."
 
+    # Firm profile (provided for demo/well-known clients to give Claude context)
+    fp = context.get("firm_profile") or {}
+    if fp:
+        fp_lines = [f"=== FIRM PROFILE: {fp.get('name', context['client_name'])} ==="]
+        if fp.get("description"):
+            fp_lines.append(f"Background: {fp['description']}")
+        if fp.get("staff"):
+            fp_lines.append(f"Size: {fp['staff']} staff")
+        if fp.get("location"):
+            fp_lines.append(f"Location: {fp['location']}")
+        if fp.get("strengths"):
+            fp_lines.append(f"Credentials & differentiators: {fp['strengths']}")
+        if fp.get("years_operating"):
+            fp_lines.append(f"Years operating: {fp['years_operating']}")
+        if fp.get("key_clients"):
+            fp_lines.append(f"Key clients/contracts: {fp['key_clients']}")
+        if fp.get("sector_focus"):
+            fp_lines.append(f"Sector focus: {fp['sector_focus']}")
+        fp_lines.append(
+            "IMPORTANT: Use this profile as the primary source of truth about this client. "
+            "Do not describe them as having 'no history' or 'no sector experience' — they have "
+            "the credentials listed above even if they do not appear in published award records."
+        )
+        firm_profile_section = "\n".join(fp_lines) + "\n\n"
+    else:
+        firm_profile_section = ""
+
     # Flags
     flags = context.get("flags", [])
     flags_text = "\n".join(
@@ -523,6 +552,7 @@ def _call_claude(context: dict) -> Optional[dict]:
 
     prompt = _PURSUIT_PROMPT.format(
         client_name=context["client_name"],
+        firm_profile_section=firm_profile_section,
         title=n.get("title", "Unknown"),
         agency=n.get("agency", "Unknown"),
         sector=n.get("sector_tag", "other"),
@@ -590,12 +620,14 @@ _CSS = """
   --font:'Inter',system-ui,-apple-system,sans-serif;
 }
 *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+html { background:var(--bg); }
 body { background:var(--bg); color:var(--text); font-family:var(--font);
        font-size:14px; line-height:1.6; display:flex; min-height:100vh;
+       max-width:1280px; margin:0 auto; width:100%;
        -webkit-font-smoothing:antialiased; }
 a { color:var(--navy); text-decoration:none; }
 a:hover { color:var(--gold); }
-.sidebar { width:220px; flex-shrink:0; background:var(--navy);
+.sidebar { width:240px; flex-shrink:0; background:var(--navy);
            position:sticky; top:0; height:100vh; overflow-y:auto;
            padding:1.75rem 1.25rem; }
 .sidebar-brand { font-size:.82rem; font-weight:800; color:#fff; letter-spacing:-.01em; margin-bottom:.2rem; }
@@ -604,7 +636,9 @@ a:hover { color:var(--gold); }
 .sidebar-label { font-size:.6rem; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:rgba(255,255,255,.4); margin:1.2rem 0 .4rem; }
 .sidebar nav a { display:block; font-size:.8rem; color:rgba(255,255,255,.7); text-decoration:none; padding:.3rem .5rem; border-radius:4px; margin-bottom:.15rem; transition:background .12s; }
 .sidebar nav a:hover { background:rgba(255,255,255,.1); color:#fff; }
-.main { flex:1; padding:2.5rem 3rem; max-width:900px; }
+.main { flex:1; min-width:0; padding:2.5rem 3rem; }
+/* Mobile TOC — shown only on small screens; hidden on desktop */
+.mobile-toc { display:none; }
 .cover { margin-bottom:2.5rem; padding-bottom:1.75rem; border-bottom:2px solid var(--navy); }
 .cover-label { font-size:.65rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--gold); margin-bottom:.4rem; }
 .cover-title { font-size:1.55rem; font-weight:800; color:var(--navy); line-height:1.3; margin-bottom:.6rem; }
@@ -657,16 +691,20 @@ tbody tr:hover td { background:var(--surf2); }
 .citation { font-size:.7rem; color:var(--muted); font-style:italic; margin-top:.5rem; padding:.4rem .75rem; background:var(--surf2); border-radius:4px; border-left:2px solid var(--gold); }
 .doc-footer { margin-top:3rem; padding-top:1.5rem; border-top:1px solid var(--border); font-size:.7rem; color:var(--muted); display:flex; justify-content:space-between; align-items:center; }
 
-/* ── Tablet ≤768px ── */
+/* ── Tablet ≤768px: hide sidebar, show inline mobile TOC ── */
 @media (max-width:768px) {
-  body { display:block; }
-  .sidebar { width:100%; height:auto; position:static; padding:.75rem 1.25rem;
-             display:block; }
-  .sidebar-sub { margin-bottom:.75rem; }
-  .sidebar-label { display:none; }
-  .sidebar nav { display:flex; flex-direction:column; gap:.3rem; margin-top:.5rem; }
-  .sidebar nav a { padding:.3rem .65rem; font-size:.78rem; border:1px solid rgba(255,255,255,.15); width:100%; }
-  .main { padding:1.5rem 1.5rem; max-width:100%; }
+  body { display:block; max-width:100%; }
+  .sidebar { display:none; }
+  .mobile-toc { display:block; background:var(--navy); padding:.75rem 1.25rem;
+                margin-bottom:1.5rem; border-radius:8px; }
+  .mobile-toc-label { font-size:.6rem; font-weight:700; letter-spacing:.09em;
+                      text-transform:uppercase; color:var(--gold); margin-bottom:.5rem; }
+  .mobile-toc nav { display:flex; flex-direction:column; gap:.25rem; }
+  .mobile-toc nav a { display:block; font-size:.78rem; color:rgba(255,255,255,.8);
+                      text-decoration:none; padding:.3rem .65rem; border-radius:4px;
+                      border:1px solid rgba(255,255,255,.15); }
+  .mobile-toc nav a:active { background:rgba(255,255,255,.1); }
+  .main { padding:1.25rem 1.25rem; }
   .verdict { flex-wrap:wrap; gap:1rem; }
   table { display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; }
   .doc-footer { flex-direction:column; gap:.3rem; }
@@ -674,9 +712,6 @@ tbody tr:hover td { background:var(--surf2); }
 
 /* ── Phone ≤480px ── */
 @media (max-width:480px) {
-  .sidebar { padding:.75rem 1rem; }
-  .sidebar-brand { font-size:.78rem; }
-  .sidebar nav a { min-height:44px; display:flex; align-items:center; padding:.3rem .75rem; }
   .main { padding:1rem .85rem; }
   .cover-title { font-size:1.2rem; }
   .cover-agency { font-size:.88rem; }
@@ -863,6 +898,20 @@ def _render_html(
 
 <div class="main">
 
+  <!-- Mobile TOC (hidden on desktop via CSS; sidebar replaces this on ≥768px) -->
+  <div class="mobile-toc">
+    <div class="mobile-toc-label">Contents</div>
+    <nav>
+      <a href="#exec">01 Executive Summary</a>
+      <a href="#assessment">02 Opportunity Assessment</a>
+      <a href="#competitive">03 Competitive Landscape</a>
+      <a href="#agency">04 Agency Profile</a>
+      <a href="#positioning">05 Positioning Brief</a>
+      <a href="#risks">06 Risk Register</a>
+      <a href="#actions">07 Recommended Actions</a>
+    </nav>
+  </div>
+
   {demo_banner}
 
   <!-- Cover -->
@@ -1031,10 +1080,14 @@ def generate_pursuit_package(
     is_demo: bool = False,
     demo_watermark: str = "",
     preferred_sectors: Optional[list[str]] = None,
+    firm_profile: Optional[dict] = None,
 ) -> Path:
     """
     Generate a pursuit intelligence package for a given notice and client.
     preferred_sectors: client's sector focus (e.g. ['ICT','security']).
+    firm_profile: dict with keys name/description/staff/location/strengths/years_operating/
+                  key_clients/sector_focus. Used to give Claude accurate context about the
+                  client so narrative reflects actual capabilities, not blank-slate assumptions.
     Returns path to the generated HTML file.
     """
     logger.info("Generating pursuit package: notice=%s client=%s", notice_id, client_name)
@@ -1058,6 +1111,7 @@ def generate_pursuit_package(
     context = {
         "client_name": client_name,
         "preferred_sectors": preferred_sectors or [],
+        "firm_profile": firm_profile or {},
         "notice": dict(notice),
         "enrichment": {
             "summary": notice.get("summary"),
@@ -1089,24 +1143,42 @@ def generate_pursuit_package(
 
     # 2c. Enforce band → recommendation consistency.
     # Prevent contradictory combinations (e.g. "Competitive — NO GO").
+    # When go_nogo is overridden, also patch the rationale fields so the
+    # narrative does not contradict the enforced recommendation.
     _band_key = win_pos.get("css_key", "competitive")
     _rec = (analysis.get("go_nogo") or "GO").upper().strip()
+    _band_label = win_pos.get("band", "Competitive")
+    _go_nogo_overridden = False
     if _band_key in ("strong", "competitive") and _rec == "NO GO":
         logger.info(
             "Win position is '%s' but go_nogo was '%s' — overriding to CONDITIONAL GO",
-            win_pos.get("band"), _rec,
+            _band_label, _rec,
         )
         analysis["go_nogo"] = "CONDITIONAL GO"
+        _go_nogo_overridden = True
+        # Patch rationale to be consistent with CONDITIONAL GO
+        _fp = context.get("firm_profile") or {}
+        _firm_creds = _fp.get("strengths") or "sector credentials"
+        _existing_rationale = analysis.get("go_nogo_rationale") or ""
+        if "not justified" in _existing_rationale.lower() or "no history" in _existing_rationale.lower() or "zero" in _existing_rationale.lower():
+            analysis["go_nogo_rationale"] = (
+                f"{client_name} has {_firm_creds} and a competitive position in this sector. "
+                f"CONDITIONAL GO — viable subject to demonstrating relevant delivery capability "
+                f"and engaging with the buyer before close. Key conditions: confirm scope alignment "
+                f"and mobilise a credible bid team within the available window."
+            )
     elif _band_key == "challenging" and _rec == "GO":
         logger.info(
             "Win position is 'Challenging' but go_nogo was 'GO' — overriding to CONDITIONAL GO"
         )
         analysis["go_nogo"] = "CONDITIONAL GO"
+        _go_nogo_overridden = True
     elif _band_key == "not_recommended" and _rec != "NO GO":
         logger.info(
             "Win position is 'Not recommended' but go_nogo was '%s' — overriding to NO GO", _rec
         )
         analysis["go_nogo"] = "NO GO"
+        _go_nogo_overridden = True
 
     # 3. Render HTML
     html = _render_html(notice, analysis, context, client_name,

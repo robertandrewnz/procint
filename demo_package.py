@@ -251,12 +251,12 @@ def _inject_demo_styles(html: str, prospect_name: str) -> str:
     }
     .demo-footer-bar {
         position: fixed; bottom: 0; left: 0; right: 0;
-        background: rgba(26,45,74,0.97); border-top: 1px solid #c9a84c;
+        background: rgba(26,45,74,0.97); border-top: 1px solid #2a9d8f;
         padding: .4rem 1.5rem; font-size: .68rem; color: rgba(255,255,255,0.8);
         display: flex; justify-content: space-between; align-items: center;
         z-index: 1000; font-family: 'Inter', system-ui, sans-serif;
     }
-    .demo-footer-bar strong { color: #c9a84c; }
+    .demo-footer-bar strong { color: #2a9d8f; }
     .main { padding-bottom: 4rem; }
     """
 
@@ -280,6 +280,7 @@ def generate_demo_package(
     prospect_name: str,
     output_dir: Optional[Path] = None,
     generate_pdf: bool = True,
+    firm_profile: Optional[dict] = None,
 ) -> dict:
     """
     Generate a branded demo pursuit intelligence package.
@@ -301,6 +302,7 @@ def generate_demo_package(
         output_dir=output_dir,
         is_demo=True,
         demo_watermark=watermark_text,
+        firm_profile=firm_profile,
     )
 
     html_content = html_path.read_text(encoding="utf-8")
