@@ -44,7 +44,7 @@ SECTOR_COLOURS = {
 }
 
 IMPORTANCE_COLOURS = {
-    "high":   "#c9a84c",
+    "high":   "#2a9d8f",
     "medium": "#1a2d4a",
     "low":    "#6c757d",
 }
@@ -120,22 +120,57 @@ def _fetch_watchlist(preferred_sectors: Optional[list[str]] = None) -> list[dict
 
 def _fetch_top_bidders(notice_id: str) -> list[dict]:
     """
-    Return the top N deduplicated bidders for *notice_id*.
+    Return the top N bidders for *notice_id*.
 
-    Fetches a wider pool from the DB (up to 30 rows) and applies canonical
-    deduplication in Python before applying the TOP_N_BIDDERS_PER_NOTICE cap.
-    This ensures name variants already stored in bidder_pool (e.g. from pipeline
-    runs before canonical storage was enforced) are collapsed at render time.
+    ACH rows (match_type='ach_analysis') take absolute priority over MBIE rows.
+    When ACH rows are present, they are returned directly (already curated to 3).
+    When absent, falls back to the deduplicated MBIE/CSV pool with exclusion logic.
     """
-    from canonical_suppliers import canonical_name, deduplicate_bidders
+    # ── Prefer ACH results ──────────────────────────────────────────────────
+    try:
+        ach_rows = db.fetchall(
+            """
+            SELECT firm_name, size, strategic_importance, intelligence_maturity,
+                   relevance_score, match_type, reasoning, company_context,
+                   context_confidence
+              FROM bidder_pool
+             WHERE notice_id = %s AND match_type = 'ach_analysis'
+             ORDER BY relevance_score DESC
+             LIMIT 3
+            """,
+            (notice_id,),
+        )
+        if ach_rows:
+            return [dict(r) for r in ach_rows]
+    except Exception as exc:
+        logger.warning("ACH bidder fetch failed for %s: %s", notice_id, exc)
 
-    # Fetch a wider pool — enough to survive deduplication and still return N
+    # ── Fall back to legacy MBIE/CSV pool ───────────────────────────────────
+    from canonical_suppliers import canonical_name, deduplicate_bidders
+    from bidders import _firm_is_excluded, _notice_is_specialist
+
+    notice_ctx: dict = {}
+    try:
+        notice_ctx = dict(db.fetchone(
+            """
+            SELECT r.notice_id, r.title, r.agency, p.sector_tag
+              FROM raw_notices r
+              LEFT JOIN parsed_notices p ON p.notice_id = r.notice_id
+             WHERE r.notice_id = %s
+            """,
+            (notice_id,),
+        ) or {})
+    except Exception:
+        pass
+    specialist_flag = _notice_is_specialist(notice_ctx) if notice_ctx else None
+
     pool = db.fetchall(
         """
         SELECT firm_name, size, strategic_importance, intelligence_maturity,
-               relevance_score, match_type, reasoning, company_context, context_confidence
+               relevance_score, match_type, reasoning, company_context,
+               context_confidence, sector
         FROM   bidder_pool
-        WHERE  notice_id = %s
+        WHERE  notice_id = %s AND match_type != 'ach_analysis'
         ORDER  BY
             CASE match_type
                 WHEN 'mbie_evidence' THEN 0
@@ -147,19 +182,31 @@ def _fetch_top_bidders(notice_id: str) -> list[dict]:
                 WHEN 'medium' THEN 2
                 ELSE               3
             END
-        LIMIT 30
+        LIMIT 60
         """,
         (notice_id,),
     )
-    # Attach canonical_name so deduplicate_bidders can group variants correctly.
-    # relevance_score must be a float for the score comparison inside dedup.
+
+    filtered: list[dict] = []
     for row in pool:
         row["canonical_name"] = canonical_name(row["firm_name"])
         if row.get("relevance_score") is not None:
             row["relevance_score"] = float(row["relevance_score"])
+        if notice_ctx:
+            r_sectors = [s.strip() for s in (row.get("sector") or "").split("|") if s.strip()]
+            if not r_sectors:
+                r_sectors = [notice_ctx.get("sector_tag") or "other"]
+            if specialist_flag:
+                if row.get("match_type") == "csv_inferred":
+                    continue
+                if _firm_is_excluded(r_sectors, notice_ctx):
+                    continue
+            else:
+                if _firm_is_excluded(r_sectors, notice_ctx):
+                    continue
+        filtered.append(row)
 
-    deduped = deduplicate_bidders(list(pool))
-    # Replace firm_name with the canonical form for display
+    deduped = deduplicate_bidders(filtered)
     for row in deduped:
         row["firm_name"] = row["canonical_name"]
 
@@ -262,7 +309,7 @@ def write_markdown(watchlist: list[dict], output_dir: Path, run_date: date) -> P
 
 def _score_bar(score: float) -> str:
     pct = min(100, (float(score) / 10) * 100)
-    colour = "#c9a84c" if pct >= 65 else "#1a2d4a" if pct >= 40 else "#6c757d"
+    colour = "#2a9d8f" if pct >= 65 else "#1a2d4a" if pct >= 40 else "#6c757d"
     return (
         f'<div class="score-bar-track">'
         f'<div class="score-bar-fill" style="width:{pct:.1f}%;background:{colour};"></div>'
@@ -400,13 +447,28 @@ def _recommended_actions(item: dict) -> list[str]:
 
 
 def _bidder_card(b: dict) -> str:
-    """Render one bidder card with evidence bullets."""
+    """Render one bidder card with evidence bullets.
+
+    ACH rows are dispatched to bidder_intelligence.render_ach_card() which
+    uses the portal's CSS custom properties.  Legacy MBIE/CSV rows use the
+    original HTML-template-scoped CSS classes.
+    """
+    match_type = b.get("match_type") or "csv_inferred"
+
+    # ACH rows → use the new ACH renderer
+    if match_type == "ach_analysis":
+        try:
+            from bidder_intelligence import render_ach_card
+            return render_ach_card(b)
+        except Exception as exc:
+            logger.warning("render_ach_card failed: %s", exc)
+
+    # ── Legacy MBIE/CSV renderer ─────────────────────────────────────────────
     imp = b.get("strategic_importance", "low")
     mat = b.get("intelligence_maturity", "weak")
     imp_col = IMPORTANCE_COLOURS.get(imp, "#6c757d")
     mat_col = MATURITY_COLOURS.get(mat, "#6c757d")
     size = (b.get("size") or "—").capitalize()
-    match_type = b.get("match_type") or "csv_inferred"
     confidence = b.get("context_confidence") or "unknown"
 
     # Evidence source badge
@@ -566,9 +628,9 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
     :root {{
       --bg:#f5f6f8; --surface:#ffffff; --surf2:#f0f2f5; --border:#e2e6ea;
-      --text:#2c3e50; --muted:#6c757d; --navy:#1a2d4a; --gold:#c9a84c;
-      --gold-l:#f7eedb; --navy-l:#e8ecf3; --red:#c0392b; --red-l:#fdecea;
-      --green:#27ae60; --accent:#c9a84c;
+      --text:#2c3e50; --muted:#6c757d; --navy:#1a2d4a; --gold:#2a9d8f;
+      --gold-l:#e0f4f2; --navy-l:#e8ecf3; --red:#c0392b; --red-l:#fdecea;
+      --green:#27ae60; --accent:#2a9d8f;
       --font:'Inter',system-ui,-apple-system,sans-serif;
     }}
     body {{ background:var(--bg); color:var(--text); font-family:var(--font);
@@ -616,7 +678,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       display:flex; align-items:flex-start; gap:1rem;
       padding:1.25rem 1.5rem; }}
     .rank-badge {{ flex-shrink:0; width:2.2rem; height:2.2rem; border-radius:50%;
-      background:rgba(201,168,76,.25); color:var(--gold);
+      background:rgba(42,157,143,.25); color:var(--gold);
       font-size:.72rem; font-weight:700;
       display:flex; align-items:center; justify-content:center; margin-top:.1rem; }}
     .card-header-main {{ flex:1; min-width:0; }}
@@ -639,7 +701,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       border-radius:999px; font-size:.68rem; font-weight:600;
       letter-spacing:.03em; border:1px solid; white-space:nowrap; }}
     .badge-red   {{ background:#fdecea; color:var(--red);  border-color:#f1a9a0; }}
-    .badge-gold  {{ background:var(--gold-l); color:#7a5c00; border-color:var(--gold); }}
+    .badge-gold  {{ background:var(--gold-l); color:#1a6b62; border-color:var(--gold); }}
     .badge-navy  {{ background:var(--navy-l); color:var(--navy); border-color:#b0bcd4; }}
     .badge-grey  {{ background:var(--surf2);  color:var(--muted); border-color:var(--border); }}
     .sector-badge {{ display:inline-flex; align-items:center; padding:.2rem .55rem;
@@ -668,7 +730,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     .summary-text {{ font-size:.84rem; color:var(--text); line-height:1.7; }}
     .summary-placeholder {{ font-size:.82rem; color:var(--muted); font-style:italic; }}
     .framing-block {{ margin-top:1rem; padding:.75rem 1rem;
-      background:#f7eedb; border-left:3px solid var(--gold); border-radius:0 4px 4px 0; }}
+      background:#e0f4f2; border-left:3px solid var(--gold); border-radius:0 4px 4px 0; }}
     .framing-label {{ font-size:.65rem; font-weight:700; letter-spacing:.08em;
       text-transform:uppercase; color:var(--gold); display:block; margin-bottom:.3rem; }}
     .framing-block p {{ font-size:.82rem; color:var(--text); font-style:italic; margin:0; }}

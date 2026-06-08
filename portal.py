@@ -2038,14 +2038,13 @@ function sfFilter(btn){
                   FROM bidder_pool b
                  WHERE b.notice_id IN ({placeholders})
                  ORDER BY b.notice_id,
-                          CASE b.strategic_importance WHEN 'high' THEN 0
-                                                      WHEN 'medium' THEN 1
-                                                      ELSE 2 END,
+                          -- ACH rows always first
+                          CASE b.match_type WHEN 'ach_analysis' THEN 0 ELSE 1 END,
                           b.relevance_score DESC NULLS LAST
                 """,
                 tuple(notice_ids),
             )
-            # Build a notice_ctx lookup for exclusion checking
+            # Build a notice_ctx lookup for exclusion checking (legacy path only)
             notice_ctx_map: dict = {}
             for n in pool:
                 notice_ctx_map[n["notice_id"]] = {
@@ -2054,12 +2053,18 @@ function sfFilter(btn){
                     "agency": n.get("agency", ""),
                     "sector_tag": n.get("sector_tag", ""),
                 }
-            # Group, apply exclusions, deduplicate, cap at TOP_N
+            # Group rows by notice_id; ACH notices bypass exclusion logic
             from collections import defaultdict
             grouped: dict = defaultdict(list)
             for row in raw_bidders:
                 grouped[row["notice_id"]].append(dict(row))
             for nid, rows in grouped.items():
+                # If this notice has ACH rows, use them directly (already curated to 3)
+                ach_rows = [r for r in rows if r.get("match_type") == "ach_analysis"]
+                if ach_rows:
+                    bidders_by_notice[nid] = ach_rows[:3]
+                    continue
+                # Legacy path: apply exclusions + dedup on MBIE/CSV rows
                 ctx = notice_ctx_map.get(nid, {})
                 is_specialist = _notice_is_specialist(ctx) if ctx else False
                 filtered = []
@@ -2157,12 +2162,19 @@ function sfFilter(btn){
         else:
             actions_html = '<div style="font-size:.8rem;color:var(--muted);">No actions available.</div>'
 
-        # Likely bidders
+        # Likely bidders — use ACH renderer for ACH rows, legacy for MBIE rows
         notice_id = n.get("notice_id", "")
         bidders = bidders_by_notice.get(notice_id, [])
         if bidders:
-            # _bidder_card returns output.py-styled HTML; wrap in portal-compatible container
-            bidders_html = "".join(_bidder_card(b) for b in bidders)
+            try:
+                from bidder_intelligence import render_ach_card
+                def _render_bidder(b):
+                    if b.get("match_type") == "ach_analysis":
+                        return render_ach_card(b)
+                    return _bidder_card(b)
+                bidders_html = "".join(_render_bidder(b) for b in bidders)
+            except Exception:
+                bidders_html = "".join(_bidder_card(b) for b in bidders)
         else:
             bidders_html = '<div style="font-size:.8rem;color:var(--muted);">No bidder data available.</div>'
 
