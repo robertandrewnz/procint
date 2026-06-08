@@ -3,7 +3,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "python portal.py",
+    "startCommand": "gunicorn portal:app --workers 2 --bind 0.0.0.0:$PORT --timeout 120 --log-level debug",
     "healthcheckPath": "/",
     "restartPolicyType": "ON_FAILURE"
   }
