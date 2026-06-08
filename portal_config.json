@@ -3,7 +3,7 @@
     "admin": {
       "password_hash": "$2b$12$P8o11GhwD8Q2NxgBQNMuVedOxlx1PfyUg3EwdIh20L/NOo1XTUfTO",
       "display_name": "BidEdge Admin",
-      "email": "robertandrewnz@gmail.com",
+      "email": "robert@bidedge.co.nz",
       "is_admin": true,
       "preferred_sectors": [],
       "artefact_slug": "bidedge_admin"
@@ -11,7 +11,7 @@
     "robert": {
       "password_hash": "$2b$12$a9ntO6z4JzamuBafRxnP/u3D/TwWOKsssF7aJobhcwAVqVW8i3GnS",
       "display_name": "Robert Nesbitt",
-      "email": "robertandrewnz@gmail.com",
+      "email": "robert@bidedge.co.nz",
       "is_admin": false,
       "preferred_sectors": [
         "FM",
@@ -21,7 +21,7 @@
     }
   },
   "settings": {
-    "admin_email": "robertandrewnz@gmail.com",
+    "admin_email": "robert@bidedge.co.nz",
     "site_name": "Groundwork by BidEdge"
   }
 }
