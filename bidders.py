@@ -110,7 +110,8 @@ TITLE_KEYWORD_SECTOR_EXCLUSIONS: list[tuple[list[str], set[str]]] = [
          "aviation", "aerospace", "airworthiness", "rotary wing", "fixed wing",
          "engine overhaul", "structural integrity"],
         {"FM", "infrastructure", "roading", "construction", "civil",
-         "security", "ICT", "health", "legal", "advisory"},
+         "security", "ICT", "health", "legal", "advisory", "utilities",
+         "professional_services", "cybersecurity"},
     ),
     # Legal / solicitation keywords
     (

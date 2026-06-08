@@ -28,6 +28,7 @@ from bs4 import BeautifulSoup
 import config
 import db
 import organisations as orgs
+from enrich_award_durations import extract_duration, _tag_sector
 
 logger = logging.getLogger(__name__)
 
@@ -155,86 +156,159 @@ def _already_stored(gets_notice_id: str) -> bool:
 
 
 # ── Detail-page parsing ───────────────────────────────────────────────────────
+#
+# GETS award DETAIL pages require authentication — unauthenticated fetches
+# return a "you are not logged in" page whose text contains the notice ID
+# number, causing the old _find_value() parser to misidentify it as the
+# contract value.  We now detect the unauthenticated response and fall back to
+# extracting what we can from the LIST PAGE data (title, award_date, agency)
+# plus title-based duration/sector extraction.
+
+_UNAUTH_MARKERS = [
+    "You are not logged in",
+    "TendererLogin.auth",
+    "Create account",
+]
+
+
+def _is_unauth_page(html: str) -> bool:
+    """Return True if the GETS response is an 'unauthenticated' redirect page."""
+    if not html:
+        return True
+    for marker in _UNAUTH_MARKERS:
+        if marker in html:
+            return True
+    return False
+
 
 def _parse_award_detail(stub: dict, html: str) -> dict:
     """
-    Extract structured fields from an award detail page.
-    GETS detail pages vary — we try multiple label patterns.
+    Extract structured fields from a GETS award detail page.
+
+    When the detail page is unavailable (authentication required), falls back
+    to title-based extraction only — no bogus values are stored.
+    Duration and sector are extracted from the title using the same regex
+    patterns used by enrich_award_durations.
     """
-    soup = BeautifulSoup(html, "lxml")
     award = dict(stub)
-    award["raw_html"] = html
+    award["raw_html"] = None  # don't store multi-MB auth-redirect HTML
+
+    # Close date from the list page stub becomes the award_date fallback
+    award["award_date"] = _parse_date(stub.get("close_date_raw"))
+
+    # ── Unauthenticated fallback: title-only extraction ────────────────────────
+    if _is_unauth_page(html):
+        logger.debug(
+            "Award %s: detail page requires auth — using title-only extraction",
+            stub.get("gets_notice_id"),
+        )
+        award["supplier_name_raw"] = None
+        award["contract_value"]    = None
+        award["contract_value_raw"] = None
+        duration, end_date = extract_duration(
+            stub.get("title", ""), None, award["award_date"]
+        )
+        award["duration_months"] = duration
+        award["start_date"]      = None
+        award["end_date"]        = end_date
+        award["description"]     = None
+        award["sector_tag"]      = _tag_sector(stub.get("title", ""), "")
+        return award
+
+    # ── Authenticated path: full HTML parsing ──────────────────────────────────
+    soup = BeautifulSoup(html, "lxml")
 
     def _find_value(labels: list[str]) -> Optional[str]:
         """Find the text adjacent to any of the given label strings."""
         for label in labels:
-            tag = soup.find(string=re.compile(label, re.IGNORECASE))
+            tag = soup.find(string=re.compile(re.escape(label), re.IGNORECASE))
             if not tag:
                 continue
             parent = tag.find_parent()
             if not parent:
                 continue
-            # Try next sibling
+            # Try sibling of the label element
             sib = parent.find_next_sibling()
             if sib:
                 val = sib.get_text(strip=True)
-                if val:
+                if val and len(val) < 500:
                     return val
-            # Try parent's next sibling
+            # Try the parent's next sibling (table-row pattern)
             grandparent = parent.find_parent()
             if grandparent:
                 sib2 = grandparent.find_next_sibling()
                 if sib2:
                     val = sib2.get_text(strip=True)
-                    if val:
+                    if val and len(val) < 500:
                         return val
         return None
 
-    # Supplier name
+    # Supplier
     award["supplier_name_raw"] = _find_value([
         "Supplier", "Awarded to", "Successful tenderer",
         "Contract awarded to", "Winner",
     ])
 
-    # Contract value
+    # Contract value — guard against the notice ID being parsed as value
     raw_val = _find_value([
         "Contract value", "Award value", "Contract amount",
         "Value", "Total value",
     ])
+    parsed_val = _parse_value(raw_val) if raw_val else None
+    notice_id_numeric = None
+    try:
+        notice_id_numeric = float(stub.get("gets_notice_id", ""))
+    except (TypeError, ValueError):
+        pass
+    if parsed_val and notice_id_numeric and parsed_val == notice_id_numeric:
+        parsed_val = None  # reject — it's the notice ID, not a value
     award["contract_value_raw"] = raw_val
-    award["contract_value"] = _parse_value(raw_val)
+    award["contract_value"]     = parsed_val
 
-    # Duration
+    # Duration — from labelled field, fall back to title extraction
     raw_dur = _find_value([
         "Contract duration", "Duration", "Term",
         "Contract term", "Contract period",
     ])
-    award["duration_months"] = _parse_duration_months(raw_dur)
+    duration_months = _parse_duration_months(raw_dur)
 
     # Start/end dates
     raw_start = _find_value(["Start date", "Commencement", "Contract start"])
-    raw_end = _find_value(["End date", "Contract end", "Expiry date", "Expiry"])
+    raw_end   = _find_value(["End date", "Contract end", "Expiry date", "Expiry"])
     award["start_date"] = _parse_date(raw_start)
-    award["end_date"] = _parse_date(raw_end)
-    if award["start_date"] and award["duration_months"] and not award["end_date"]:
-        from datetime import timedelta
-        months = award["duration_months"]
+    award["end_date"]   = _parse_date(raw_end)
+
+    # Compute end_date from start + duration if not directly available
+    if award["start_date"] and duration_months and not award["end_date"]:
         sd = award["start_date"]
         try:
-            award["end_date"] = sd.replace(month=((sd.month - 1 + months) % 12) + 1,
-                                            year=sd.year + ((sd.month - 1 + months) // 12))
+            award["end_date"] = sd.replace(
+                month=((sd.month - 1 + duration_months) % 12) + 1,
+                year=sd.year + ((sd.month - 1 + duration_months) // 12),
+            )
         except ValueError:
             pass
 
-    # Award date
-    raw_award_date = _find_value([
-        "Award date", "Date awarded", "Notification date",
-    ])
-    award["award_date"] = _parse_date(raw_award_date) or _parse_date(stub.get("close_date_raw"))
+    # If still no duration, try title extraction
+    if not duration_months:
+        duration_months, end_fallback = extract_duration(
+            stub.get("title", ""), None, award["award_date"]
+        )
+        if not award["end_date"] and end_fallback:
+            award["end_date"] = end_fallback
+
+    award["duration_months"] = duration_months
+
+    # Award date (prefer labelled field, fall back to close_date from list page)
+    raw_award_date = _find_value(["Award date", "Date awarded", "Notification date"])
+    award["award_date"] = _parse_date(raw_award_date) or award["award_date"]
 
     # Description
     desc_tag = soup.select_one(".notice-description, #noticeDescription, .description")
     award["description"] = desc_tag.get_text(separator=" ", strip=True) if desc_tag else None
+
+    # Sector tag
+    award["sector_tag"] = _tag_sector(stub.get("title", ""), award.get("description") or "")
 
     return award
 
@@ -281,14 +355,15 @@ def _store_award(award: dict) -> int:
              agency_name_raw, supplier_name_raw,
              award_date, contract_value, contract_value_raw,
              duration_months, start_date, end_date,
-             description, raw_html)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+             sector_tag, description, raw_html)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT (gets_notice_id) DO UPDATE SET
             supplier_org_id     = EXCLUDED.supplier_org_id,
-            supplier_name_raw   = EXCLUDED.supplier_name_raw,
-            contract_value      = COALESCE(EXCLUDED.contract_value, contract_awards.contract_value),
-            duration_months     = COALESCE(EXCLUDED.duration_months, contract_awards.duration_months),
-            end_date            = COALESCE(EXCLUDED.end_date, contract_awards.end_date)
+            supplier_name_raw   = COALESCE(EXCLUDED.supplier_name_raw,  contract_awards.supplier_name_raw),
+            contract_value      = COALESCE(EXCLUDED.contract_value,     contract_awards.contract_value),
+            duration_months     = COALESCE(EXCLUDED.duration_months,    contract_awards.duration_months),
+            end_date            = COALESCE(EXCLUDED.end_date,           contract_awards.end_date),
+            sector_tag          = COALESCE(EXCLUDED.sector_tag,         contract_awards.sector_tag)
         RETURNING award_id
         """,
         (
@@ -306,6 +381,7 @@ def _store_award(award: dict) -> int:
             award.get("duration_months"),
             award.get("start_date"),
             award.get("end_date"),
+            award.get("sector_tag"),
             award.get("description"),
             award.get("raw_html"),
         ),

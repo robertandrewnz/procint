@@ -8,6 +8,7 @@ from typing import Optional
 
 import config
 import db
+from intel_library.scoring_integration import get_strategic_score_boost, apply_boost_to_composite
 
 logger = logging.getLogger(__name__)
 
@@ -148,13 +149,75 @@ def _store_score(scored: dict) -> None:
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
+def run_scoring_boost_only() -> int:
+    """
+    Apply the intel library strategic boost to all already-scored notices.
+    Called after intel library ingestion to update composite scores without
+    re-running the full scoring pipeline.
+    """
+    logger.info("Applying strategic boost to existing scored notices")
+
+    rows = db.fetchall(
+        """
+        SELECT s.notice_id, s.composite_score, s.score_reasoning,
+               p.sector_tag, r.agency
+        FROM   scored_notices s
+        JOIN   parsed_notices p ON p.notice_id = s.notice_id
+        JOIN   raw_notices    r ON r.notice_id = s.notice_id
+        """
+    )
+    logger.info("%d notices to re-boost", len(rows))
+    count = 0
+
+    for row in rows:
+        try:
+            notice_for_boost = {
+                "notice_id":  row.get("notice_id", ""),
+                "sector_tag": row.get("sector_tag") or "other",
+                "agency":     row.get("agency") or "",
+            }
+            boost = get_strategic_score_boost(notice_for_boost, record_usage=False)
+            if boost.get("modifier", 0.0) == 0.0:
+                continue
+
+            original = float(row["composite_score"] or 5.0)
+            boosted  = apply_boost_to_composite(original, boost)
+
+            reasoning = (row.get("score_reasoning") or "")
+            # Strip any previous boost annotation before appending new one
+            if " | strategic_boost=" in reasoning:
+                reasoning = reasoning.split(" | strategic_boost=")[0]
+            reasoning += (
+                f" | strategic_boost={boost['modifier']:+.3f} "
+                f"({boost['signal_count']} intel signals, "
+                f"sources: {', '.join(boost['source_names'][:3])})"
+            )
+
+            db.execute(
+                """
+                UPDATE scored_notices
+                   SET composite_score  = %s,
+                       score_reasoning  = %s,
+                       scored_at        = NOW()
+                 WHERE notice_id = %s
+                """,
+                (boosted, reasoning, row["notice_id"]),
+            )
+            count += 1
+        except Exception as exc:
+            logger.warning("Boost failed for notice %s: %s", row.get("notice_id"), exc)
+
+    logger.info("Strategic boost applied to %d notices", count)
+    return count
+
+
 def run_scoring() -> int:
     logger.info("Starting strategic scoring")
 
     rows = db.fetchall(
         """
         SELECT p.notice_id, p.sector_tag, p.value_band, p.days_until_close,
-               p.evaluation_criteria, r.description
+               p.evaluation_criteria, r.description, r.agency
         FROM   parsed_notices p
         JOIN   raw_notices r ON r.notice_id = p.notice_id
         LEFT JOIN scored_notices s ON s.notice_id = p.notice_id
@@ -174,12 +237,29 @@ def run_scoring() -> int:
             )
             s_urgency    = score_urgency(row.get("days_until_close"))
             composite    = compute_composite(s_value, s_sector, s_complexity, s_urgency)
+
+            # Apply intel library strategic boost
+            notice_for_boost = {
+                "notice_id":  row.get("notice_id", ""),
+                "sector_tag": row.get("sector_tag") or "other",
+                "agency":     row.get("agency") or "",
+            }
+            boost = get_strategic_score_boost(notice_for_boost)
+            if boost.get("modifier", 0.0) != 0.0:
+                composite = apply_boost_to_composite(composite, boost)
+
             reasoning    = build_reasoning(
                 row.get("sector_tag") or "other",
                 row.get("value_band") or "unknown",
                 row.get("days_until_close"),
                 s_value, s_sector, s_complexity, s_urgency, composite,
             )
+            if boost.get("signal_count", 0) > 0:
+                reasoning += (
+                    f" | strategic_boost={boost['modifier']:+.3f} "
+                    f"({boost['signal_count']} intel signals, "
+                    f"sources: {', '.join(boost['source_names'][:3])})"
+                )
 
             _store_score(
                 {

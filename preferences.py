@@ -54,33 +54,50 @@ def save_user_preferences(
     user_id: str,
     sectors: Optional[list[str]] = None,
     agency_focus: Optional[list[str]] = None,
-    min_value_nzd: int = 0,
+    min_value_nzd: Optional[int] = None,
 ) -> None:
     """
     Upsert preferences for *user_id*.
 
     Any parameter left as None keeps its existing DB value (partial update).
+    The INSERT always uses safe non-NULL defaults so the NOT NULL constraint
+    is never violated; the DO UPDATE only touches fields that were explicitly
+    provided (not None).
     """
     if not user_id:
         raise ValueError("user_id is required")
 
-    # Build a COALESCE-based upsert so callers can update one field at a time.
+    # Safe values for INSERT (columns are NOT NULL with array/0 defaults)
+    insert_sectors       = sectors       if sectors       is not None else []
+    insert_agency_focus  = agency_focus  if agency_focus  is not None else []
+    insert_min_value     = min_value_nzd if min_value_nzd is not None else 0
+
+    # For DO UPDATE: only overwrite fields that were explicitly provided.
+    # Use CASE WHEN to leave existing value untouched when caller passed None.
     try:
         db.execute(
             """
             INSERT INTO user_preferences (user_id, sectors, agency_focus, min_value_nzd, updated_at)
             VALUES (%s, %s, %s, %s, NOW())
             ON CONFLICT (user_id) DO UPDATE SET
-                sectors       = COALESCE(EXCLUDED.sectors,      user_preferences.sectors),
-                agency_focus  = COALESCE(EXCLUDED.agency_focus, user_preferences.agency_focus),
-                min_value_nzd = COALESCE(EXCLUDED.min_value_nzd, user_preferences.min_value_nzd),
+                sectors       = CASE WHEN %s THEN EXCLUDED.sectors
+                                     ELSE user_preferences.sectors END,
+                agency_focus  = CASE WHEN %s THEN EXCLUDED.agency_focus
+                                     ELSE user_preferences.agency_focus END,
+                min_value_nzd = CASE WHEN %s THEN EXCLUDED.min_value_nzd
+                                     ELSE user_preferences.min_value_nzd END,
                 updated_at    = NOW()
             """,
             (
+                # INSERT values
                 user_id,
-                sectors,
-                agency_focus,
-                min_value_nzd,
+                insert_sectors,
+                insert_agency_focus,
+                insert_min_value,
+                # CASE WHEN booleans: True = overwrite, False = keep existing
+                sectors       is not None,
+                agency_focus  is not None,
+                min_value_nzd is not None,
             ),
         )
         logger.info("Saved preferences for %s: sectors=%s", user_id, sectors)

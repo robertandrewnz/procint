@@ -8,17 +8,109 @@ Usage:
   python competitor_profile.py "<Competitor Name>" [--client "<Client Name>"]
 """
 import argparse
+import json
 import logging
 import re
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
 
+import anthropic
+
 import config
 import db
 from pursuit_package import _artefact_dir, _slug, _safe, _fmt_value, _paras
 
 logger = logging.getLogger(__name__)
+
+
+# ── Markdown-to-HTML converter ────────────────────────────────────────────────
+
+def _md_to_html(text: str) -> str:
+    """
+    Convert a Claude-generated markdown block to safe HTML.
+    Handles the subset Claude uses: ##/###, **bold**, _italic_,
+    horizontal rules (---), bullet lists, and paragraph breaks.
+    Does NOT use a full markdown library to stay dependency-free.
+    """
+    if not text:
+        return ""
+
+    # Escape HTML entities first (work on the raw string)
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    lines = text.split("\n")
+    out: list[str] = []
+    in_ul = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        # ── Horizontal rule ---  ───────────────────────────────────────────────
+        if re.match(r"^-{3,}$", stripped) or re.match(r"^_{3,}$", stripped) or re.match(r"^\*{3,}$", stripped):
+            if in_ul:
+                out.append("</ul>")
+                in_ul = False
+            out.append('<hr style="border:none;border-top:1px solid var(--border);margin:.75rem 0;">')
+            continue
+
+        # ── Headings ## / ### ─────────────────────────────────────────────────
+        m = re.match(r"^(#{1,3})\s+(.*)", stripped)
+        if m:
+            if in_ul:
+                out.append("</ul>")
+                in_ul = False
+            level = len(m.group(1))
+            heading_text = _inline_md(m.group(2))
+            tag = "h4" if level >= 3 else "h3"
+            style = (
+                'style="font-size:.88rem;font-weight:700;color:var(--navy);'
+                'margin:1rem 0 .35rem;letter-spacing:.01em;"'
+            )
+            out.append(f"<{tag} {style}>{heading_text}</{tag}>")
+            continue
+
+        # ── Bullet list item ─────────────────────────────────────────────────
+        m = re.match(r"^[-*•]\s+(.*)", stripped)
+        if m:
+            if not in_ul:
+                out.append('<ul style="margin:.4rem 0 .4rem 1.1rem;padding:0;">')
+                in_ul = True
+            out.append(f'<li style="margin-bottom:.2rem;color:var(--text);font-size:.85rem;">{_inline_md(m.group(1))}</li>')
+            continue
+
+        # Close list if we're in one and hit a non-list line
+        if in_ul and stripped:
+            out.append("</ul>")
+            in_ul = False
+
+        # ── Empty line → paragraph break ──────────────────────────────────────
+        if not stripped:
+            if out and out[-1] != '<div style="margin-top:.6rem;"></div>':
+                out.append('<div style="margin-top:.6rem;"></div>')
+            continue
+
+        # ── Plain paragraph line ──────────────────────────────────────────────
+        out.append(f'<p style="margin:0 0 .5rem;font-size:.85rem;line-height:1.75;color:var(--text);">{_inline_md(stripped)}</p>')
+
+    if in_ul:
+        out.append("</ul>")
+
+    return "\n".join(out)
+
+
+def _inline_md(text: str) -> str:
+    """Convert inline markdown (**bold**, _italic_, `code`) in an already-escaped string."""
+    # **bold** or __bold__
+    text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+    text = re.sub(r"__(.+?)__", r"<strong>\1</strong>", text)
+    # *italic* or _italic_
+    text = re.sub(r"\*(.+?)\*", r"<em>\1</em>", text)
+    text = re.sub(r"_(.+?)_", r"<em>\1</em>", text)
+    # `code`
+    text = re.sub(r"`(.+?)`", r'<code style="background:var(--surf2);padding:.1em .3em;border-radius:3px;font-size:.82em;">\1</code>', text)
+    return text
+
 
 # ── Data assembly ─────────────────────────────────────────────────────────────
 
@@ -109,6 +201,47 @@ def _get_competitor_data(name: str) -> dict:
         (name_q,),
     )
 
+    # Awards by calendar year
+    by_year = db.fetchall(
+        """
+        SELECT EXTRACT(YEAR FROM n.awarded_date)::int AS year,
+               COUNT(*) AS wins,
+               SUM(n.awarded_amount) AS value
+          FROM mbie_award_notices n
+          JOIN mbie_award_suppliers s ON s.rfx_id = n.rfx_id
+         WHERE n.is_awarded AND LOWER(s.business_name) LIKE LOWER(%s)
+           AND n.awarded_date IS NOT NULL
+         GROUP BY year ORDER BY year DESC LIMIT 10
+        """,
+        (name_q,),
+    )
+
+    # Largest single contract (with agency and date)
+    largest_contract = db.fetchone(
+        """
+        SELECT n.title, n.posting_agency, n.awarded_amount, n.awarded_date
+          FROM mbie_award_notices n
+          JOIN mbie_award_suppliers s ON s.rfx_id = n.rfx_id
+         WHERE n.is_awarded AND LOWER(s.business_name) LIKE LOWER(%s)
+           AND n.awarded_amount IS NOT NULL
+         ORDER BY n.awarded_amount DESC LIMIT 1
+        """,
+        (name_q,),
+    )
+
+    # Most recent 5 wins (all-time, not just last 12 months)
+    recent5 = db.fetchall(
+        """
+        SELECT n.title, n.posting_agency, n.awarded_date, n.awarded_amount, c.sector_tag
+          FROM mbie_award_notices n
+          JOIN mbie_award_suppliers s ON s.rfx_id = n.rfx_id
+          LEFT JOIN mbie_award_categories c ON c.rfx_id = n.rfx_id
+         WHERE n.is_awarded AND LOWER(s.business_name) LIKE LOWER(%s)
+         ORDER BY n.awarded_date DESC NULLS LAST LIMIT 5
+        """,
+        (name_q,),
+    )
+
     return {
         "name": name,
         "totals": dict(totals) if totals else {},
@@ -117,6 +250,9 @@ def _get_competitor_data(name: str) -> dict:
         "regions": [dict(r) for r in regions],
         "recent": [dict(r) for r in recent],
         "value_dist": dict(value_dist[0]) if value_dist else {},
+        "by_year": [dict(r) for r in by_year],
+        "largest_contract": dict(largest_contract) if largest_contract else {},
+        "recent5": [dict(r) for r in recent5],
     }
 
 
@@ -154,12 +290,108 @@ def _get_head_to_head(competitor_name: str, client_name: str) -> list[dict]:
     )
 
 
+# ── Claude synthesis ──────────────────────────────────────────────────────────
+
+def _generate_profile_insight(data: dict, client_name: Optional[str] = None) -> str:
+    """Call Claude to generate a competitive intelligence paragraph from profile data."""
+    name = data.get("name", "Unknown")
+    totals = data.get("totals", {})
+    sectors = data.get("sectors", [])
+    agencies = data.get("agencies", [])
+    by_year = data.get("by_year", [])
+    largest = data.get("largest_contract", {})
+    recent5 = data.get("recent5", [])
+
+    # Format by_year summary
+    year_lines = "\n".join(
+        f"  {r['year']}: {r['wins']} wins ({_fmt_value(r.get('value'))} total)"
+        for r in by_year[:6]
+    ) or "  Insufficient data."
+
+    # Format top sectors
+    sector_lines = "\n".join(
+        f"  {r['sector_tag']}: {r['wins']} wins ({_fmt_value(r.get('value'))} total)"
+        for r in sectors[:5]
+    ) or "  No sector data."
+
+    # Format top agencies
+    agency_lines = "\n".join(
+        f"  {r['posting_agency']}: {r['wins']} wins ({_fmt_value(r.get('value'))} total)"
+        for r in agencies[:5]
+    ) or "  No agency data."
+
+    # Largest contract
+    if largest:
+        largest_line = (
+            f"{_safe(largest.get('title', 'Unknown'))} — "
+            f"{_safe(largest.get('posting_agency', ''))} — "
+            f"{_fmt_value(largest.get('awarded_amount'))} — "
+            f"{str(largest.get('awarded_date', ''))[:10]}"
+        )
+    else:
+        largest_line = "Not available."
+
+    # Most recent 5 wins
+    recent5_lines = "\n".join(
+        f"  {str(r.get('awarded_date', ''))[:10]}  {_safe(r.get('title', ''))[:55]}  "
+        f"({_safe(r.get('posting_agency', ''))})  {_fmt_value(r.get('awarded_amount'))}"
+        for r in recent5
+    ) or "  No recent wins found."
+
+    client_context = (
+        f"\nThis profile is being prepared for {client_name}, who competes in the same market."
+        if client_name else ""
+    )
+
+    prompt = f"""You are a competitive intelligence analyst producing a written assessment of {name} for a senior business development professional in New Zealand's infrastructure and facilities management sector.{client_context}
+
+Use the following factual data to write a sharp, specific 3–4 paragraph competitive profile. Do not pad, do not be generic. Every claim must be grounded in the numbers below.
+
+=== TOTALS ===
+Total MBIE wins: {totals.get('total_wins', 0)}
+Total awarded value: {_fmt_value(totals.get('total_value'))}
+Average contract value: {_fmt_value(totals.get('avg_value'))}
+First win recorded: {str(totals.get('first_win', ''))[:10]}
+Most recent win recorded: {str(totals.get('last_win', ''))[:10]}
+
+=== WINS BY YEAR ===
+{year_lines}
+
+=== WINS BY SECTOR ===
+{sector_lines}
+
+=== TOP AGENCIES ===
+{agency_lines}
+
+=== LARGEST SINGLE CONTRACT ===
+{largest_line}
+
+=== MOST RECENT 5 WINS ===
+{recent5_lines}
+
+Write 3–4 paragraphs covering: (1) overall scale and trajectory — are they growing, shrinking, or stable? (2) sector and agency concentration — where are they dominant and what does that signal? (3) what this means for a competitor — where are they vulnerable, where are they strong, and what tactics should be considered?
+
+Be specific. Use actual figures. Tone: competitive intelligence analyst, not marketing copy."""
+
+    try:
+        client_api = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+        msg = client_api.messages.create(
+            model=config.CLAUDE_MODEL_L3,
+            max_tokens=800,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return msg.content[0].text.strip()
+    except Exception as exc:
+        logger.warning("Claude insight generation failed for %s: %s", name, exc)
+        return ""
+
+
 # ── HTML rendering ─────────────────────────────────────────────────────────────
 
 _PROFILE_CSS = """:root {
   --bg:#f5f6f8; --surface:#ffffff; --surf2:#f0f2f5; --border:#e2e6ea;
-  --text:#2c3e50; --muted:#6c757d; --navy:#1a2d4a; --gold:#c9a84c;
-  --gold-l:#f7eedb; --navy-l:#e8ecf3; --red:#c0392b; --red-l:#fdecea;
+  --text:#2c3e50; --muted:#6c757d; --navy:#1a2d4a; --gold:#2a9d8f;
+  --gold-l:#e0f4f2; --navy-l:#e8ecf3; --red:#c0392b; --red-l:#fdecea;
   --green:#27ae60;
 }
 *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
@@ -225,7 +457,8 @@ tbody tr:hover td { background:var(--surf2); }
 
 
 def _render_profile_html(data: dict, client_name: Optional[str] = None,
-                          h2h: Optional[list[dict]] = None) -> str:
+                          h2h: Optional[list[dict]] = None,
+                          insight: str = "") -> str:
     totals = data.get("totals", {})
     name = data.get("name", "Unknown")
     run_date = date.today().isoformat()
@@ -341,6 +574,11 @@ def _render_profile_html(data: dict, client_name: Optional[str] = None,
   </div>
 </div>
 
+{f'''<div class="section" style="background:var(--navy-l);border:1px solid var(--border);border-radius:8px;padding:1.25rem 1.5rem;margin-bottom:2rem;">
+  <div class="section-title" style="color:var(--navy);margin-bottom:.75rem;">Intelligence Assessment</div>
+  <div>{_md_to_html(insight)}</div>
+</div>''' if insight else ""}
+
 <div class="stat-grid">
   <div class="stat-box">
     <div class="stat-label">Total wins (MBIE)</div>
@@ -422,7 +660,8 @@ def generate_competitor_profile(
 
     data = _get_competitor_data(competitor_name)
     h2h = _get_head_to_head(competitor_name, client_name) if client_name else None
-    html = _render_profile_html(data, client_name=client_name, h2h=h2h)
+    insight = _generate_profile_insight(data, client_name=client_name)
+    html = _render_profile_html(data, client_name=client_name, h2h=h2h, insight=insight)
 
     if output_dir is None:
         folder_name = client_name or f"competitor_{_slug(competitor_name)}"

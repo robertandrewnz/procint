@@ -7,7 +7,7 @@ competitor_profile.py, demo_package.py, and portal.py.
 
 Colour palette — light professional consultancy:
   Navy  #1a2d4a  — primary: headers, nav, key labels, card headers
-  Gold  #c9a84c  — accent:  scores, highlights, section numbers, buttons hover
+  Gold  #2a9d8f  — accent:  scores, highlights, section numbers, buttons hover
   BG    #f5f6f8  — page background
   WHITE #ffffff  — card background
   SURF2 #f0f2f5  — subtle off-white (hover, alternating rows)
@@ -33,8 +33,8 @@ COPYRIGHT = "© BidEdge Ltd · Groundwork Procurement Intelligence · Confidenti
 # ── Palette ───────────────────────────────────────────────────────────────────
 
 NAVY   = "#1a2d4a"
-GOLD   = "#c9a84c"
-GOLD_L = "#f7eedb"   # light gold tint for badge backgrounds
+GOLD   = "#2a9d8f"
+GOLD_L = "#e0f4f2"   # light gold tint for badge backgrounds
 NAVY_L = "#e8ecf3"   # light navy tint
 BG     = "#f5f6f8"
 WHITE  = "#ffffff"
@@ -144,7 +144,7 @@ CSS_BADGES = """
   border: 1px solid;
   white-space: nowrap;
 }
-.badge-gold  { background: var(--gold-l);  color: #7a5c00;  border-color: var(--gold); }
+.badge-gold  { background: var(--gold-l);  color: #1a6b62;  border-color: var(--gold); }
 .badge-navy  { background: var(--navy-l);  color: var(--navy); border-color: #b0bcd4; }
 .badge-red   { background: var(--red-l);   color: var(--red);  border-color: #f1a9a0; }
 .badge-grey  { background: var(--surf2);   color: var(--muted); border-color: var(--border); }
@@ -198,7 +198,7 @@ CSS_BUTTONS = """
   text-decoration: none;
   transition: background .15s, color .15s;
 }
-.btn:hover { background: var(--gold); border-color: var(--gold); color: #fff; text-decoration: none; }
+.btn:hover { background: #238f82; border-color: #238f82; color: #fff; text-decoration: none; }
 .btn-outline {
   background: transparent;
   color: var(--navy);
