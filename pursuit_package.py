@@ -357,7 +357,7 @@ def _mbie_citation(sector: str, agency: str) -> str:
         (sector, f"%{agency_word}%"),
     )
     count = r["n"] if r else 0
-    return f"based on {count:,} MBIE award notices (2014–2025)"
+    return f"based on {count:,} published government contract award records (2014–2025)"
 
 
 # ── Claude synthesis ──────────────────────────────────────────────────────────
@@ -462,7 +462,7 @@ def _call_claude(context: dict) -> Optional[dict]:
             )
         competitors_text = "\n".join(comp_lines)
     else:
-        competitors_text = "No MBIE records found for this agency/sector combination. Market data is limited."
+        competitors_text = "No government contract award records found for this agency/sector combination. Market data is limited."
 
     # Incumbent
     inc = context.get("incumbent")
@@ -478,7 +478,7 @@ def _call_claude(context: dict) -> Optional[dict]:
     # Client history note
     ch = context.get("client_history", {})
     if ch.get("sector_wins", 0) == 0:
-        client_data_note = "Client not found in MBIE dataset — may be private sector focused or using a different trading name."
+        client_data_note = "Client not found in published government contract award data — may operate under a different trading name or primarily serve private sector buyers."
     else:
         client_data_note = f"Client has {ch['sector_wins']} confirmed sector wins in MBIE data since {str(ch.get('sector_first_win', ''))[:4]}."
 
@@ -663,8 +663,8 @@ tbody tr:hover td { background:var(--surf2); }
              display:block; }
   .sidebar-sub { margin-bottom:.75rem; }
   .sidebar-label { display:none; }
-  .sidebar nav { display:flex; flex-wrap:wrap; gap:.3rem; margin-top:.5rem; }
-  .sidebar nav a { padding:.3rem .65rem; font-size:.78rem; border:1px solid rgba(255,255,255,.15); }
+  .sidebar nav { display:flex; flex-direction:column; gap:.3rem; margin-top:.5rem; }
+  .sidebar nav a { padding:.3rem .65rem; font-size:.78rem; border:1px solid rgba(255,255,255,.15); width:100%; }
   .main { padding:1.5rem 1.5rem; max-width:100%; }
   .verdict { flex-wrap:wrap; gap:1rem; }
   table { display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; }
@@ -925,7 +925,7 @@ def _render_html(
         <th>Dimension</th><th>Data</th>
       </tr></thead>
       <tbody>
-        <tr><td>Client wins in this sector (MBIE)</td><td>{ch.get('sector_wins', 0)} contracts | {_fmt_value(ch.get('sector_total_value', 0))}</td></tr>
+        <tr><td>Client wins in this sector (contract records)</td><td>{ch.get('sector_wins', 0)} contracts | {_fmt_value(ch.get('sector_total_value', 0))}</td></tr>
         <tr><td>Client wins with this agency</td><td>{ch.get('agency_wins', 0)} contracts</td></tr>
         <tr><td>Strategic fit score</td><td>{a.get('strategic_fit_score', 'N/A')} / 10</td></tr>
         <tr><td>Win position band</td><td><span style="color:{wp_colour};font-weight:600;">{_safe(wp_label)}</span> (score {wp.get('score', 0):+d} across 8 factors)</td></tr>
@@ -968,7 +968,7 @@ def _render_html(
     <table>
       <thead><tr><th>Metric</th><th>Value</th></tr></thead>
       <tbody>
-        <tr><td>Total MBIE-recorded awards</td><td>{ag.get('total_awards', 0)} contracts</td></tr>
+        <tr><td>Total recorded contract awards</td><td>{ag.get('total_awards', 0)} contracts</td></tr>
         <tr><td>Total awarded value</td><td>{_fmt_value(ag.get('total_value', 0))}</td></tr>
         <tr><td>Average contract value</td><td>{_fmt_value(ag.get('avg_value', 0))}</td></tr>
         <tr><td>Unique suppliers engaged</td><td>{ag.get('unique_suppliers', 0)}</td></tr>
@@ -1085,6 +1085,27 @@ def generate_pursuit_package(
         notice=dict(notice),
         client_profile={"name": client_name},
     )
+
+    # 2c. Enforce band → recommendation consistency.
+    # Prevent contradictory combinations (e.g. "Competitive — NO GO").
+    _band_key = win_pos.get("css_key", "competitive")
+    _rec = (analysis.get("go_nogo") or "GO").upper().strip()
+    if _band_key in ("strong", "competitive") and _rec == "NO GO":
+        logger.info(
+            "Win position is '%s' but go_nogo was '%s' — overriding to CONDITIONAL GO",
+            win_pos.get("band"), _rec,
+        )
+        analysis["go_nogo"] = "CONDITIONAL GO"
+    elif _band_key == "challenging" and _rec == "GO":
+        logger.info(
+            "Win position is 'Challenging' but go_nogo was 'GO' — overriding to CONDITIONAL GO"
+        )
+        analysis["go_nogo"] = "CONDITIONAL GO"
+    elif _band_key == "not_recommended" and _rec != "NO GO":
+        logger.info(
+            "Win position is 'Not recommended' but go_nogo was '%s' — overriding to NO GO", _rec
+        )
+        analysis["go_nogo"] = "NO GO"
 
     # 3. Render HTML
     html = _render_html(notice, analysis, context, client_name,

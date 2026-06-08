@@ -39,7 +39,11 @@ _SECTOR_COLOURS = {
 
 # ── Data assembly ─────────────────────────────────────────────────────────────
 
-def _top_opportunities(sectors: Optional[list[str]] = None, limit: int = 5) -> list[dict]:
+def _top_opportunities(
+    sectors: Optional[list[str]] = None,
+    limit: int = 5,
+    hard_sector_filter: Optional[list[str]] = None,
+) -> list[dict]:
     """
     Top scored notices, re-ranked by client sector preference.
 
@@ -49,27 +53,52 @@ def _top_opportunities(sectors: Optional[list[str]] = None, limit: int = 5) -> l
     at the top even if FM scored higher in the pipeline.
 
     When sectors is None, all sectors score equally (sector-neutral).
+
+    hard_sector_filter: when provided (demo mode), the SQL query is restricted to
+    only notices whose sector_tag is in the given list.  This prevents cross-sector
+    contamination in demo watch briefs.
     """
     from scoring import compute_composite_for_client
 
     # Pull a wider pool so re-ranking has room to surface preferred sectors
     pool_limit = limit * 6
-    rows = db.fetchall(
-        """
-        SELECT r.notice_id, r.title, r.agency, r.source_url, r.close_date,
-               p.sector_tag, p.value_band, p.days_until_close,
-               s.composite_score, s.score_value, s.score_complexity, s.score_urgency,
-               e.summary, e.strategic_framing, e.red_flags
-          FROM raw_notices r
-          JOIN parsed_notices p ON p.notice_id = r.notice_id
-          JOIN scored_notices s ON s.notice_id = r.notice_id
-          LEFT JOIN enriched_notices e ON e.notice_id = r.notice_id
-         WHERE s.composite_score >= %s
-         ORDER BY s.composite_score DESC
-         LIMIT %s
-        """,
-        (config.PRIORITY_THRESHOLD, pool_limit),
-    )
+
+    if hard_sector_filter:
+        placeholders = ",".join(["%s"] * len(hard_sector_filter))
+        rows = db.fetchall(
+            f"""
+            SELECT r.notice_id, r.title, r.agency, r.source_url, r.close_date,
+                   p.sector_tag, p.value_band, p.days_until_close,
+                   s.composite_score, s.score_value, s.score_complexity, s.score_urgency,
+                   e.summary, e.strategic_framing, e.red_flags
+              FROM raw_notices r
+              JOIN parsed_notices p ON p.notice_id = r.notice_id
+              JOIN scored_notices s ON s.notice_id = r.notice_id
+              LEFT JOIN enriched_notices e ON e.notice_id = r.notice_id
+             WHERE s.composite_score >= %s
+               AND p.sector_tag IN ({placeholders})
+             ORDER BY s.composite_score DESC
+             LIMIT %s
+            """,
+            (config.PRIORITY_THRESHOLD, *hard_sector_filter, pool_limit),
+        )
+    else:
+        rows = db.fetchall(
+            """
+            SELECT r.notice_id, r.title, r.agency, r.source_url, r.close_date,
+                   p.sector_tag, p.value_band, p.days_until_close,
+                   s.composite_score, s.score_value, s.score_complexity, s.score_urgency,
+                   e.summary, e.strategic_framing, e.red_flags
+              FROM raw_notices r
+              JOIN parsed_notices p ON p.notice_id = r.notice_id
+              JOIN scored_notices s ON s.notice_id = r.notice_id
+              LEFT JOIN enriched_notices e ON e.notice_id = r.notice_id
+             WHERE s.composite_score >= %s
+             ORDER BY s.composite_score DESC
+             LIMIT %s
+            """,
+            (config.PRIORITY_THRESHOLD, pool_limit),
+        )
 
     for row in rows:
         row["client_score"] = compute_composite_for_client(
@@ -518,15 +547,21 @@ def generate_watch_brief(
     client_name: str,
     sectors: Optional[list[str]] = None,
     output_dir: Optional[Path] = None,
+    demo_sector: Optional[str] = None,
 ) -> Path:
     """
     Generate a weekly watch brief personalised for a client.
     Returns path to the HTML file.
+
+    demo_sector: when set (e.g. 'FM'), hard-filters top opportunities to the
+    demo sector allowlist.  Market signals are also labelled with demo context.
     """
-    logger.info("Generating watch brief for %s", client_name)
+    from generate_demo_content import DEMO_SECTOR_ALLOWLIST
+    logger.info("Generating watch brief for %s (demo_sector=%s)", client_name, demo_sector)
     run_date = date.today()
 
-    opportunities = _top_opportunities(sectors)
+    hard_filter = DEMO_SECTOR_ALLOWLIST.get(demo_sector) if demo_sector else None
+    opportunities = _top_opportunities(sectors, hard_sector_filter=hard_filter)
     signals = _market_signals()
     comp_moves = _competitor_moves(client_name, sectors)
     renewals = _renewal_radar()

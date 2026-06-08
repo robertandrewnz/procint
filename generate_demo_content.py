@@ -146,6 +146,32 @@ DEMO_SECTORS: dict = {
 }
 
 
+# ── Demo sector allowlists ────────────────────────────────────────────────────
+# Hard mapping from demo sector key → allowed DB sector_tags.
+# Any notice whose sector_tag is NOT in this list is rejected for that demo.
+# cybersecurity allows ICT as a fallback (sparse cybersecurity notices in DB).
+DEMO_SECTOR_ALLOWLIST: dict[str, list[str]] = {
+    "cybersecurity": ["cybersecurity", "ICT"],
+    "FM":            ["FM"],
+    "construction":  ["construction"],
+    "defence":       ["defence"],
+    "ICT":           ["ICT"],
+    "infrastructure":["infrastructure"],
+    "health":        ["health"],
+}
+
+
+def validate_demo_notice(notice: dict, demo_sector: str) -> bool:
+    """
+    Return True if the notice's sector_tag is within the allowlist for demo_sector.
+    Used by all three artefact types to reject cross-sector contamination.
+    """
+    allowed = DEMO_SECTOR_ALLOWLIST.get(demo_sector, [])
+    if not allowed:
+        return True  # unknown demo_sector — don't filter
+    return (notice.get("sector_tag") or "other") in allowed
+
+
 # ── Data queries ──────────────────────────────────────────────────────────────
 
 def _title_matches_sector(title: str, db_tag: str) -> bool:
@@ -441,8 +467,9 @@ def generate_sector_set(
             logger.info("[%s] Generating watch brief for %s", sector_key, firm_name)
             brief_path = generate_watch_brief(
                 client_name=firm_name,
-                sectors=[db_tag],   # use DB tag so sector filter hits correct rows
+                sectors=[db_tag],      # use DB tag so sector filter hits correct rows
                 output_dir=sector_dir,
+                demo_sector=sector_key, # hard-filter top-5 to sector allowlist
             )
             # watch_brief writes to the dir with its own filename — rename to ours
             if brief_path.exists() and brief_path != brief_dest:

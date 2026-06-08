@@ -855,7 +855,7 @@ function toggleBilling(cb) {{
         f'<div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-bottom:.75rem;">'
         f'<span style="font-size:.65rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;'
         f'background:rgba(42,157,143,.13);color:var(--gold);border:1px solid rgba(42,157,143,.28);'
-        f'border-radius:4px;padding:.15rem .55rem;">Infrastructure</span>'
+        f'border-radius:4px;padding:.15rem .55rem;">Facilities Management</span>'
         f'<span style="font-size:.7rem;color:var(--muted);">Wellington City Council</span>'
         f'</div>'
         f'<div style="font-size:1rem;font-weight:700;color:var(--text);margin-bottom:1rem;line-height:1.35;">'

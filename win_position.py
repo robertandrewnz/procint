@@ -107,7 +107,7 @@ def _f2_agency_loyalty(agency: str) -> tuple[int, str]:
     total = int((row or {}).get("total") or 0)
     repeat = int((row or {}).get("repeat_wins") or 0)
     if total == 0:
-        return (0, "No MBIE award history for this agency")
+        return (0, "No contract award history recorded for this agency")
     pct = round(repeat / total * 100)
     if pct > 70:
         return (-2, f"Highly loyal agency — {pct}% of contracts go to repeat suppliers")
@@ -182,7 +182,7 @@ def _f4_client_history(client_name: str, sector: str, agency: str) -> tuple[int,
     s_wins = int((sector_wins or {}).get("wins") or 0)
     if s_wins > 0:
         return (+1, f"Client has {s_wins} sector win(s) nationally (different agencies)")
-    return (0, "No relevant MBIE history found for client in this sector/agency")
+    return (0, "No relevant contract award history found for client in this sector/agency")
 
 
 def _f5_timing(days_until_close: Optional[int]) -> tuple[int, str]:
