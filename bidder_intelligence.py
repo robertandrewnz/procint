@@ -524,14 +524,13 @@ def store_ach_results(notice_id: str, bidders: list[dict]) -> None:
         )
         ts_marker = str(row["parsed_at"])[:19] if row and row.get("parsed_at") else ""
 
-        firm_names = [b["name"] for b in bidders]
-        if firm_names:
-            placeholders = ",".join(["%s"] * len(firm_names))
-            db.execute(
-                f"DELETE FROM bidder_pool WHERE notice_id = %s "
-                f"AND firm_name IN ({placeholders})",
-                (notice_id, *firm_names),
-            )
+        # Delete ALL existing ach_analysis rows for this notice before inserting
+        # new ones. Previous firm-name-only deletion left stale rows when Claude
+        # named different firms on a re-run (old names were never cleaned up).
+        db.execute(
+            "DELETE FROM bidder_pool WHERE notice_id = %s AND match_type = 'ach_analysis'",
+            (notice_id,),
+        )
 
         for rank, b in enumerate(bidders, 1):
             cap_match = b.get("capability_match", "unknown")
