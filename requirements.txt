@@ -8,10 +8,9 @@ lxml>=5.2.0
 rapidfuzz>=3.6.0
 flask>=3.0.0
 flask-login>=0.6.3
+flask-bcrypt>=1.0.1
 bcrypt>=4.1.0
 weasyprint>=60.0
 schedule>=1.2.0
 pdfplumber>=0.11.0
 gunicorn>=21.2.0
-# force rebuild
-bcrypt>=4.0.0
