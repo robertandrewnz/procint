@@ -148,9 +148,13 @@ def run_enrichment() -> int:
         JOIN   raw_notices r    ON r.notice_id = s.notice_id
         JOIN   parsed_notices p ON p.notice_id = s.notice_id
         LEFT JOIN enriched_notices e ON e.notice_id = s.notice_id
-        WHERE  s.composite_score >= %s
+        WHERE  (
+                   s.composite_score >= %s
+                OR (p.days_until_close IS NOT NULL AND p.days_until_close BETWEEN 0 AND 14)
+               )
           AND  e.notice_id IS NULL
-        ORDER  BY s.composite_score DESC
+          AND  (r.close_date IS NULL OR r.close_date >= CURRENT_DATE)
+        ORDER  BY p.days_until_close ASC NULLS LAST, s.composite_score DESC
         """,
         (config.PRIORITY_THRESHOLD,),
     )

@@ -269,7 +269,10 @@ COMPLEXITY_PHRASES: list[str] = [
 ]
 
 # ── Enrichment ────────────────────────────────────────────────────────────────
-PRIORITY_THRESHOLD: float = float(os.getenv("PRIORITY_THRESHOLD", "5.0"))
+# Minimum composite score for a notice to receive Claude AI enrichment.
+# Notices with close_date within 14 days are ALWAYS enriched regardless of score
+# (urgency overrides score threshold — see enrichment.py run_enrichment()).
+PRIORITY_THRESHOLD: float = float(os.getenv("PRIORITY_THRESHOLD", "4.0"))
 
 # ── Output ────────────────────────────────────────────────────────────────────
 OUTPUT_DIR: str = "output"
@@ -279,13 +282,13 @@ TOP_N_BIDDERS_PER_NOTICE: int = 3
 # Cap on how many notices (sorted by score desc) receive Claude API bidder
 # context enrichment per daily run. Notices outside this cap get rule-based
 # bidder inference only. Keeps API cost and runtime predictable.
-MAX_ENRICHMENT_NOTICES: int = int(os.getenv("MAX_ENRICHMENT_NOTICES", "20"))
+MAX_ENRICHMENT_NOTICES: int = int(os.getenv("MAX_ENRICHMENT_NOTICES", "30"))
 
 # Score threshold for the daily HTML/MD/JSON watchlist output.
 # Lower than PRIORITY_THRESHOLD so more notices appear in the report,
 # but only notices above PRIORITY_THRESHOLD receive Claude notice enrichment
 # and only the top MAX_ENRICHMENT_NOTICES receive Claude bidder context.
-WATCHLIST_THRESHOLD: float = float(os.getenv("WATCHLIST_THRESHOLD", "4.0"))
+WATCHLIST_THRESHOLD: float = float(os.getenv("WATCHLIST_THRESHOLD", "3.5"))
 
 # ── Bidder data ───────────────────────────────────────────────────────────────
 BIDDER_CSV_PATH: str = "data/bidders.csv"

@@ -223,6 +223,71 @@ _GARBAGE_NAME_FRAGMENTS = (
     "insufficient data for",
 )
 
+# Common suffixes/abbreviations to strip when comparing agency vs bidder names
+_AGENCY_STOP_WORDS = frozenset({
+    "district", "city", "regional", "council", "dc", "cc", "rc",
+    "limited", "ltd", "inc", "trust", "board", "authority",
+    "new", "zealand", "nz", "the", "of", "and",
+})
+
+
+def _normalise_for_match(name: str) -> str:
+    """
+    Strip punctuation and common stop-words, lowercase, return token set.
+    Used for fuzzy agency vs bidder name comparison.
+    """
+    tokens = re.sub(r"[^a-z0-9 ]", " ", name.lower()).split()
+    return " ".join(t for t in tokens if t not in _AGENCY_STOP_WORDS and len(t) > 1)
+
+
+def _is_agency_name(bidder_name: str, agency_name: str) -> bool:
+    """
+    Return True if *bidder_name* looks like it IS the contracting agency.
+
+    Catches:
+      - Exact substring match after normalisation ("Tararua District Council" in firm name)
+      - Known abbreviation patterns: "TDC", "WCC", "ACC", "HCC", etc.
+      - Partial overlap: if ≥2 meaningful tokens from agency appear in bidder name
+    """
+    if not agency_name or not bidder_name:
+        return False
+
+    b_lower = bidder_name.lower().strip()
+    a_lower = agency_name.lower().strip()
+
+    # Direct containment (case-insensitive)
+    if a_lower in b_lower or b_lower in a_lower:
+        return True
+
+    # Normalised token overlap
+    b_norm = _normalise_for_match(bidder_name)
+    a_norm = _normalise_for_match(agency_name)
+    if not a_norm or not b_norm:
+        return False
+
+    # Full match after normalisation
+    if a_norm == b_norm or a_norm in b_norm or b_norm in a_norm:
+        return True
+
+    # Token overlap: ≥2 significant tokens shared
+    b_tokens = set(b_norm.split())
+    a_tokens = set(a_norm.split())
+    shared = b_tokens & a_tokens
+    if len(shared) >= 2:
+        return True
+
+    # Initialisms: "TDC" matches "Tararua District Council", "WCC" → "Wellington City Council"
+    meaningful = [t for t in a_lower.split() if t not in _AGENCY_STOP_WORDS and len(t) > 1]
+    if meaningful:
+        initialism = "".join(w[0] for w in meaningful)
+        # 2- or 3-letter initialsim must be a whole word in bidder name
+        if 2 <= len(initialism) <= 4:
+            pattern = r"\b" + re.escape(initialism) + r"\b"
+            if re.search(pattern, b_lower):
+                return True
+
+    return False
+
 
 def _extract_json_from_response(raw: str) -> dict:
     """
@@ -358,15 +423,30 @@ def _mbie_confirmation(firm_name: str, notice_sector: str) -> tuple[str, int, st
         return "no_mbie", 0, ""
 
 
-def _apply_mbie_enrichment(bidders_raw: list[dict], notice_sector: str) -> list[dict]:
+def _apply_mbie_enrichment(
+    bidders_raw: list[dict],
+    notice_sector: str,
+    agency_name: str = "",
+) -> list[dict]:
     """
     Apply category-gated MBIE badges to each Claude-identified bidder.
     Does NOT modify Claude's probability rankings — MBIE is informational only.
+
+    agency_name: the contracting agency for this notice.  Any bidder whose name
+    matches or closely resembles the agency is excluded — the buyer cannot also
+    be a bidder.
     """
     results = []
     for b in bidders_raw[:3]:
         name = str(b.get("name") or "").strip()
         if not name:
+            continue
+        # Exclude the contracting agency itself
+        if agency_name and _is_agency_name(name, agency_name):
+            logger.info(
+                "ACH: excluded '%s' — matches contracting agency '%s'",
+                name, agency_name,
+            )
             continue
 
         prob = b.get("probability", "Medium")
@@ -436,8 +516,9 @@ def generate_bidder_intelligence(
     Returns:
         List of up to 3 bidder dicts. Returns [] on API failure.
     """
-    notice_id    = notice.get("notice_id", "?")
+    notice_id     = notice.get("notice_id", "?")
     notice_sector = notice.get("sector_tag") or notice.get("sector") or "other"
+    agency_name   = notice.get("agency") or notice.get("agency_name") or ""
 
     # Step 1 — Extract capability requirements
     reqs = _extract_requirements(notice)
@@ -456,8 +537,8 @@ def generate_bidder_intelligence(
     if not bidders_raw:
         return []
 
-    # Step 3 — Category-gated MBIE enrichment
-    results = _apply_mbie_enrichment(bidders_raw, notice_sector)
+    # Step 3 — Category-gated MBIE enrichment (agency-as-bidder filtered out here)
+    results = _apply_mbie_enrichment(bidders_raw, notice_sector, agency_name=agency_name)
 
     logger.info(
         "ACH analysis for notice %s: %d bidders — %s",

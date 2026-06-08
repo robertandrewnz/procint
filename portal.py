@@ -610,8 +610,28 @@ def _dtc_badge(dtc) -> str:
     if dtc <= 14:   return f'<span class="badge bg">{dtc}d</span>'
     return f'<span class="badge bk">{dtc}d</span>'
 
+_SECTOR_DISPLAY: dict[str, str] = {
+    "ICT":                  "ICT",
+    "FM":                   "FM",
+    "infrastructure":       "Infrastructure",
+    "construction":         "Construction",
+    "defence":              "Defence",
+    "health":               "Health",
+    "cybersecurity":        "Cybersecurity",
+    "security":             "Security",
+    "advisory":             "Advisory",
+    "utilities":            "Utilities",
+    "professional_services":"Professional Services",
+    "other":                "Other",
+}
+
+def _fmt_sector(sector: str) -> str:
+    """Canonical display label for a sector tag — always correct case."""
+    s = (sector or "other").strip()
+    return _SECTOR_DISPLAY.get(s) or _SECTOR_DISPLAY.get(s.lower()) or s.replace("_", " ").title()
+
 def _sector_badge(sector: str) -> str:
-    return f'<span class="badge bn">{(sector or "other").replace("_"," ").upper()}</span>'
+    return f'<span class="badge bn">{_fmt_sector(sector)}</span>'
 
 # Value band display labels and sort rank (higher = more valuable)
 _VALUE_BAND_LABELS = {
@@ -1469,7 +1489,7 @@ def onboarding():
     # Build sector checkboxes — mark saved sectors as checked
     sector_opts = ""
     for s in available_sectors:
-        label = s.replace("_", " ").upper()
+        label = _fmt_sector(s)
         checked = "checked" if s in saved_sectors else ""
         sector_opts += (
             f'<label style="display:flex;align-items:center;gap:.6rem;'
@@ -1896,7 +1916,8 @@ def gw_watchlist():
               FROM parsed_notices p
               JOIN raw_notices r    ON r.notice_id = p.notice_id
               LEFT JOIN enriched_notices e ON e.notice_id = p.notice_id
-             WHERE (p.days_until_close IS NULL OR p.days_until_close >= 0)
+             WHERE (r.close_date IS NULL OR r.close_date >= CURRENT_DATE)
+               AND (p.days_until_close IS NULL OR p.days_until_close >= 0)
              ORDER BY p.days_until_close ASC NULLS LAST
              LIMIT 100
         """)
@@ -1932,7 +1953,7 @@ def gw_watchlist():
         '<button class="sf-pill sf-active" data-sector="all" onclick="sfFilter(this)">All Sectors</button>'
     )
     for s in all_sectors:
-        label = s.replace("_", " ").title()
+        label = _fmt_sector(s)
         sector_pills += (
             f'<button class="sf-pill" data-sector="{s}" onclick="sfFilter(this)">{label}</button>'
         )
