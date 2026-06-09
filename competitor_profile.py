@@ -1010,6 +1010,7 @@ def generate_competitor_profile(
     client_name: Optional[str] = None,
     sector_context: Optional[str] = None,
     output_dir: Optional[Path] = None,
+    is_demo: bool = False,
 ) -> Path:
     """
     Generate a structured competitor intelligence profile.
@@ -1020,9 +1021,11 @@ def generate_competitor_profile(
         sector_context:   Procurement sector for framing (e.g. "government cybersecurity and SOC
                           services"). REQUIRED for meaningful analysis.
         output_dir:       Where to save the HTML file. Defaults to _artefact_dir(client_name).
+        is_demo:          When True, skips the demo-name guard (used by generate_demo_content.py).
     """
-    # Guard: reject empty or demo client names
-    _assert_real_client(client_name)
+    # Guard: reject empty or demo client names (bypassed for demo content generation)
+    if not is_demo:
+        _assert_real_client(client_name)
 
     if not sector_context or not sector_context.strip():
         raise ValueError(

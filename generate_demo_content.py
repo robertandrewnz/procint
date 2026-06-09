@@ -51,10 +51,11 @@ MANIFEST_PATH = DEMO_DIR / "manifest.json"
 
 DEMO_SECTORS: dict = {
     "cybersecurity": {
-        "label":       "Cybersecurity",
-        "icon":        "🔒",
-        "tagline":     "Government security assessments, pen testing & compliance advisory",
-        "db_tag":      "cybersecurity",
+        "label":           "Cybersecurity",
+        "icon":            "🔒",
+        "tagline":         "Government security assessments, pen testing & compliance advisory",
+        "db_tag":          "cybersecurity",
+        "fallback_db_tags": ["ICT"],   # try ICT if no active cybersecurity notices
         "firm": {
             "name":          "Sentinel Digital",
             "description":   "mid-sized cybersecurity consultancy, 45 staff, Wellington-based, "
@@ -284,7 +285,7 @@ def _query_notices_for_sector(db_tag: str, active_only: bool = True) -> list[dic
     )
 
 
-def _top_notice_for_sector(sector: str, db_tag: str) -> Optional[dict]:  # noqa: C901
+def _top_notice_for_sector(sector: str, db_tag: str, fallback_db_tags: Optional[list] = None) -> Optional[dict]:  # noqa: C901
     """
     Return the best notice for the demo sector using a two-pass filter:
 
@@ -377,6 +378,18 @@ def _top_notice_for_sector(sector: str, db_tag: str) -> Optional[dict]:  # noqa:
             )
             return dict(row)
 
+    # Fallback to alternative db_tags if specified (e.g. cybersecurity → ICT)
+    for alt_tag in (fallback_db_tags or []):
+        if alt_tag == db_tag:
+            continue
+        logger.info(
+            "Demo notice: no result for '%s', trying fallback db_tag '%s'",
+            db_tag, alt_tag,
+        )
+        result = _top_notice_for_sector(sector, alt_tag, fallback_db_tags=None)
+        if result:
+            return result
+
     logger.warning(
         "No valid notice found for sector '%s' (db_tag='%s') — artefact skipped",
         sector, db_tag,
@@ -435,7 +448,7 @@ def generate_sector_set(
     items: list[dict] = []
 
     # ── 1. Pursuit package ────────────────────────────────────────────────────
-    notice = _top_notice_for_sector(sector_key, db_tag)
+    notice = _top_notice_for_sector(sector_key, db_tag, fallback_db_tags=sector_def.get("fallback_db_tags"))
     if not notice:
         logger.warning("No active notices for sector '%s' (db_tag='%s') — skipping pursuit package",
                        sector_key, db_tag)
@@ -492,7 +505,9 @@ def generate_sector_set(
                 comp_path = generate_competitor_profile(
                     competitor_name=comp_name,
                     client_name=firm_name,
+                    sector_context=sector_def.get("tagline", sector_def.get("label", sector_key)),
                     output_dir=sector_dir,
+                    is_demo=True,
                 )
                 comp_dest = comp_path
                 logger.info("[%s] Competitor profile written: %s", sector_key, comp_dest)
