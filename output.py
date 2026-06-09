@@ -900,10 +900,20 @@ def write_html(watchlist: list[dict], output_dir: Path, run_date: date) -> Path:
         cards_html="\n".join(cards),
     )
 
-    path = output_dir / f"watchlist_{run_date.isoformat()}.html"
+    filename = f"watchlist_{run_date.isoformat()}.html"
+    path = output_dir / filename
     with open(path, "w", encoding="utf-8") as f:
         f.write(html)
     logger.info("HTML watchlist written to %s", path)
+
+    import storage as _storage
+    import db as _db
+    storage_path = f"watchlist/{filename}"
+    if not _storage.upload_file(str(path), storage_path, "text/html"):
+        logger.warning("Storage upload failed for %s", filename)
+    _db.save_output("watchlist_html", run_date, filename,
+                    content=html, storage_path=storage_path)
+
     return path
 
 

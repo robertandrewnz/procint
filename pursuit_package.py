@@ -1479,6 +1479,19 @@ def generate_pursuit_package(
     out_path = output_dir / filename
     out_path.write_text(html, encoding="utf-8")
     logger.info("Pursuit package written to %s", out_path)
+
+    import storage as _storage
+    import db as _db
+    client_slug_val = _slug(client_name)
+    storage_path = f"pursuits/{client_slug_val}/{filename}"
+    if not _storage.upload_file(str(out_path), storage_path, "text/html"):
+        logger.warning("Storage upload failed for %s", filename)
+    _db.save_output(
+        "pursuit_package", date.today(), filename,
+        content=html, storage_path=storage_path,
+        client_slug=client_slug_val, notice_id=notice_id,
+    )
+
     return out_path
 
 

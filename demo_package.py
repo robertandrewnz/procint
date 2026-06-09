@@ -308,7 +308,8 @@ def generate_demo_package(
     html_content = html_path.read_text(encoding="utf-8")
     html_content = _inject_demo_styles(html_content, prospect_name)
 
-    demo_html_path = output_dir / f"DEMO_{_slug(prospect_name)}_{notice_id}.html"
+    html_filename = f"DEMO_{_slug(prospect_name)}_{notice_id}.html"
+    demo_html_path = output_dir / html_filename
     demo_html_path.write_text(html_content, encoding="utf-8")
 
     if html_path != demo_html_path:
@@ -316,11 +317,35 @@ def generate_demo_package(
 
     logger.info("Demo HTML written to %s", demo_html_path)
 
+    import storage as _storage
+    import db as _db
+    from datetime import date as _date
+    run_date = _date.today()
+    html_storage_path = f"demo/{html_filename}"
+    if not _storage.upload_file(str(demo_html_path), html_storage_path, "text/html"):
+        logger.warning("Storage upload failed for %s", html_filename)
+    _db.save_output(
+        "demo_html", run_date, html_filename,
+        content=html_content, storage_path=html_storage_path,
+        notice_id=notice_id,
+    )
+
     pdf_path = None
     if generate_pdf:
         pdf_dest = demo_html_path.with_suffix(".pdf")
         if _html_to_pdf(demo_html_path, pdf_dest):
             pdf_path = pdf_dest
+            pdf_filename = pdf_dest.name
+            pdf_storage_path = f"demo/{pdf_filename}"
+            with open(pdf_dest, "rb") as fh:
+                pdf_bytes = fh.read()
+            if not _storage.upload_file(str(pdf_dest), pdf_storage_path, "application/pdf"):
+                logger.warning("Storage upload failed for %s", pdf_filename)
+            _db.save_output(
+                "demo_pdf", run_date, pdf_filename,
+                content_bytes=pdf_bytes, storage_path=pdf_storage_path,
+                notice_id=notice_id,
+            )
 
     return {"html": demo_html_path, "pdf": pdf_path}
 

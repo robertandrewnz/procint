@@ -65,6 +65,8 @@ ARTEFACTS   = Path(config.ARTEFACTS_DIR)
 OUTPUT_DIR  = Path(config.OUTPUT_DIR)
 TOKEN_TTL_H = 24
 
+config.ensure_output_dirs()
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -3186,10 +3188,53 @@ def serve_artefact_file(client_slug: str, filepath: str):
     full = ARTEFACTS / client_slug / filepath
     try: full.resolve().relative_to(ARTEFACTS.resolve())
     except ValueError: abort(403)
-    if not full.exists(): abort(404)
-    if request.args.get("dl"):
-        return send_file(str(full), as_attachment=True)
-    return send_file(str(full))
+
+    if full.exists():
+        if request.args.get("dl"):
+            return send_file(str(full), as_attachment=True)
+        return send_file(str(full))
+
+    # Local file missing (Railway restart) — try Supabase Storage
+    import storage as _storage
+    filename = Path(filepath).name
+    is_pdf = filename.lower().endswith(".pdf")
+    content_type = "application/pdf" if is_pdf else "text/html; charset=utf-8"
+
+    # Derive storage path: strip date segment if present (e.g. pursuits/slug/YYYY-MM-DD/file → pursuits/slug/file)
+    parts = filepath.replace("\\", "/").split("/")
+    storage_candidates = [
+        f"pursuits/{client_slug}/{filename}",
+        f"briefs/{client_slug}/{filename}",
+        f"competitors/{client_slug}/{filename}",
+        f"demo/{filename}",
+        f"watchlist/{filename}",
+    ]
+    for sp in storage_candidates:
+        data = _storage.download_file(sp)
+        if data:
+            if request.args.get("dl"):
+                from flask import send_file as _sf
+                import io
+                return _sf(io.BytesIO(data), as_attachment=True,
+                           download_name=filename, mimetype=content_type)
+            from flask import Response
+            return Response(data, content_type=content_type)
+
+    # Last resort: check pipeline_outputs DB content
+    row = db.fetchone(
+        "SELECT content, content_bytes FROM pipeline_outputs WHERE filename = %s"
+        " ORDER BY created_at DESC LIMIT 1",
+        (filename,),
+    )
+    if row:
+        if row.get("content_bytes"):
+            from flask import Response
+            return Response(bytes(row["content_bytes"]), content_type=content_type)
+        if row.get("content"):
+            from flask import Response
+            return Response(row["content"], content_type="text/html; charset=utf-8")
+
+    abort(404)
 
 
 @app.route("/groundwork/request", methods=["GET", "POST"])
@@ -5145,6 +5190,48 @@ def _bootstrap():
                                         "site_name": "Groundwork by BidEdge"}}
     _save_cfg(cfg)
     print(f"Created {CONFIG_FILE}")
+
+
+@app.route("/admin/storage-check")
+@login_required
+@admin_required
+def admin_storage_check():
+    """Admin: list Supabase Storage contents and flag local-only files."""
+    import storage as _storage
+    storage_files = _storage.list_files()
+    local_only = []
+    for subdir in ["pursuits", "competitors", "briefs", "watchlist", "demo"]:
+        d = Path(config.ARTEFACTS_DIR)
+        for f in d.rglob("*.html") if d.exists() else []:
+            rel = str(f.relative_to(d)).replace("\\", "/")
+            if rel not in storage_files:
+                local_only.append(rel)
+        d2 = Path(config.OUTPUT_DIR) / subdir
+        for f in (d2.rglob("*.html") if d2.exists() else []):
+            rel = f"{subdir}/{f.name}"
+            if rel not in storage_files:
+                local_only.append(rel)
+    return render_template_string(
+        """<!DOCTYPE html><html><head><title>Storage Check</title>
+        <style>body{font-family:system-ui;padding:2rem;max-width:800px;margin:auto}
+        h1{font-size:1.4rem}pre{background:#f4f4f4;padding:1rem;border-radius:6px;overflow:auto}
+        .ok{color:#16a34a}.warn{color:#d97706}</style></head><body>
+        <h1>Supabase Storage Check</h1>
+        <p>Bucket: <code>{{ bucket }}</code> — <strong>{{ storage_files|length }}</strong> files</p>
+        {% if storage_files %}
+        <pre>{% for f in storage_files %}<span class="ok">✓ {{ f }}</span>
+{% endfor %}</pre>
+        {% else %}<p class="warn">Storage is empty or not configured.</p>{% endif %}
+        {% if local_only %}
+        <p class="warn">Local files not yet in Storage ({{ local_only|length }}):</p>
+        <pre>{% for f in local_only %}{{ f }}
+{% endfor %}</pre>
+        {% endif %}
+        <p><a href="/admin">← Admin</a></p></body></html>""",
+        bucket=config.STORAGE_BUCKET,
+        storage_files=sorted(storage_files),
+        local_only=local_only,
+    )
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

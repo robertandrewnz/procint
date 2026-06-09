@@ -1074,6 +1074,19 @@ def generate_competitor_profile(
     out_path = output_dir / filename
     out_path.write_text(html, encoding="utf-8")
     logger.info("Competitor profile written to %s", out_path)
+
+    import storage as _storage
+    import db as _db
+    client_slug_val = _slug(client_name) if client_name else "shared"
+    storage_path = f"competitors/{client_slug_val}/{filename}"
+    if not _storage.upload_file(str(out_path), storage_path, "text/html"):
+        logger.warning("Storage upload failed for %s", filename)
+    _db.save_output(
+        "competitor_profile", date.today(), filename,
+        content=html, storage_path=storage_path,
+        client_slug=client_slug_val,
+    )
+
     return out_path
 
 

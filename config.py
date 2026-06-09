@@ -275,7 +275,7 @@ COMPLEXITY_PHRASES: list[str] = [
 PRIORITY_THRESHOLD: float = float(os.getenv("PRIORITY_THRESHOLD", "4.0"))
 
 # ── Output ────────────────────────────────────────────────────────────────────
-OUTPUT_DIR: str = "output"
+OUTPUT_DIR: str = os.environ.get("OUTPUT_DIR", "/app/output")
 TOP_N_WATCHLIST: int = int(os.getenv("TOP_N_WATCHLIST", "25"))
 TOP_N_BIDDERS_PER_NOTICE: int = 3
 
@@ -387,6 +387,18 @@ INFERRED_CONTRACT_DURATIONS: dict = {
     # Default fallback
     "other":                 {"min": 12, "typical": 24, "max": 60},
 }
+
+# ── Supabase Storage ─────────────────────────────────────────────────────────
+SUPABASE_URL: str = os.environ.get("SUPABASE_URL", "")
+SUPABASE_SERVICE_KEY: str = os.environ.get("SUPABASE_SERVICE_KEY", "")
+STORAGE_BUCKET: str = os.environ.get("STORAGE_BUCKET", "groundwork-output")
+
+
+def ensure_output_dirs() -> None:
+    """Create local output subdirectories if they do not exist."""
+    for subdir in ["pursuits", "competitors", "briefs", "watchlist", "demo"]:
+        os.makedirs(os.path.join(OUTPUT_DIR, subdir), exist_ok=True)
+
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

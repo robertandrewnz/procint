@@ -151,7 +151,123 @@ CREATE TABLE IF NOT EXISTS user_preferences (
     min_value_nzd     INTEGER,
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS pipeline_outputs (
+    id            SERIAL PRIMARY KEY,
+    output_type   TEXT    NOT NULL,
+    run_date      DATE    NOT NULL DEFAULT CURRENT_DATE,
+    filename      TEXT    NOT NULL,
+    content       TEXT,
+    content_bytes BYTEA,
+    client_slug   TEXT,
+    notice_id     TEXT,
+    storage_path  TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (output_type, run_date, filename)
+);
+CREATE INDEX IF NOT EXISTS idx_pipeline_outputs_type_date
+    ON pipeline_outputs (output_type, run_date DESC);
+CREATE INDEX IF NOT EXISTS idx_pipeline_outputs_storage_path
+    ON pipeline_outputs (storage_path) WHERE storage_path IS NOT NULL;
 """
+
+
+def save_output(
+    output_type: str,
+    run_date,
+    filename: str,
+    content: Optional[str] = None,
+    content_bytes: Optional[bytes] = None,
+    client_slug: Optional[str] = None,
+    notice_id: Optional[str] = None,
+    storage_path: Optional[str] = None,
+) -> None:
+    """Upsert a generated artefact into pipeline_outputs."""
+    execute(
+        """
+        INSERT INTO pipeline_outputs
+               (output_type, run_date, filename, content, content_bytes,
+                client_slug, notice_id, storage_path)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (output_type, run_date, filename) DO UPDATE
+          SET content       = EXCLUDED.content,
+              content_bytes = EXCLUDED.content_bytes,
+              storage_path  = EXCLUDED.storage_path,
+              client_slug   = EXCLUDED.client_slug,
+              notice_id     = EXCLUDED.notice_id
+        """,
+        (output_type, run_date, filename, content, content_bytes,
+         client_slug, notice_id, storage_path),
+    )
+
+
+def load_output(
+    output_type: str,
+    run_date,
+    filename: str,
+) -> Optional[dict]:
+    """Return a single pipeline_outputs row or None."""
+    return fetchone(
+        """
+        SELECT * FROM pipeline_outputs
+         WHERE output_type = %s AND run_date = %s AND filename = %s
+        """,
+        (output_type, run_date, filename),
+    )
+
+
+def load_latest_output(output_type: str, client_slug: Optional[str] = None) -> Optional[dict]:
+    """Return the most recent pipeline_outputs row for a given type."""
+    if client_slug:
+        return fetchone(
+            """
+            SELECT * FROM pipeline_outputs
+             WHERE output_type = %s AND client_slug = %s
+             ORDER BY run_date DESC, created_at DESC
+             LIMIT 1
+            """,
+            (output_type, client_slug),
+        )
+    return fetchone(
+        """
+        SELECT * FROM pipeline_outputs
+         WHERE output_type = %s
+         ORDER BY run_date DESC, created_at DESC
+         LIMIT 1
+        """,
+        (output_type,),
+    )
+
+
+def list_outputs(
+    output_type: str,
+    client_slug: Optional[str] = None,
+    limit: int = 50,
+) -> list:
+    """List pipeline_outputs rows for a given type, newest first."""
+    if client_slug:
+        return fetchall(
+            """
+            SELECT id, output_type, run_date, filename, client_slug,
+                   notice_id, storage_path, created_at
+              FROM pipeline_outputs
+             WHERE output_type = %s AND client_slug = %s
+             ORDER BY run_date DESC, created_at DESC
+             LIMIT %s
+            """,
+            (output_type, client_slug, limit),
+        )
+    return fetchall(
+        """
+        SELECT id, output_type, run_date, filename, client_slug,
+               notice_id, storage_path, created_at
+          FROM pipeline_outputs
+         WHERE output_type = %s
+         ORDER BY run_date DESC, created_at DESC
+         LIMIT %s
+        """,
+        (output_type, limit),
+    )
 
 
 def ensure_tables() -> None:
