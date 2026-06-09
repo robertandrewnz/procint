@@ -45,6 +45,16 @@ login_manager = LoginManager(app)
 login_manager.login_view = "login"
 login_manager.login_message = ""
 
+# ── Background scheduler (Railway) ────────────────────────────────────────────
+# Starts APScheduler in a daemon thread when running on Railway.
+# Gunicorn single-instance lock prevents duplicate schedulers across workers.
+# Set DISABLE_SCHEDULER=1 to suppress (local dev, maintenance windows).
+try:
+    from scheduler_railway import start_scheduler
+    start_scheduler()
+except Exception as _sched_err:
+    logging.getLogger("portal").warning("Scheduler failed to start: %s", _sched_err)
+
 CONFIG_FILE = Path("portal_config.json")
 TOKENS_FILE = Path("data/share_tokens.json")
 ARTEFACTS   = Path(config.ARTEFACTS_DIR)
