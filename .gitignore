@@ -22,3 +22,6 @@ venv/
 .DS_Store
 data/mbie/
 logs/
+
+# Claude Code session data
+.claude/
