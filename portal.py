@@ -4005,17 +4005,38 @@ def admin_pipeline():
                         (s,),
                     )
                     run_id = row["id"] if row else None
-                except Exception:
-                    pass
+                except Exception as _e:
+                    logger.warning("pipeline_runs INSERT failed: %s", _e)
                 try:
                     from scheduler_railway import _run_layer1, _run_layer2, _run_watch_brief
-                    {"layer1": _run_layer1, "layer2": _run_layer2,
-                     "watch_brief": _run_watch_brief}[s]()
-                    summary = f"{s} completed successfully"
-                    status = "complete"
+                    result = {"layer1": _run_layer1, "layer2": _run_layer2,
+                              "watch_brief": _run_watch_brief}[s]()
+                    # For watch_brief, result is a stats dict — build a meaningful summary
+                    if s == "watch_brief" and isinstance(result, dict):
+                        if result.get("error"):
+                            summary = f"Error: {result['error'][:300]}"
+                            status = "failed"
+                        else:
+                            gen = result.get("generated", 0)
+                            sent = result.get("sent", 0)
+                            failed = result.get("failed", 0)
+                            skipped = result.get("skipped", 0)
+                            errs = result.get("errors", [])
+                            summary = (f"generated={gen} sent={sent} failed={failed} "
+                                       f"skipped={skipped}")
+                            if errs:
+                                summary += f" | {'; '.join(errs[:3])}"
+                            # Mark as failed if emails were attempted but all failed
+                            status = "complete" if sent > 0 else (
+                                "failed" if failed > 0 else "complete"
+                            )
+                    else:
+                        summary = f"{s} completed successfully"
+                        status = "complete"
                 except Exception as exc:
                     summary = str(exc)[:500]
                     status = "failed"
+                    logger.exception("_run_stage %s failed: %s", s, exc)
                 if run_id:
                     try:
                         db.execute(
@@ -4023,8 +4044,8 @@ def admin_pipeline():
                             "WHERE id=%s",
                             (status, summary, run_id),
                         )
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        logger.warning("pipeline_runs UPDATE failed: %s", _e)
 
             t = _thr.Thread(target=_run_stage, args=(stage,), daemon=True)
             t.start()
@@ -4064,19 +4085,29 @@ def admin_pipeline():
             f'</tr>'
         )
 
+    import os as _os
+    _resend_ok = bool(_os.getenv("RESEND_API_KEY", "").strip())
+    _resend_warn = (
+        f'<div class="al al-er" style="margin-bottom:1.25rem;">'
+        f'<strong>⚠ RESEND_API_KEY not set</strong> — Watch Brief emails will not be delivered. '
+        f'Set <code>RESEND_API_KEY</code> in Railway Variables before triggering Watch Briefs. '
+        f'Briefs will still be generated and saved to the portal.</div>'
+    ) if not _resend_ok else ""
+
     def _trigger_btn(stage: str, label: str, colour: str = "bg-gold") -> str:
         return (
             f'<form method="POST" style="display:inline;">'
             f'<input type="hidden" name="stage" value="{stage}">'
             f'<button class="btn {colour}" type="submit" '
-            f'onclick="return confirm(\'Run {label} now?\') && '
-            f'(this.textContent=\'Starting…\', this.disabled=true, true)">'
+            f'onclick="if(!confirm(\'Run {label}?\')){{return false;}}'
+            f'this.textContent=\'Starting…\';this.disabled=true;">'
             f'{label}</button></form>'
         )
 
     body = (
         f'<div class="ptitle">Pipeline Control</div>'
         f'<div class="psub">Trigger pipeline stages manually. Jobs run in a background thread.</div>'
+        f'{_resend_warn}'
         f'{msg}'
         f'<div class="card" style="margin-bottom:1.5rem;">'
         f'<div class="ch"><span class="ct">Manual Triggers</span></div>'
@@ -4223,6 +4254,9 @@ def admin_client(username: str):
             f'<div class="fg" style="margin:0;flex:1;min-width:180px;">'
             f'<label class="fl">Competitor name</label>'
             f'<input name="competitor_name" class="fc2" placeholder="e.g. Fulton Hogan"></div>'
+            f'<div class="fg" style="margin:0;flex:1;min-width:200px;">'
+            f'<label class="fl">Sector context (competitor only)</label>'
+            f'<input name="sector_context" class="fc2" placeholder="e.g. facilities management"></div>'
             f'<button type="submit" class="btn bg-gold">Generate</button>'
             f'</div></form></div></div>'
             f'<div class="card"><div class="ch"><span class="ct">Pursuit Packages ({len(pursuits)})</span></div>'
@@ -4260,7 +4294,15 @@ def admin_generate():
             generate_watch_brief(cname, sectors=client_sectors or None)
         elif atype == "competitor" and comp_name:
             from competitor_profile import generate_competitor_profile
-            generate_competitor_profile(comp_name, client_name=cname)
+            sector_ctx = request.form.get("sector_context", "").strip()
+            if not sector_ctx:
+                raise ValueError(
+                    "Sector context is required for competitor profiles. "
+                    "Add it in the 'Sector context' field."
+                )
+            generate_competitor_profile(
+                comp_name, client_name=cname, sector_context=sector_ctx
+            )
         _flash(f"Generated {atype} for {cname}.", "success")
     except Exception as exc:
         logger.error("admin_generate: %s", exc)

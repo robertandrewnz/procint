@@ -199,42 +199,74 @@ def dispatch(
 
 # ── Watch brief per-client delivery ──────────────────────────────────────────
 
-def send_all_watch_briefs(portal_base_url: str = "") -> None:
+def send_all_watch_briefs(portal_base_url: str = "") -> dict:
     """
     Generate and email a watch brief for every active non-admin portal client.
     Called by the APScheduler watch brief job in scheduler_railway.py.
     Reads client list from portal_config.json so no DB dependency for user data.
+
+    Returns a stats dict: {"sent": int, "failed": int, "skipped": int,
+                           "generated": int, "email_configured": bool,
+                           "errors": [str, ...]}
     """
     import json
+    import os
     from pathlib import Path
     from datetime import date
 
+    stats: dict = {
+        "sent": 0, "failed": 0, "skipped": 0,
+        "generated": 0, "email_configured": False, "errors": [],
+    }
+
+    # Pre-flight: check email is configured so failures are surfaced immediately
+    resend_key = os.getenv("RESEND_API_KEY", "").strip()
+    if not resend_key:
+        msg = ("RESEND_API_KEY is not set — watch brief emails will NOT be delivered. "
+               "Set RESEND_API_KEY in Railway Variables (or .env locally).")
+        logger.warning("BRIEFS: %s", msg)
+        stats["errors"].append(msg)
+    else:
+        stats["email_configured"] = True
+
     cfg_path = Path("portal_config.json")
     if not cfg_path.exists():
-        logger.error("BRIEFS: portal_config.json not found")
-        return
+        msg = "portal_config.json not found — no clients to process"
+        logger.error("BRIEFS: %s", msg)
+        stats["errors"].append(msg)
+        return stats
 
     cfg = json.loads(cfg_path.read_text())
     clients = cfg.get("clients", {})
 
     week_label = date.today().strftime("%-d %B %Y")
 
-    sent = failed = skipped = 0
     for username, data in clients.items():
         if data.get("is_admin"):
             continue
         email = data.get("email", "").strip()
         if not email:
             logger.warning("BRIEFS: %s has no email — skipped", username)
-            skipped += 1
+            stats["skipped"] += 1
             continue
 
         display_name = data.get("display_name", username)
-        sectors = (
-            data.get("preferred_sectors")
-            or data.get("sectors")
-            or None
-        )
+
+        # Prefer DB preferences (updated via the portal), fall back to config file
+        sectors = None
+        try:
+            from preferences import get_user_preferences
+            db_prefs = get_user_preferences(username)
+            if db_prefs:
+                sectors = db_prefs.get("sectors") or db_prefs.get("preferred_sectors") or None
+        except Exception:
+            pass
+        if not sectors:
+            sectors = (
+                data.get("preferred_sectors")
+                or data.get("sectors")
+                or None
+            )
 
         logger.info("BRIEFS: Generating brief for %s (%s) sectors=%s",
                     username, email, sectors)
@@ -244,6 +276,7 @@ def send_all_watch_briefs(portal_base_url: str = "") -> None:
                 client_name=display_name,
                 sectors=sectors,
             )
+            stats["generated"] += 1
             brief_html = brief_path.read_text(encoding="utf-8")
 
             ok = mailer.send_watch_brief_email(
@@ -252,23 +285,40 @@ def send_all_watch_briefs(portal_base_url: str = "") -> None:
                 brief_html=brief_html,
                 week_label=week_label,
             )
-            status = "sent" if ok else "failed"
-            _log_brief_send(username, sectors or [], status)
+            send_status = "sent" if ok else "failed"
+            _log_brief_send(username, sectors or [], send_status)
             if ok:
-                sent += 1
+                stats["sent"] += 1
             else:
-                failed += 1
+                stats["failed"] += 1
+                if not resend_key:
+                    err = f"{username}: brief generated but not emailed — RESEND_API_KEY not set"
+                else:
+                    err = f"{username}: email send failed (check Resend logs)"
+                stats["errors"].append(err)
         except Exception as exc:
             logger.exception("BRIEFS: Failed for %s: %s", username, exc)
-            _log_brief_send(username, sectors or [], "failed", str(exc)[:500])
-            failed += 1
+            try:
+                _log_brief_send(username, sectors or [], "failed", str(exc)[:500])
+            except Exception:
+                pass
+            stats["failed"] += 1
+            stats["errors"].append(f"{username}: {str(exc)[:200]}")
 
-    logger.info("BRIEFS: Complete — sent=%d failed=%d skipped=%d", sent, failed, skipped)
+    logger.info("BRIEFS: Complete — generated=%d sent=%d failed=%d skipped=%d",
+                stats["generated"], stats["sent"], stats["failed"], stats["skipped"])
 
     # Admin summary
-    mailer.send_admin_only(
-        subject=f"[Groundwork] Watch brief batch complete — {week_label}",
-        html=(f"<p>Watch brief batch finished for week of <b>{week_label}</b>.</p>"
-              f"<ul><li>Sent: {sent}</li><li>Failed: {failed}</li>"
-              f"<li>Skipped (no email): {skipped}</li></ul>"),
-    )
+    if stats["email_configured"]:
+        mailer.send_admin_only(
+            subject=f"[Groundwork] Watch brief batch complete — {week_label}",
+            html=(f"<p>Watch brief batch finished for week of <b>{week_label}</b>.</p>"
+                  f"<ul><li>Generated: {stats['generated']}</li>"
+                  f"<li>Sent: {stats['sent']}</li>"
+                  f"<li>Failed: {stats['failed']}</li>"
+                  f"<li>Skipped (no email): {stats['skipped']}</li></ul>"
+                  + (f"<p><b>Errors:</b><br>{'<br>'.join(stats['errors'])}</p>"
+                     if stats["errors"] else "")),
+        )
+
+    return stats

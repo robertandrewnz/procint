@@ -214,20 +214,31 @@ def _run_layer2() -> None:
         logger.info("SCHEDULER: Layer 2 pipeline finished at %s", datetime.utcnow().isoformat())
 
 
-def _run_watch_brief() -> None:
+def _run_watch_brief() -> dict:
     """
     Weekly watch brief — generate and email to every active portal client.
     Uses pursuit_worker.send_all_watch_briefs() which reads portal_config.json,
     generates a brief per client using their saved sector preferences, emails
     each client directly, and logs each send to the brief_sends table.
     Admin receives a separate summary copy via mailer.send_admin_only().
+
+    Returns stats dict from send_all_watch_briefs, or error dict on failure.
     """
     logger.info("=" * 60)
     logger.info("SCHEDULER: Watch brief starting at %s", datetime.utcnow().isoformat())
     logger.info("=" * 60)
     try:
         from pursuit_worker import send_all_watch_briefs
-        send_all_watch_briefs()
+        stats = send_all_watch_briefs()
+        logger.info(
+            "SCHEDULER: Watch brief finished — generated=%s sent=%s failed=%s skipped=%s",
+            stats.get("generated", "?"), stats.get("sent", "?"),
+            stats.get("failed", "?"), stats.get("skipped", "?"),
+        )
+        if stats.get("errors"):
+            for err in stats["errors"]:
+                logger.warning("SCHEDULER: Watch brief issue: %s", err)
+        return stats
     except Exception as exc:
         logger.exception("SCHEDULER: Watch brief job error: %s", exc)
         try:
@@ -238,6 +249,7 @@ def _run_watch_brief() -> None:
             )
         except Exception:
             pass
+        return {"error": str(exc)}
     finally:
         logger.info("SCHEDULER: Watch brief finished at %s", datetime.utcnow().isoformat())
 
