@@ -27,3 +27,4 @@ logs/
 .claude/worktrees/
 .claude/*.jsonl
 .claude/projects/
+.claude/settings.local.json
