@@ -25,6 +25,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import re
 from typing import Optional
 
 import db
@@ -36,11 +37,18 @@ HIGH_PRIORITY_SHORT_NAMES = {"BEFU2026", "Budget2026-Full", "FSR2026"}
 
 # Signal type → base modifier contribution
 SIGNAL_TYPE_MODIFIERS = {
+    # Standard intel signals
     "budget_increase": 0.4,
     "new_initiative":  0.35,
     "opportunity":     0.30,
     "policy_change":   0.20,
     "risk":            -0.25,
+    # Procurement plan signal types (higher base weight — directly actionable)
+    "upcoming_contract":     0.50,
+    "panel_refresh":         0.45,
+    "renewal_risk":          0.40,
+    "capability_investment": 0.35,
+    "budget_signal":         0.30,
 }
 
 # Confidence multiplier
@@ -58,13 +66,18 @@ def get_strategic_score_boost(
     """
     Calculate a strategic score modifier for a notice based on intel signals.
 
+    Now also incorporates procurement plan signals (signal_type IN upcoming_contract,
+    panel_refresh, renewal_risk, capability_investment, budget_signal). These are
+    matched by agency name and sector overlap and contribute strategic_weight bonus.
+
     Args:
         notice: Dict with at minimum 'notice_id', 'sector_tag', 'agency' fields.
         record_usage: Whether to log usage to intel_source_usage.
 
     Returns:
         Dict with keys: modifier (float), signal_labels (list), source_names (list),
-        confidence (str), signal_count (int).
+        confidence (str), signal_count (int),
+        plan_signal_badges (list of str — ready-to-render badge HTML strings).
     """
     result = {
         "modifier": 0.0,
@@ -72,10 +85,12 @@ def get_strategic_score_boost(
         "source_names": [],
         "confidence": "low",
         "signal_count": 0,
+        "plan_signal_badges": [],  # "⚡ In [Agency] procurement plan — [timeframe]"
     }
 
     sector = (notice.get("sector_tag") or notice.get("sector") or "").lower()
     agency = (notice.get("agency") or "").lower()
+    notice_title = (notice.get("title") or "").lower()
     notice_id = notice.get("notice_id", "")
 
     if not sector:
@@ -104,12 +119,74 @@ def get_strategic_score_boost(
             (sector, f"%{agency[:30]}%" if agency else "%"),
         )
 
-        if not signals:
-            return result
-
         total_modifier = 0.0
         source_ids_used = []
         signal_ids_used = []
+
+        # ── Query procurement plan signals (agency + sector + title keyword match) ──
+        _PLAN_SIGNAL_TYPES = (
+            "upcoming_contract", "panel_refresh",
+            "renewal_risk", "capability_investment", "budget_signal",
+        )
+        try:
+            plan_signals = db.fetchall(
+                """
+                SELECT
+                    sig.id, sig.signal_type, sig.signal_title, sig.confidence,
+                    sig.affected_sectors, sig.agency,
+                    sig.estimated_timeframe, sig.strategic_weight,
+                    src.id AS source_id, src.short_name, src.title AS source_title
+                FROM intel_signals sig
+                JOIN intel_sources src ON src.id = sig.source_id
+                WHERE sig.signal_type = ANY(%s)
+                  AND src.is_active = TRUE
+                  AND (
+                      (sig.affected_sectors IS NOT NULL
+                       AND sig.affected_sectors @> ARRAY[%s]::TEXT[])
+                      OR (sig.agency IS NOT NULL
+                          AND LOWER(sig.agency) LIKE %s)
+                  )
+                ORDER BY sig.extracted_at DESC
+                LIMIT 10
+                """,
+                (
+                    list(_PLAN_SIGNAL_TYPES),
+                    sector,
+                    f"%{agency[:40]}%" if agency else "%",
+                ),
+            )
+        except Exception as _pe:
+            logger.debug("Plan signal query failed: %s", _pe)
+            plan_signals = []
+
+        # Build plan signal badges — only where title keywords overlap with notice title
+        for psig in plan_signals:
+            sig_title_words = set(
+                re.sub(r"[^\w\s]", "", (psig.get("signal_title") or "")).lower().split()
+            ) - {"the", "and", "for", "of", "a", "an", "to", "in", "is", "at", "on"}
+            notice_words = set(
+                re.sub(r"[^\w\s]", "", notice_title).split()
+            )
+            # Accept if agency matches OR if 2+ title words overlap
+            agency_match = (
+                agency and psig.get("agency") and
+                agency[:20] in (psig.get("agency") or "").lower()
+            )
+            word_overlap = len(sig_title_words & notice_words) >= 2
+            if agency_match or word_overlap:
+                timeframe = psig.get("estimated_timeframe") or ""
+                badge_text = (
+                    f"⚡ In {(psig.get('agency') or 'agency')} procurement plan"
+                    + (f" — {timeframe}" if timeframe and timeframe != "Unknown" else "")
+                )
+                if badge_text not in result["plan_signal_badges"]:
+                    result["plan_signal_badges"].append(badge_text)
+                # Add to modifier via strategic_weight (already incorporates confidence)
+                sw = float(psig.get("strategic_weight") or 1.0)
+                total_modifier += sw * 0.25  # plan signal adds up to 0.5 per signal
+
+        if not signals and not plan_signals:
+            return result
 
         for sig in signals:
             base = SIGNAL_TYPE_MODIFIERS.get(sig.get("signal_type", ""), 0.0)
@@ -135,7 +212,7 @@ def get_strategic_score_boost(
         # Cap modifier
         total_modifier = max(MODIFIER_MIN, min(MODIFIER_MAX, total_modifier))
         result["modifier"] = round(total_modifier, 3)
-        result["signal_count"] = len(signals)
+        result["signal_count"] = len(signals) + len(plan_signals)
 
         # Determine overall confidence
         confidences = [s.get("confidence", "medium") for s in signals]

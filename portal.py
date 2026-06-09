@@ -4867,6 +4867,108 @@ def intel_dash():
         + f'</tbody></table></div></div>'
     )
 
+    # ── Section 5: Procurement Plans ─────────────────────────────────────────
+    try:
+        _plan_cat = db.fetchone(
+            "SELECT id FROM intel_categories WHERE name = %s",
+            ("Agency Procurement Plans",),
+        )
+        _plan_cat_id = _plan_cat["id"] if _plan_cat else None
+        if _plan_cat_id:
+            plan_sources = db.fetchall(
+                """
+                SELECT s.id, s.title, s.short_name, s.publisher, s.url,
+                       s.last_checked, s.is_active,
+                       (SELECT COUNT(*) FROM intel_signals sig
+                        WHERE sig.source_id = s.id) AS signal_count
+                FROM intel_sources s
+                WHERE s.category_id = %s
+                ORDER BY s.last_checked DESC NULLS LAST, s.title ASC
+                """,
+                (_plan_cat_id,),
+            )
+        else:
+            plan_sources = []
+    except Exception as _exc:
+        logger.warning("Intel plan sources query failed: %s", _exc)
+        plan_sources = []
+
+    from datetime import datetime as _dt_cls
+    _now_utc = _dt_cls.utcnow()
+
+    def _plan_age_badge(last_checked):
+        if not last_checked:
+            return '<span style="color:#ef4444;font-size:.72rem;font-weight:700;">NEVER FETCHED</span>'
+        try:
+            lc = last_checked if hasattr(last_checked, "date") else _dt_cls.fromisoformat(str(last_checked)[:19])
+            age_days = (_now_utc - lc.replace(tzinfo=None)).days
+            if age_days > 30:
+                return f'<span style="color:#ef4444;font-size:.72rem;font-weight:700;">DUE REFRESH ({age_days}d old)</span>'
+            return f'<span style="color:#2a9d8f;font-size:.72rem;">{age_days}d ago</span>'
+        except Exception:
+            return '<span style="color:var(--muted);font-size:.72rem;">unknown</span>'
+
+    plan_rows_html = ""
+    for ps in plan_sources:
+        lc_str = "—"
+        if ps.get("last_checked"):
+            try:
+                lc = ps["last_checked"]
+                lc_str = lc.strftime("%-d %b %Y") if hasattr(lc, "strftime") else str(lc)[:10]
+            except Exception:
+                pass
+        plan_rows_html += (
+            f'<tr>'
+            f'<td style="font-size:.85rem;">'
+            f'<a href="{ps.get("url","#")}" target="_blank" style="color:var(--text);">'
+            f'{ps.get("title","")[:70]}</a></td>'
+            f'<td style="font-size:.82rem;color:var(--muted);">{(ps.get("publisher") or "")[:30]}</td>'
+            f'<td style="text-align:center;">{ps.get("signal_count",0)}</td>'
+            f'<td style="font-size:.82rem;">{lc_str}</td>'
+            f'<td>{_plan_age_badge(ps.get("last_checked"))}</td>'
+            f'<td style="text-align:center;">'
+            f'<a href="/intel/run-plans?agency={ps.get("short_name","")}" '
+            f'class="btn bg-out" style="font-size:.72rem;padding:.2rem .6rem;" '
+            f'onclick="return confirm(\'Refresh this agency plan?\')">↻ Refresh</a>'
+            f'</td></tr>'
+        )
+
+    due_count = sum(
+        1 for ps in plan_sources
+        if ps.get("last_checked") is None or (
+            hasattr(ps["last_checked"], "date") and
+            (_now_utc - ps["last_checked"].replace(tzinfo=None)).days > 30
+        )
+    )
+
+    s_plans = (
+        f'<div class="card" style="margin-bottom:2rem;">'
+        f'<div class="ch" style="display:flex;align-items:center;justify-content:space-between;">'
+        f'<div>'
+        f'<span style="font-weight:700;">📋 Agency Procurement Plans</span>'
+        f'<span style="font-size:.78rem;color:var(--muted);margin-left:.75rem;">'
+        f'{len(plan_sources)} plans ingested'
+        + (f' — <span style="color:#ef4444;font-weight:700;">{due_count} due refresh</span>' if due_count else "")
+        + f'</span></div>'
+        f'<div style="display:flex;gap:.5rem;">'
+        f'<a href="/intel/run-plans" class="btn bg-gold sm" style="font-size:.78rem;" '
+        f'onclick="return confirm(\'Refresh all agency procurement plans now? This calls Claude for each plan.\')">Refresh all procurement plans</a>'
+        f'</div></div>'
+        + (
+            f'<div style="overflow-x:auto;">'
+            f'<table class="dt" style="width:100%;font-size:.83rem;">'
+            f'<thead><tr><th>Agency plan</th><th>Publisher</th><th>Signals</th>'
+            f'<th>Last fetched</th><th>Status</th><th></th></tr></thead>'
+            f'<tbody>{plan_rows_html}</tbody></table></div>'
+            if plan_sources else
+            f'<div style="padding:2rem;color:var(--muted);text-align:center;">'
+            f'No agency procurement plans ingested yet. '
+            f'<a href="/intel/run-plans" class="btn bg-gold sm" style="font-size:.78rem;" '
+            f'onclick="return confirm(\'Run procurement plan fetch now?\')">Run now</a></div>'
+        )
+        + f'</div>'
+    )
+
     body = (
         f'<div class="ptitle" style="display:flex;align-items:center;justify-content:space-between;">'
         f'<div>'
@@ -4882,7 +4984,7 @@ def intel_dash():
         f'style="font-size:.78rem;" '
         f'onclick="return confirm(\'Run initial Budget 2026 fetch? This calls Claude for each source.\')">Initial Budget fetch</a>'
         f'</div></div>'
-        f'{s1}{s2}{s3}{s4}'
+        f'{s1}{s_plans}{s2}{s3}{s4}'
     )
     return _page("Intelligence Library", body, "admin")
 
@@ -4911,6 +5013,44 @@ def intel_run_job():
     except Exception as exc:
         msg = f"Job failed: {exc}"
         logger.error("intel_run_job error: %s", exc)
+    _flash(msg)
+    return redirect(url_for("intel_dash"))
+
+
+@app.route("/intel/run-plans")
+@login_required
+@admin_required
+def intel_run_plans():
+    """Trigger procurement plan scraper from admin UI."""
+    agency_short = request.args.get("agency", "").strip() or None
+    try:
+        from procurement_plan_scraper import run_all_agency_plans, ingest_agency_plan, PRIORITY_AGENCIES
+        if agency_short:
+            match = next(
+                (a for a in PRIORITY_AGENCIES if a["short"].lower() == agency_short.lower()),
+                None,
+            )
+            if match:
+                result = ingest_agency_plan(match, force_refresh=True)
+                msg = (
+                    f"Plan refresh for {match['name']}: "
+                    f"{result['plans_found']} plan(s) found, "
+                    f"{result['signals_extracted']} signal(s) extracted. "
+                    f"Status: {result['status']}"
+                )
+            else:
+                msg = f"Agency '{agency_short}' not found in priority list."
+        else:
+            results = run_all_agency_plans(force_refresh=True)
+            success = sum(1 for r in results if r["status"] == "success")
+            total_sig = sum(r["signals_extracted"] for r in results)
+            msg = (
+                f"Procurement plan refresh complete — "
+                f"{success}/{len(results)} agencies, {total_sig} signals extracted."
+            )
+    except Exception as exc:
+        msg = f"Procurement plan refresh failed: {exc}"
+        logger.error("intel_run_plans error: %s", exc)
     _flash(msg)
     return redirect(url_for("intel_dash"))
 

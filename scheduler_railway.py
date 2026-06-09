@@ -254,6 +254,44 @@ def _run_watch_brief() -> dict:
         logger.info("SCHEDULER: Watch brief finished at %s", datetime.utcnow().isoformat())
 
 
+def _run_procurement_plans() -> None:
+    """
+    Monthly procurement plan scraper — first Sunday of the month at 03:00 NZT (15:00 UTC Sat).
+    Refreshes all priority agency procurement plans before the AoG panel cache refresh (04:00 NZT)
+    and firm enrichment (05:00 NZT) so all three are current for the week's Layer 1 runs.
+    """
+    logger.info("=" * 60)
+    logger.info(
+        "SCHEDULER: Procurement plan scraper starting at %s",
+        datetime.utcnow().isoformat(),
+    )
+    logger.info("=" * 60)
+    try:
+        from procurement_plan_scraper import run_all_agency_plans
+        results = run_all_agency_plans(force_refresh=False)
+        success_count = sum(1 for r in results if r["status"] == "success")
+        total_signals = sum(r["signals_extracted"] for r in results)
+        logger.info(
+            "SCHEDULER: Procurement plans complete — %d/%d agencies, %d signals extracted",
+            success_count, len(results), total_signals,
+        )
+    except Exception as exc:
+        logger.exception("SCHEDULER: Procurement plan scraper error: %s", exc)
+        try:
+            import mailer
+            mailer.send_admin_only(
+                subject="[Groundwork] Procurement plan scraper ERROR",
+                html=f"<p>The monthly procurement plan scraper failed:</p><pre>{exc}</pre>",
+            )
+        except Exception:
+            pass
+    finally:
+        logger.info(
+            "SCHEDULER: Procurement plan scraper finished at %s",
+            datetime.utcnow().isoformat(),
+        )
+
+
 # ── Scheduler startup ─────────────────────────────────────────────────────────
 
 def start_scheduler() -> None:
@@ -310,6 +348,20 @@ def start_scheduler() -> None:
         id="watch_brief_weekly",
         name="Weekly watch brief (Mon 08:00 NZT)",
         misfire_grace_time=7200,
+        coalesce=True,
+        max_instances=1,
+    )
+
+    # ── Procurement plans: first Sunday of month at 03:00 NZT = Sat 15:00 UTC ─
+    # day_of_week='sat' + day='1-7' matches the first Saturday of the month,
+    # which is the Saturday night before the first Sunday morning in NZT.
+    # This runs before AoG panel cache (04:00 NZT) and firm enrichment (05:00 NZT).
+    scheduler.add_job(
+        _run_procurement_plans,
+        CronTrigger(day_of_week="sat", day="1-7", hour=15, minute=0, timezone="UTC"),
+        id="procurement_plans_monthly",
+        name="Monthly procurement plan scraper (Sun 03:00 NZT)",
+        misfire_grace_time=14400,  # 4h grace — this is a low-urgency background job
         coalesce=True,
         max_instances=1,
     )

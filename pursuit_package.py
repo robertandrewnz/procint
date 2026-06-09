@@ -450,7 +450,7 @@ Most frequent supplier to {agency} in {sector}: {most_frequent_agency_supplier}
 
 === PATTERN FLAGS ===
 {flags_text}
-
+{agency_plan_intel}
 Be specific — use the actual data provided above. Do not be generic. Tone: direct and analytical, written for a senior BD professional.
 
 Return a JSON object with EXACTLY these keys:
@@ -574,6 +574,33 @@ def _call_claude(context: dict) -> Optional[dict]:
         f"- [{f['severity'].upper()}] {f['description'][:120]}" for f in flags
     ) or "No active intelligence flags for this agency/sector."
 
+    # Agency procurement plan signals
+    plan_sigs = context.get("agency_plan_signals") or []
+    if plan_sigs:
+        plan_lines = []
+        for ps in plan_sigs:
+            vb = ps.get("estimated_value_band") or "Unknown"
+            tf = ps.get("estimated_timeframe") or "Unknown"
+            body = ps.get("signal_body") or ps.get("signal_title") or ""
+            plan_lines.append(
+                f"- [{ps.get('signal_type','signal').replace('_',' ').title()}] "
+                f"{ps.get('signal_title','')[:100]} | "
+                f"Value: {vb} | Timeframe: {tf}"
+                + (f"\n  Evidence: {body[:180]}" if body else "")
+            )
+        agency_plan_intel = (
+            f"\n=== AGENCY PROCUREMENT PLAN INTELLIGENCE ===\n"
+            f"The following signals were extracted from {n.get('agency','the agency')}'s "
+            f"published procurement plan:\n"
+            + "\n".join(plan_lines)
+            + "\n\nInstruction: Where procurement plan signals align with this notice, "
+            "treat them as corroborating evidence of an active pipeline. "
+            "Where they contradict the notice (e.g. plan suggests a later timeframe), "
+            "flag this as a potential discrepancy worth investigating.\n"
+        )
+    else:
+        agency_plan_intel = ""
+
     # National market context
     nm = context.get("national_market", {})
     nat_top3 = nm.get("top3_national", [])
@@ -639,6 +666,7 @@ def _call_claude(context: dict) -> Optional[dict]:
         agency_sector_awards=ag.get("sector_awards", 0),
         agency_top_sectors=", ".join(f"{s[0]} ({s[1]})" for s in ag.get("top_sectors", [])) or "Insufficient data",
         flags_text=flags_text,
+        agency_plan_intel=agency_plan_intel,
         national_total_contracts=nm.get("total_contracts", 0),
         national_total_value=_fmt_value(nm.get("total_value", 0)),
         national_avg_value=_fmt_value(nm.get("avg_value", 0)),
@@ -1338,6 +1366,32 @@ def generate_pursuit_package(
     citation = _mbie_citation(sector, agency)
     national_market = _get_national_market_context(sector)
 
+    # Fetch procurement plan signals for this agency
+    agency_plan_signals: list = []
+    try:
+        _plan_rows = db.fetchall(
+            """
+            SELECT signal_type, signal_title, signal_body, estimated_value_band,
+                   estimated_timeframe, confidence, strategic_weight, agency
+            FROM intel_signals
+            WHERE agency ILIKE %s
+              AND signal_type IN (
+                  'upcoming_contract','panel_refresh',
+                  'renewal_risk','capability_investment','budget_signal'
+              )
+            ORDER BY strategic_weight DESC NULLS LAST, extracted_at DESC
+            LIMIT 5
+            """,
+            (f"%{agency[:60]}%",),
+        )
+        agency_plan_signals = [dict(r) for r in _plan_rows]
+        if agency_plan_signals:
+            logger.info(
+                "Agency plan signals for %s: %d found", agency, len(agency_plan_signals)
+            )
+    except Exception as _pe:
+        logger.debug("Agency plan signal query failed: %s", _pe)
+
     context = {
         "client_name": client_name,
         "preferred_sectors": preferred_sectors or [],
@@ -1356,6 +1410,7 @@ def generate_pursuit_package(
         "flags": [dict(f) for f in flags],
         "mbie_citation": citation,
         "national_market": national_market,
+        "agency_plan_signals": agency_plan_signals,
     }
 
     # 2. Call Claude
