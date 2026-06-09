@@ -330,7 +330,7 @@ ARTEFACTS_DIR: str = os.getenv("ARTEFACTS_DIR", "output/artefacts")
 
 # Model for Layer 3 (longer-form synthesis — can be overridden per client)
 CLAUDE_MODEL_L3: str = os.getenv("CLAUDE_MODEL_L3", CLAUDE_MODEL)
-CLAUDE_MAX_TOKENS_L3: int = int(os.getenv("CLAUDE_MAX_TOKENS_L3", "4096"))
+CLAUDE_MAX_TOKENS_L3: int = int(os.getenv("CLAUDE_MAX_TOKENS_L3", "8192"))
 
 # Portal auth (single shared password per deployment)
 PORTAL_PASSWORD: str = os.getenv("PORTAL_PASSWORD", "changeme")

@@ -364,10 +364,39 @@ def _mbie_citation(sector: str, agency: str) -> str:
 
 _PURSUIT_SYSTEM = """You are a senior procurement strategy adviser at a boutique advisory firm in New Zealand.
 You are preparing an intelligence package for a client considering bidding on a government contract.
-Your analysis must be grounded strictly in the data provided — do not invent firms, award values, or procurement history not present in the context.
-When referencing contract award data, use neutral language: 'government contract award records', 'historical award data', 'published contract records', or 'contract award history'. Do NOT write 'MBIE data shows', 'according to MBIE', 'no MBIE record', or 'MBIE-recorded wins'. MBIE is a data source, not an authority — frame findings as market observations, not disqualifications.
-When a FIRM PROFILE section is provided, use it as the primary source of truth about the client's capabilities, history, and track record. The firm profile represents what is known about the client — treat it as verified background, not speculation.
-Narrative consistency rule: if go_nogo is "CONDITIONAL GO", the win_probability_rationale and go_nogo_rationale MUST describe a credible path to success and what conditions make the bid viable. Never use language that dismisses or disqualifies the client when the recommendation is GO or CONDITIONAL GO. "CONDITIONAL GO" means there is a realistic path — the narrative must describe that path.
+
+GROUNDING RULES:
+- Your analysis must be grounded strictly in the data provided — do not invent firms, award values, or procurement history not present in the context.
+- When referencing contract award data, use neutral language: 'government contract award records', 'historical award data', 'published contract records', or 'contract award history'. Do NOT write 'MBIE data shows', 'according to MBIE', 'no MBIE record', or 'MBIE-recorded wins'. MBIE is a data source, not an authority — frame findings as market observations, not disqualifications.
+- When a FIRM PROFILE section is provided, use it as the primary source of truth about the client's capabilities, history, and track record. Treat it as verified background.
+- When NO FIRM PROFILE is provided and no client history appears in the award data, you MUST state explicitly: "No recorded government contract history found for [client name] in government contract award data." Do not speculate about capabilities the client may have. Base win positioning on opportunity structure only.
+
+WIN POSITION LOGIC — follow this strict hierarchy:
+Step 1 — Assess the opportunity structure FIRST, before considering the client:
+  - Incumbent retention rate for this agency from award history
+  - Whether an incumbent is detectable from the award data
+  - Days to close vs contract complexity
+  - Whether evaluation criteria are published or absent
+  - Signs of pre-engagement (vague description, very short window, two-stage with imminent Stage 1 close)
+  If structural factors alone indicate this is unlikely to go to a new entrant, state this as the base position.
+Step 2 — Adjust for client-specific factors ONLY after establishing structural difficulty:
+  - If award history exists for the client firm name → cite it explicitly
+  - If no history exists → state this explicitly and base positioning on opportunity structure only
+  - Never assume capabilities the client may or may not have
+Step 3 — Separate the verdict clearly:
+  - "This opportunity is [Competitive/Challenging] structurally because [specific reasons from agency data]"
+  - "For [client name] specifically, [what is known / what is unknown about their position]"
+
+DIRECTNESS AND SPECIFICITY:
+- Be direct. Every claim must reference actual data from the agency profile or competitive landscape provided.
+- Do not hedge with phrases like 'may', 'might', 'could potentially' — make a call and explain your reasoning.
+- If data is insufficient to make a claim, say so explicitly rather than speculating.
+- The client is a senior BD professional — write at that level.
+
+NARRATIVE CONSISTENCY RULE: if go_nogo is "CONDITIONAL GO", the go_nogo_rationale MUST describe a credible path to success. Never use language that dismisses the client when the recommendation is GO or CONDITIONAL GO.
+
+COMPETITIVE NARRATIVE RULE: Generate competitive_narrative first as a full analytical narrative. Then generate ach_table as a structured formalisation of the hypotheses you identified in the narrative. Every hypothesis in the ACH table must trace back to something mentioned in the narrative. Do not introduce new hypotheses in the table that weren't flagged in the narrative. The ACH table must be internally consistent with the narrative.
+
 Respond ONLY with a valid JSON object, no preamble, no markdown fences."""
 
 _PURSUIT_PROMPT = """Prepare a pursuit intelligence package for:
@@ -392,21 +421,21 @@ Evaluation weighting (inferred): {evaluation_weighting}
 Red flags identified: {red_flags}
 Strategic framing: {strategic_framing}
 
-=== CLIENT HISTORY (MBIE data) ===
+=== CLIENT HISTORY (government contract award records) ===
 Client wins in {sector} sector (all time): {client_sector_wins} contracts, {client_sector_value} total
 Client wins with {agency} specifically: {client_agency_wins} contracts
 Client's sectors of proven capability: {client_sectors}
 Note: {client_data_note}
 
-=== COMPETITIVE LANDSCAPE (MBIE: {mbie_citation}) ===
+=== COMPETITIVE LANDSCAPE ({mbie_citation}) ===
 Historical winners of similar contracts ({sector} sector, same agency or similar agencies):
 {competitors_text}
 
 === INCUMBENT INTELLIGENCE ===
 Most recent winner from {agency} in {sector}: {incumbent_text}
 
-=== AGENCY PROFILE (MBIE data) ===
-Total MBIE-recorded awards: {agency_total_awards} contracts worth {agency_total_value}
+=== AGENCY PROFILE (contract award records) ===
+Total recorded awards: {agency_total_awards} contracts worth {agency_total_value}
 Average contract value: {agency_avg_value}
 Unique suppliers engaged: {agency_unique_suppliers}
 Awards in {sector} sector specifically: {agency_sector_awards}
@@ -417,30 +446,53 @@ Similar contracts awarded nationally: {national_total_contracts} contracts ({nat
 Average contract value nationally: {national_avg_value}
 Top 3 suppliers nationally in this category:
 {national_top3_text}
-Most frequent supplier to {agency} in {sector} (from above competitive table): {most_frequent_agency_supplier}
+Most frequent supplier to {agency} in {sector}: {most_frequent_agency_supplier}
 
 === PATTERN FLAGS ===
 {flags_text}
 
-Be specific — use the actual data provided above. Do not be generic. Tone: direct and analytical, written for a senior BD professional who reads intelligence reports.
+Be specific — use the actual data provided above. Do not be generic. Tone: direct and analytical, written for a senior BD professional.
 
-Return a JSON object with EXACTLY these keys. Be specific and cite data where available.
+Return a JSON object with EXACTLY these keys:
 
 "executive_summary": Two paragraphs. First: what this opportunity is and its strategic significance. Second: why this matters specifically for {client_name} given their track record.
 
 "strategic_fit_score": Integer 1-10. Base this on: client's sector capability, prior agency relationship, competitive positioning.
 
-"win_probability_rationale": One paragraph assessing the competitive position — referencing the incumbent, client's sector track record, days to close, and any known red flags. Do NOT include a percentage figure.
+"opportunity_structure_assessment": One paragraph assessing the opportunity STRUCTURALLY before considering the client. Cover: (1) incumbent retention rate and whether an incumbent is detectable; (2) days to close vs contract complexity; (3) whether evaluation criteria are published or absent; (4) any signs of pre-engagement. Start with: "Structurally, this opportunity is [Competitive/Challenging] because..."
+
+"client_specific_factors": One paragraph on client-specific positioning ONLY. If award history exists for {client_name}, cite it. If no history exists, state explicitly: "No recorded government contract history found for {client_name} in government contract award data." Base positioning on opportunity structure if no history is available. Go conditions must be achievable actions, not assumptions about unknown capabilities.
+
+"win_probability_rationale": Combine the above into a two-paragraph assessment. Paragraph 1 = opportunity structure (copy from opportunity_structure_assessment). Paragraph 2 = client-specific factors (copy from client_specific_factors). Separate these clearly.
 
 "go_nogo": Exactly one of "GO", "CONDITIONAL GO", or "NO GO"
 
 "go_nogo_rationale": Two sentences. Decisive recommendation with primary reason and key condition if conditional.
 
-"competitive_assessment": Two paragraphs. Who the main threats are, their strengths, and where gaps exist for {client_name}.
+"centre_of_gravity": Object with exactly these keys:
+  "factor": One sentence naming the single factor that will most determine the outcome of this procurement — not a list, one dominant factor.
+  "why_it_dominates": 2-3 sentences explaining why this factor outweighs all others based on agency history and notice characteristics. Reference specific data.
+  "strategic_implication": One sentence on what this means for how {client_name} should allocate bid resources.
+
+"competitive_narrative": 3-4 paragraph analytical narrative covering: (1) the realistic competitive field for this specific contract — not a generic sector list, name actual firms where data exists; (2) the incumbent risk assessment including both disclosed incumbents (from award history) and undisclosed incumbents (platform vendors, direct engagements, informal relationships that wouldn't appear in award data); (3) the key competitive dynamic — what will actually determine who wins and where genuine differentiation opportunity exists; (4) any sector-specific competitive patterns relevant to this contract type. Be specific — not "several firms may bid" but analytical conclusions with reasoning.
+
+"ach_table": Array of 3-4 objects, each representing a hypothesis about the procurement outcome. Each object has:
+  "hypothesis": String (e.g. "Incumbent platform vendor retains contract")
+  "evidence_for": Array of 2-3 strings — specific evidence supporting this hypothesis from the data provided
+  "evidence_against": Array of 1-2 strings — specific evidence working against this hypothesis
+  "probability": Exactly one of "High", "Medium", or "Low"
+  Plus one final object: {{"hypothesis": "Most discriminating factor", "evidence_for": ["The single piece of intelligence that would most change the probability assessment — one specific data point or event"], "evidence_against": [], "probability": "N/A"}}
+  CRITICAL: Every hypothesis must trace back to something mentioned in competitive_narrative. Do not introduce hypotheses here that weren't flagged in the narrative. Internal consistency is mandatory.
 
 "incumbent_assessment": One paragraph. How entrenched the incumbent is and what it would take to displace them.
 
 "agency_insights": One to two paragraphs. What this buyer values, how they procure, and what the data reveals about their evaluation behaviour.
+
+"evaluation_cone": Object representing three evaluation weighting scenarios. Keys:
+  "label": String — "Inferred — no criteria published" if no criteria stated, otherwise "Estimated from notice and agency patterns"
+  "conservative": Object with "scenario" (string — standard NZ government practice weighting, brief description) and "rationale" (string — why this is the floor scenario)
+  "most_likely": Object with "scenario" (string — adjusted for this agency's actual award patterns and notice characteristics) and "rationale" (string — reasoning drawn from agency data provided)
+  "optimistic": Object with "scenario" (string — weighting most favourable for {client_name}) and "rationale" (string — why this would favour the client and under what conditions)
 
 "positioning_recommendations": Array of 3-5 objects, each with "title" (short label) and "detail" (2-3 sentences of specific, actionable advice tailored to {client_name}).
 
@@ -603,7 +655,32 @@ def _call_claude(context: dict) -> Optional[dict]:
             if raw.startswith("json"):
                 raw = raw[4:]
             raw = raw.strip()
-        return json.loads(raw)
+        # Attempt direct parse first
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as jerr:
+            # If JSON is truncated (hit max_tokens), attempt to close it
+            logger.warning("JSON parse failed (%s) — attempting truncation recovery", jerr)
+            fixed = raw
+            # Count open braces/brackets and close them
+            opens = fixed.count("{") - fixed.count("}")
+            arr_opens = fixed.count("[") - fixed.count("]")
+            # Walk back to last clean value end (comma or closing char)
+            # Simple heuristic: truncate at last comma + close open structures
+            last_comma = max(fixed.rfind(","), fixed.rfind('"'))
+            if last_comma > 0:
+                fixed = fixed[:last_comma]
+            for _ in range(arr_opens):
+                fixed += "]"
+            for _ in range(opens):
+                fixed += "}"
+            try:
+                result = json.loads(fixed)
+                logger.info("Truncation recovery succeeded")
+                return result
+            except Exception:
+                logger.error("Claude synthesis failed: original=%s", jerr)
+                return None
     except Exception as exc:
         logger.error("Claude synthesis failed: %s", exc)
         return None
@@ -865,6 +942,117 @@ def _render_html(
     ag = context.get("agency_stats", {})
     citation = context.get("mbie_citation", "MBIE data")
 
+    # ── ACH table ─────────────────────────────────────────────────────────────
+    ach_table_html = ""
+    ach_items = a.get("ach_table") or []
+    if ach_items:
+        ach_rows = ""
+        for h in ach_items:
+            prob = h.get("probability", "")
+            if prob == "High":
+                pc = "color:#c0392b;font-weight:700;"
+            elif prob == "Medium":
+                pc = "color:#d4a017;font-weight:700;"
+            elif prob == "Low":
+                pc = "color:#27ae60;font-weight:700;"
+            else:
+                pc = "color:var(--muted);font-style:italic;"
+            ev_for = "".join(f"<li>{_safe(e)}</li>" for e in (h.get("evidence_for") or []))
+            ev_against = "".join(f"<li>{_safe(e)}</li>" for e in (h.get("evidence_against") or []))
+            ach_rows += (
+                f"<tr>"
+                f"<td style='font-weight:600;font-size:.82rem;'>{_safe(h.get('hypothesis', ''))}</td>"
+                f"<td><ul style='margin:0;padding-left:1.1rem;font-size:.79rem;'>{ev_for}</ul></td>"
+                f"<td><ul style='margin:0;padding-left:1.1rem;font-size:.79rem;'>{ev_against}</ul></td>"
+                f"<td style='{pc}'>{_safe(prob)}</td>"
+                f"</tr>"
+            )
+        ach_table_html = (
+            f'<div style="margin-top:1.5rem;">'
+            f'<div style="font-size:.72rem;font-weight:700;letter-spacing:.08em;'
+            f'text-transform:uppercase;color:var(--navy);margin-bottom:.5rem;">'
+            f'ACH Hypothesis Analysis</div>'
+            f'<table style="font-size:.82rem;">'
+            f'<thead><tr>'
+            f'<th style="width:26%">Hypothesis</th>'
+            f'<th style="width:35%">Evidence For</th>'
+            f'<th style="width:30%">Evidence Against</th>'
+            f'<th style="width:9%">Probability</th>'
+            f'</tr></thead>'
+            f'<tbody>{ach_rows}</tbody>'
+            f'</table>'
+            f'<div class="citation">{_safe(citation)}</div>'
+            f'</div>'
+        )
+
+    # ── Cone of Plausibility ──────────────────────────────────────────────────
+    cone = a.get("evaluation_cone") or {}
+    cone_label = _safe(cone.get("label", "Inferred — no criteria published"))
+    cone_html = ""
+    if cone:
+        def _cone_cell(sd, highlight=False):
+            if not sd:
+                return "<td></td>"
+            bg = "background:var(--gold-l);" if highlight else ""
+            return (
+                f'<td style="vertical-align:top;padding:.75rem 1rem;'
+                f'border:1px solid var(--border);border-radius:4px;{bg}">'
+                f'<div style="font-size:.82rem;color:var(--text);margin-bottom:.4rem;">'
+                f'{_safe(sd.get("scenario",""))}</div>'
+                f'<div style="font-size:.75rem;color:var(--muted);font-style:italic;">'
+                f'{_safe(sd.get("rationale",""))}</div>'
+                f'</td>'
+            )
+        cone_html = (
+            f'<div style="margin-top:1.25rem;">'
+            f'<div style="font-size:.72rem;font-weight:700;letter-spacing:.08em;'
+            f'text-transform:uppercase;color:var(--navy);margin-bottom:.5rem;">'
+            f'Evaluation Criteria — Cone of Plausibility'
+            f'<span style="font-size:.68rem;font-weight:400;color:var(--muted);'
+            f'text-transform:none;letter-spacing:0;margin-left:.5rem;">'
+            f'({cone_label})</span></div>'
+            f'<table style="table-layout:fixed;">'
+            f'<thead><tr>'
+            f'<th style="width:33%;">Conservative'
+            f'<br><span style="font-size:.6rem;font-weight:400;opacity:.75;">'
+            f'Standard NZ govt practice</span></th>'
+            f'<th style="width:34%;background:#2d4a3e;">Most Likely'
+            f'<br><span style="font-size:.6rem;font-weight:400;opacity:.75;">'
+            f'Agency patterns &amp; notice signals</span></th>'
+            f'<th style="width:33%;">Optimistic'
+            f'<br><span style="font-size:.6rem;font-weight:400;opacity:.75;">'
+            f'Most favourable for client</span></th>'
+            f'</tr></thead>'
+            f'<tbody><tr>'
+            f'{_cone_cell(cone.get("conservative"))}'
+            f'{_cone_cell(cone.get("most_likely"), highlight=True)}'
+            f'{_cone_cell(cone.get("optimistic"))}'
+            f'</tr></tbody>'
+            f'</table>'
+            f'</div>'
+        )
+
+    # ── Centre of Gravity ─────────────────────────────────────────────────────
+    cog = a.get("centre_of_gravity") or {}
+    cog_html = ""
+    if cog:
+        cog_html = (
+            f'<div style="background:var(--navy);color:#fff;border-radius:8px;'
+            f'padding:1.25rem 1.5rem;margin-bottom:1rem;">'
+            f'<div style="font-size:.62rem;font-weight:700;letter-spacing:.1em;'
+            f'text-transform:uppercase;color:var(--gold);margin-bottom:.5rem;">'
+            f'The deciding factor</div>'
+            f'<div style="font-size:1rem;font-weight:700;line-height:1.4;'
+            f'margin-bottom:.75rem;">{_safe(cog.get("factor",""))}</div>'
+            f'<div style="font-size:.84rem;color:rgba(255,255,255,.82);line-height:1.65;'
+            f'margin-bottom:.65rem;">{_safe(cog.get("why_it_dominates",""))}</div>'
+            f'<div style="font-size:.82rem;color:var(--gold);'
+            f'border-top:1px solid rgba(255,255,255,.15);padding-top:.65rem;">'
+            f'<strong>Strategic implication:</strong> '
+            f'{_safe(cog.get("strategic_implication",""))}'
+            f'</div></div>'
+        )
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -882,11 +1070,12 @@ def _render_html(
   <nav>
     <a href="#exec">01 Executive Summary</a>
     <a href="#assessment">02 Opportunity Assessment</a>
-    <a href="#competitive">03 Competitive Landscape</a>
-    <a href="#agency">04 Agency Profile</a>
-    <a href="#positioning">05 Positioning Brief</a>
-    <a href="#risks">06 Risk Register</a>
-    <a href="#actions">07 Recommended Actions</a>
+    <a href="#agency">03 Agency Profile</a>
+    <a href="#cog">04 Centre of Gravity</a>
+    <a href="#competitive">05 Competitive Landscape</a>
+    <a href="#positioning">06 Positioning Brief</a>
+    <a href="#risks">07 Risk Register</a>
+    <a href="#actions">08 Recommended Actions</a>
   </nav>
   <div class="sidebar-label" style="margin-top:2rem;">Data</div>
   <div style="font-size:.7rem;color:var(--muted);line-height:1.6;">
@@ -904,11 +1093,12 @@ def _render_html(
     <nav>
       <a href="#exec">01 Executive Summary</a>
       <a href="#assessment">02 Opportunity Assessment</a>
-      <a href="#competitive">03 Competitive Landscape</a>
-      <a href="#agency">04 Agency Profile</a>
-      <a href="#positioning">05 Positioning Brief</a>
-      <a href="#risks">06 Risk Register</a>
-      <a href="#actions">07 Recommended Actions</a>
+      <a href="#agency">03 Agency Profile</a>
+      <a href="#cog">04 Centre of Gravity</a>
+      <a href="#competitive">05 Competitive Landscape</a>
+      <a href="#positioning">06 Positioning Brief</a>
+      <a href="#risks">07 Risk Register</a>
+      <a href="#actions">08 Recommended Actions</a>
     </nav>
   </div>
 
@@ -968,7 +1158,17 @@ def _render_html(
   <div class="section" id="assessment">
     <div class="section-number">02</div>
     <div class="section-title">Opportunity Assessment</div>
-    <div class="prose">{_paras(a.get('win_probability_rationale') or '')}</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
+      <div style="background:var(--navy-l);border:1px solid #b0bcd4;border-radius:6px;padding:.9rem 1rem;">
+        <div style="font-size:.62rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--navy);margin-bottom:.4rem;">Opportunity Structure</div>
+        <div style="font-size:.82rem;color:var(--text);line-height:1.65;">{_safe(a.get('opportunity_structure_assessment') or a.get('win_probability_rationale') or '')}</div>
+      </div>
+      <div style="background:var(--surf2);border:1px solid var(--border);border-radius:6px;padding:.9rem 1rem;">
+        <div style="font-size:.62rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--navy);margin-bottom:.4rem;">Client Position — {_safe(client_name)}</div>
+        <div style="font-size:.82rem;color:var(--text);line-height:1.65;">{_safe(a.get('client_specific_factors') or '')}</div>
+      </div>
+    </div>
 
     <table style="margin-top:.75rem;">
       <thead><tr>
@@ -983,35 +1183,11 @@ def _render_html(
       </tbody>
     </table>
     <div class="citation">{_safe(citation)}</div>
-    {_paras(a.get('strategic_fit_assessment') or '')}
   </div>
 
-  <!-- 03 Competitive Landscape -->
-  <div class="section" id="competitive">
-    <div class="section-number">03</div>
-    <div class="section-title">Competitive Landscape</div>
-    <div class="prose">{_paras(a.get('competitive_assessment') or '')}</div>
-
-    {inc_text}
-
-    <div class="prose">{_paras(a.get('incumbent_assessment') or '')}</div>
-
-    {f'''<table>
-      <thead><tr>
-        <th>Supplier</th>
-        <th>This agency wins</th>
-        <th>Sector wins total</th>
-        <th>Avg contract value</th>
-        <th>Last win</th>
-      </tr></thead>
-      <tbody>{comp_rows}</tbody>
-    </table>
-    <div class="citation">{_safe(citation)}</div>''' if comp_rows else '<p style="color:var(--muted);font-size:.82rem;font-style:italic;">Insufficient MBIE data for this agency/sector combination. Field is unknown.</p>'}
-  </div>
-
-  <!-- 04 Agency Profile -->
+  <!-- 03 Agency Profile -->
   <div class="section" id="agency">
-    <div class="section-number">04</div>
+    <div class="section-number">03</div>
     <div class="section-title">Agency Profile — {_safe(n.get('agency', ''))}</div>
     <div class="prose">{_paras(a.get('agency_insights') or '')}</div>
 
@@ -1027,20 +1203,51 @@ def _render_html(
       </tbody>
     </table>
     <div class="citation">{_safe(citation)}</div>
-
-    {"".join(f'<p style="font-size:.8rem;color:var(--muted);"><strong>Evaluation weighting (Layer 1 AI inference):</strong> {_safe(n.get("evaluation_weighting", ""))}</p>' if n.get("evaluation_weighting") else '')}
+    {cone_html}
   </div>
 
-  <!-- 05 Positioning Brief -->
-  <div class="section" id="positioning">
+  <!-- 04 Centre of Gravity -->
+  <div class="section" id="cog">
+    <div class="section-number">04</div>
+    <div class="section-title">Centre of Gravity Assessment</div>
+    {cog_html}
+  </div>
+
+  <!-- 05 Competitive Landscape -->
+  <div class="section" id="competitive">
     <div class="section-number">05</div>
+    <div class="section-title">Competitive Landscape</div>
+
+    <div class="prose">{_paras(a.get('competitive_narrative') or a.get('competitive_assessment') or '')}</div>
+
+    {inc_text}
+    <div class="prose">{_paras(a.get('incumbent_assessment') or '')}</div>
+
+    {f'''<table style="margin-top:.75rem;">
+      <thead><tr>
+        <th>Supplier</th>
+        <th>This agency wins</th>
+        <th>Sector wins total</th>
+        <th>Avg contract value</th>
+        <th>Last win</th>
+      </tr></thead>
+      <tbody>{comp_rows}</tbody>
+    </table>
+    <div class="citation">{_safe(citation)}</div>''' if comp_rows else '<p style="color:var(--muted);font-size:.82rem;font-style:italic;">Insufficient data for this agency/sector combination.</p>'}
+
+    {ach_table_html}
+  </div>
+
+  <!-- 06 Positioning Brief -->
+  <div class="section" id="positioning">
+    <div class="section-number">06</div>
     <div class="section-title">Positioning Brief for {_safe(client_name)}</div>
     {pos_cards}
   </div>
 
-  <!-- 06 Risk Register -->
+  <!-- 07 Risk Register -->
   <div class="section" id="risks">
-    <div class="section-number">06</div>
+    <div class="section-number">07</div>
     <div class="section-title">Risk Register</div>
     <table>
       <thead><tr>
@@ -1054,9 +1261,9 @@ def _render_html(
     {f'<div style="margin-top:.75rem;font-size:.8rem;"><strong>Red flags (Layer 1 AI):</strong> {_safe(n.get("red_flags", "None identified."))}</div>' if n.get("red_flags") else ''}
   </div>
 
-  <!-- 07 Recommended Actions -->
+  <!-- 08 Recommended Actions -->
   <div class="section" id="actions">
-    <div class="section-number">07</div>
+    <div class="section-number">08</div>
     <div class="section-title">Recommended Actions</div>
     {action_html}
   </div>
@@ -1188,6 +1395,7 @@ def generate_pursuit_package(
     # 4. Save
     if output_dir is None:
         output_dir = _artefact_dir(client_name)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     filename = f"{notice_id}_pursuit_package.html"
     out_path = output_dir / filename

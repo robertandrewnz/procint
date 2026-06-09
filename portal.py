@@ -215,9 +215,12 @@ def _list_artefacts(slug: str, pattern: str = "*.html") -> list[dict]:
     if not base.exists(): return []
     files = []
     for f in sorted(base.rglob(pattern), reverse=True)[:60]:
-        rel = f.relative_to(ARTEFACTS)
+        rel_full = f.relative_to(ARTEFACTS)        # includes slug — for FS/share ops
+        rel_url  = f.relative_to(ARTEFACTS / slug)  # slug-stripped — for url_for
         files.append({"name": f.stem.replace("_", " ").title(),
-                      "rel_path": str(rel), "date": f.parent.name,
+                      "rel_path": str(rel_full),  # full path from ARTEFACTS root
+                      "url_path": str(rel_url),   # path after slug (use in url_for)
+                      "date": f.parent.name,
                       "size_kb": f.stat().st_size // 1024,
                       "has_pdf": f.with_suffix(".pdf").exists()})
     return files
@@ -2974,10 +2977,10 @@ def _artefact_page(title: str, pattern: str, empty_msg: str, active: str) -> str
     cards = ""
     for f in files:
         view_url = url_for("serve_artefact_file",
-                           client_slug=current_user.slug, filepath=f["rel_path"])
+                           client_slug=current_user.slug, filepath=f["url_path"])
         pdf_btn = ""
         if f.get("has_pdf"):
-            pdf_path = f["rel_path"].rsplit(".", 1)[0] + ".pdf"
+            pdf_path = f["url_path"].rsplit(".", 1)[0] + ".pdf"
             pdf_url  = url_for("serve_artefact_file",
                                client_slug=current_user.slug, filepath=pdf_path)
             pdf_btn = f'<a href="{pdf_url}" target="_blank" class="btn bg-out sm">PDF</a>'
@@ -3859,9 +3862,13 @@ def admin_requests():
             f'<td>'
         )
         if r.get("output_path"):
+            # output_path stored in DB is relative to ARTEFACTS root (includes slug).
+            # serve_artefact_file expects filepath WITHOUT the slug prefix.
+            _op = r["output_path"]
+            _op_stripped = "/".join(_op.split("/", 1)[1:]) if "/" in _op else _op
             _vurl = url_for("serve_artefact_file",
                             client_slug=r["client_id"],
-                            filepath=r["output_path"])
+                            filepath=_op_stripped)
             rows += f'<a href="{_vurl}" target="_blank" class="btn bg-out sm">View</a>'
         elif r.get("status") in ("pending", "failed"):
             rows += (
@@ -4165,7 +4172,7 @@ def admin_client(username: str):
             return '<p style="color:var(--muted);font-size:.82rem;">None generated yet.</p>'
         rows = ""
         for f in files:
-            vurl = url_for("serve_artefact_file", client_slug=slug, filepath=f["rel_path"])
+            vurl = url_for("serve_artefact_file", client_slug=slug, filepath=f["url_path"])
             rows += (f'<tr><td>{f["name"]}</td><td style="color:var(--muted);">{f["date"]}</td>'
                      f'<td>{f["size_kb"]}KB</td>'
                      f'<td><a href="{vurl}" target="_blank" class="btn bg-out sm">View</a></td></tr>')
