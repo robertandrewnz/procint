@@ -99,7 +99,21 @@ class User(UserMixin):
             or data.get("sectors")
             or []
         )
-        self.slug          = data.get("artefact_slug") or _slug(data.get("display_name", username))
+        self.slug           = data.get("artefact_slug") or _slug(data.get("display_name", username))
+        self.plan           = data.get("plan", "pursue")        # watch | pursue | edge
+        self.billing_status = data.get("billing_status", "active")  # trial | active | suspended
+
+    def can(self, feature: str) -> bool:
+        """Plan-based feature gate. Returns True if user's plan includes this feature."""
+        if self.is_admin_user:
+            return True
+        PLAN_FEATURES = {
+            "watch":   {"watchlist", "signals", "briefs"},
+            "pursue":  {"watchlist", "signals", "briefs", "pursuits", "competitors", "radar"},
+            "edge":    {"watchlist", "signals", "briefs", "pursuits", "competitors", "radar",
+                        "priority", "notes"},
+        }
+        return feature in PLAN_FEATURES.get(self.plan, PLAN_FEATURES["pursue"])
 
 @login_manager.user_loader
 def load_user(username: str) -> Optional[User]:
@@ -555,13 +569,21 @@ def _sidebar(active: str = "") -> str:
     def lnk(href, icon, label, key):
         cls = "on" if active == key else ""
         return f'<a href="{href}" class="{cls}">{icon}&nbsp; {label}</a>'
+
     admin_links = ""
     if current_user.is_authenticated and current_user.is_admin_user:
         admin_links = (
+            # Subtle divider between client-facing and admin sections
+            f'<div style="border-top:1px solid var(--border);margin:.75rem .5rem .5rem;"></div>'
             f'<div class="side-sec">Admin</div>'
-            f'{lnk(url_for("admin_dash"),         "⚙", "Admin",            "admin")}'
-            f'{lnk(url_for("admin_sector_review"), "⚠", "Sector Review",    "admin")}'
-            f'{lnk(url_for("intel_dash"),          "🛰", "Intel Library",    "intel")}'
+            f'{lnk(url_for("admin_dash"),          "⚙",  "Dashboard",     "admin")}'
+            f'{lnk(url_for("admin_leads"),         "📥", "Leads",          "admin-leads")}'
+            f'{lnk(url_for("admin_clients_list"),  "👥", "Clients",        "admin-clients")}'
+            f'{lnk(url_for("admin_requests"),      "📦", "Requests",       "admin-requests")}'
+            f'{lnk(url_for("admin_briefs"),        "📨", "Briefs",         "admin-briefs")}'
+            f'{lnk(url_for("admin_pipeline"),      "⚡", "Pipeline",       "admin-pipeline")}'
+            f'{lnk(url_for("intel_dash"),          "🛰",  "Intel Library",  "intel")}'
+            f'{lnk(url_for("admin_sector_review"), "⚠",  "Sector Review",  "admin-sector")}'
         )
     return (f'<nav class="side">'
             f'<div class="side-sec">Intelligence</div>'
@@ -571,10 +593,10 @@ def _sidebar(active: str = "") -> str:
             f'{lnk(url_for("gw_competitors"), "📊", "Competitors",  "competitors")}'
             f'{lnk(url_for("gw_briefs"),      "📬", "Watch Briefs", "briefs")}'
             f'<div class="side-sec">Actions</div>'
-            f'{lnk(url_for("gw_request"),     "✉", "Request",      "request")}'
+            f'{lnk(url_for("gw_request"),     "✉",  "Request",      "request")}'
             f'{admin_links}'
             f'<div class="side-sec" style="margin-top:auto;padding-top:1rem;">Support</div>'
-            f'{lnk(url_for("gw_help"),        "?", "Help",          "help")}'
+            f'{lnk(url_for("gw_help"),        "?",  "Help",         "help")}'
             f'</nav>')
 
 
@@ -1142,33 +1164,30 @@ def signup():
         org      = request.form.get("org", "").strip()
         email    = request.form.get("email", "").strip()
         phone    = request.form.get("phone", "").strip()
+        role     = request.form.get("role", "").strip()
+        sectors  = request.form.get("sectors", "").strip()
         goals    = request.form.get("goals", "").strip()  # Edge only
 
         if not (name and email):
             return redirect(url_for("signup") + f"?plan={plan}&err=1")
 
         plan_label = PLAN_LABELS.get(plan, plan.title() or "Unknown")
+        notes = goals  # Edge form calls it "goals"
 
-        # Build email body
-        rows = (f"<tr><td><b>Plan</b></td><td>{_esc(plan_label)}</td></tr>"
-                f"<tr><td><b>Name</b></td><td>{_esc(name)}</td></tr>"
-                f"<tr><td><b>Organisation</b></td><td>{_esc(org) or '(not given)'}</td></tr>"
-                f"<tr><td><b>Email</b></td><td>{_esc(email)}</td></tr>")
-        if phone:
-            rows += f"<tr><td><b>Phone</b></td><td>{_esc(phone)}</td></tr>"
-        if goals:
-            rows += f"<tr><td><b>Goals</b></td><td>{_esc(goals)}</td></tr>"
-
-        email_html = (f"<h2>New sign-up: {_esc(plan_label)} plan</h2>"
-                      f"<table border='0' cellpadding='6' style='border-collapse:collapse;'>"
-                      f"{rows}</table>")
-        subject = f"[BidEdge] New sign-up — {plan_label} — {name}"
-
-        sent = _send_email(subject, email_html, _admin_emails())
-
-        if not sent:
-            # Fallback: persist to signups.json
-            # TODO: wire up SMTP (SMTP_HOST, SMTP_USER, SMTP_PASSWORD in .env) to send email
+        # ── 1. Save lead to DB ────────────────────────────────────────────────
+        try:
+            db.execute(
+                """
+                INSERT INTO leads
+                    (name, organisation, role, email, phone, sectors, plan, source, status, notes)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 'signup_form', 'enquiry', %s)
+                """,
+                (name, org, role, email, phone, sectors, plan, notes),
+            )
+            logger.info("Lead saved: %s <%s> plan=%s", name, email, plan)
+        except Exception as exc:
+            logger.error("Failed to save lead to DB: %s", exc)
+            # Fallback: JSON file
             signups_path = _Path(__file__).parent / "signups.json"
             try:
                 existing = _json.loads(signups_path.read_text()) if signups_path.exists() else []
@@ -1179,10 +1198,33 @@ def signup():
                               "plan": plan, "name": name, "org": org,
                               "email": email, "phone": phone, "goals": goals})
             signups_path.write_text(_json.dumps(existing, indent=2))
-            logger.info("Signup stored to signups.json (SMTP not configured): %s <%s> plan=%s",
-                        name, email, plan)
 
-        return redirect(url_for("signup") + f"?plan={plan}&sent=1")
+        # ── 2. Notify admin ───────────────────────────────────────────────────
+        import mailer as _mailer
+        rows = (f"<tr><td><b>Plan</b></td><td>{_esc(plan_label)}</td></tr>"
+                f"<tr><td><b>Name</b></td><td>{_esc(name)}</td></tr>"
+                f"<tr><td><b>Organisation</b></td><td>{_esc(org) or '(not given)'}</td></tr>"
+                f"<tr><td><b>Role</b></td><td>{_esc(role) or '(not given)'}</td></tr>"
+                f"<tr><td><b>Email</b></td><td>{_esc(email)}</td></tr>")
+        if phone:
+            rows += f"<tr><td><b>Phone</b></td><td>{_esc(phone)}</td></tr>"
+        if goals:
+            rows += f"<tr><td><b>Goals/notes</b></td><td>{_esc(goals)}</td></tr>"
+        approve_url = request.host_url.rstrip("/") + url_for("admin_leads")
+        email_html = (
+            f"<h2>New sign-up: {_esc(plan_label)} plan</h2>"
+            f"<table border='0' cellpadding='6' style='border-collapse:collapse;'>"
+            f"{rows}</table>"
+            f"<p style='margin-top:1.5rem;'>"
+            f"<a href='{approve_url}' style='background:#2a9d8f;color:#fff;padding:.5rem 1.2rem;"
+            f"border-radius:5px;text-decoration:none;font-weight:700;'>Review in Admin → Leads</a></p>"
+        )
+        _mailer.send_admin_only(
+            subject=f"[BidEdge] New sign-up — {plan_label} — {name}",
+            html=email_html,
+        )
+
+        return redirect(url_for("signup") + f"?plan={plan}&sent=1&name={_esc(name)}")
 
     # ── GET: render form ──────────────────────────────────────────────────────
     plan = request.args.get("plan", "watch").strip().lower()
@@ -1193,16 +1235,19 @@ def signup():
     err  = bool(request.args.get("err"))
 
     # Confirmation state
+    lead_name = request.args.get("name", "").strip() or "there"
     if sent:
         confirm_body = (
             f'<div style="text-align:center;padding:4rem 2rem;">'
             f'<div style="font-size:2.5rem;margin-bottom:1rem;">✓</div>'
             f'<h2 style="font-size:1.5rem;font-weight:800;color:var(--text);margin-bottom:.75rem;">'
-            f'Thanks — we\'ll be in touch within one business day.</h2>'
-            f'<p style="color:var(--muted);margin-bottom:2rem;max-width:440px;margin-left:auto;margin-right:auto;">'
-            f'Your {plan_label} plan enquiry has been received. A BidEdge adviser will '
-            f'contact you at the email address you provided.</p>'
-            f'<a href="{url_for("homepage")}" class="btn bg-out">← Back to BidEdge.com</a>'
+            f'Thanks, {_esc(lead_name)} — a BidEdge adviser will be in touch within one business day.</h2>'
+            f'<p style="color:var(--muted);margin-bottom:2rem;max-width:480px;margin-left:auto;margin-right:auto;line-height:1.7;">'
+            f'Your {plan_label} plan enquiry has been received. '
+            f'In the meantime, explore what Groundwork looks like in practice.</p>'
+            f'<a href="{url_for("demo")}" class="btn bg-gold" style="margin-right:.75rem;font-size:.9rem;">'
+            f'Explore the demo &rarr;</a>'
+            f'<a href="{url_for("homepage")}" class="btn bg-out" style="font-size:.9rem;">← Back to home</a>'
             f'</div>'
         )
         body = (f'<nav class="pub-nav">'
@@ -3012,6 +3057,575 @@ def gw_request():
 
 # ── Admin ─────────────────────────────────────────────────────────────────────
 
+_PLAN_LABELS = {"watch": "Watch", "pursue": "Pursue", "edge": "Edge"}
+_PLAN_PILL_CSS = {
+    "watch":   "background:rgba(100,120,180,.2);color:#8ab4f8;border:1px solid rgba(100,120,180,.35);",
+    "pursue":  "background:rgba(42,157,143,.15);color:var(--gold);border:1px solid rgba(42,157,143,.3);",
+    "edge":    "background:rgba(212,160,23,.14);color:#d4a017;border:1px solid rgba(212,160,23,.32);",
+}
+
+def _plan_pill(plan: str) -> str:
+    label = _PLAN_LABELS.get(plan, plan or "—")
+    css = _PLAN_PILL_CSS.get(plan, "")
+    return (f'<span style="font-size:.65rem;font-weight:700;letter-spacing:.07em;'
+            f'text-transform:uppercase;border-radius:4px;padding:.15rem .5rem;{css}">'
+            f'{label}</span>')
+
+def _billing_pill(status: str) -> str:
+    colours = {
+        "active":    "color:#4ade80;",
+        "trial":     "color:#fbbf24;",
+        "suspended": "color:#f87171;",
+    }
+    return (f'<span style="font-size:.7rem;{colours.get(status,"color:var(--muted);")}>'
+            f'{(status or "active").title()}</span>')
+
+
+# ── Admin — Leads ─────────────────────────────────────────────────────────────
+
+@app.route("/admin/leads", methods=["GET", "POST"])
+@login_required
+@admin_required
+def admin_leads():
+    import mailer as _mailer
+
+    msg = ""
+    if request.method == "POST":
+        action  = request.form.get("action", "")
+        lead_id = request.form.get("lead_id", "")
+        notes   = request.form.get("notes", "").strip()
+
+        if action == "notes" and lead_id:
+            db.execute("UPDATE leads SET notes=%s, updated_at=NOW() WHERE id=%s",
+                       (notes, lead_id))
+            msg = '<div class="al al-ok">Notes saved.</div>'
+
+        elif action == "reject" and lead_id:
+            db.execute("UPDATE leads SET status='rejected', updated_at=NOW() WHERE id=%s",
+                       (lead_id,))
+            msg = '<div class="al al-ok">Lead marked rejected.</div>'
+
+        elif action == "approve" and lead_id:
+            lead = db.fetchone("SELECT * FROM leads WHERE id=%s", (lead_id,))
+            if not lead:
+                msg = '<div class="al al-er">Lead not found.</div>'
+            else:
+                # Generate username from email (before @)
+                base_un = (lead["email"].split("@")[0]
+                           .lower().replace(".", "_").replace("+", "_"))
+                username = base_un
+                # Ensure unique
+                cfg = _load_cfg()
+                n = 1
+                while username in cfg.get("clients", {}):
+                    username = f"{base_un}{n}"; n += 1
+
+                temp_pw = secrets.token_urlsafe(12)
+                plan    = lead.get("plan") or "pursue"
+                sectors = [s.strip() for s in (lead.get("sectors") or "").split(",")
+                           if s.strip()]
+                _add_user(username, temp_pw, lead["name"], lead["email"],
+                          is_admin=False, sectors=sectors, plan=plan, billing_status="active")
+
+                db.execute(
+                    "UPDATE leads SET status='approved', portal_username=%s, "
+                    "updated_at=NOW() WHERE id=%s",
+                    (username, lead_id),
+                )
+
+                # Welcome email
+                login_url = request.host_url.rstrip("/") + url_for("login")
+                welcome_html = f"""
+<div style="font-family:'Inter',system-ui,sans-serif;max-width:600px;margin:0 auto;">
+  <div style="background:#1a2d4a;padding:1.5rem 2rem;">
+    <div style="font-size:1rem;font-weight:800;color:#fff;">
+      Groundwork <span style="color:#2a9d8f;font-weight:400;">by BidEdge</span></div>
+  </div>
+  <div style="padding:2rem;">
+    <h2 style="font-size:1.2rem;font-weight:800;color:#1a2d4a;margin:0 0 1rem;">
+      Welcome to Groundwork, {lead['name'].split()[0]}!</h2>
+    <p style="color:#4a5568;line-height:1.7;margin:0 0 1.25rem;">
+      Your Groundwork account is ready. Here are your login details:</p>
+    <div style="background:#f7f9fc;border:1px solid #dde2ea;border-radius:8px;
+      padding:1rem 1.25rem;margin-bottom:1.5rem;font-size:.9rem;">
+      <div style="margin-bottom:.5rem;"><b>Login URL:</b>
+        <a href="{login_url}" style="color:#2a9d8f;">{login_url}</a></div>
+      <div style="margin-bottom:.5rem;"><b>Username:</b> <code>{username}</code></div>
+      <div><b>Temporary password:</b> <code>{temp_pw}</code></div>
+    </div>
+    <p style="color:#4a5568;line-height:1.7;margin:0 0 1rem;">
+      <b>Getting started:</b><br>
+      1. Log in and set your sector preferences on first login — this filters the
+      watchlist to your relevant markets.<br>
+      2. Check the Daily Watchlist each morning for scored opportunities.<br>
+      3. Request a pursuit package on any notice worth pursuing.<br>
+      4. Reply to this email for support.</p>
+    <a href="{login_url}" style="display:inline-block;background:#2a9d8f;color:#fff;
+      font-weight:700;font-size:.9rem;padding:.7rem 1.5rem;border-radius:6px;
+      text-decoration:none;margin-top:.5rem;">Log in to Groundwork &rarr;</a>
+  </div>
+</div>
+"""
+                _mailer.send_to_client(
+                    subject="Welcome to Groundwork — your account is ready",
+                    html=welcome_html,
+                    client_email=lead["email"],
+                )
+                msg = (f'<div class="al al-ok">Lead approved — account <strong>{username}</strong> '
+                       f'created and welcome email sent to {lead["email"]}.</div>')
+
+    leads = db.fetchall(
+        "SELECT * FROM leads ORDER BY created_at DESC LIMIT 200"
+    )
+
+    STATUS_COLOUR = {
+        "enquiry":  "color:var(--gold);",
+        "approved": "color:#4ade80;",
+        "rejected": "color:#f87171;",
+        "duplicate":"color:var(--muted);",
+    }
+
+    rows = ""
+    for ld in leads:
+        sid = ld["id"]
+        sc  = STATUS_COLOUR.get(ld.get("status", "enquiry"), "")
+        approved = ld.get("status") == "approved"
+        rejected = ld.get("status") == "rejected"
+        action_btns = ""
+        if not approved and not rejected:
+            action_btns = (
+                f'<form method="POST" style="display:inline;">'
+                f'<input type="hidden" name="lead_id" value="{sid}">'
+                f'<input type="hidden" name="action" value="approve">'
+                f'<button class="btn bg-gold sm" type="submit">Approve</button></form> '
+                f'<form method="POST" style="display:inline;">'
+                f'<input type="hidden" name="lead_id" value="{sid}">'
+                f'<input type="hidden" name="action" value="reject">'
+                f'<button class="btn bg-ghost sm" type="submit"'
+                f' onclick="return confirm(\'Reject this lead?\')">Reject</button></form>'
+            )
+        elif approved:
+            action_btns = f'<span style="color:#4ade80;font-size:.75rem;">✓ {ld.get("portal_username","")}</span>'
+
+        notes_form = (
+            f'<form method="POST" style="margin-top:.35rem;display:flex;gap:.4rem;">'
+            f'<input type="hidden" name="lead_id" value="{sid}">'
+            f'<input type="hidden" name="action" value="notes">'
+            f'<input name="notes" class="fc2" style="font-size:.75rem;padding:.25rem .5rem;'
+            f'flex:1;" value="{(ld.get("notes") or "").replace(chr(34), "&quot;")}" '
+            f'placeholder="Notes...">'
+            f'<button class="btn bg-out sm" type="submit" style="white-space:nowrap;">Save</button>'
+            f'</form>'
+        )
+        created = str(ld.get("created_at") or "")[:16]
+        rows += (
+            f'<tr>'
+            f'<td><strong>{ld.get("name","")}</strong><br>'
+            f'<span style="color:var(--muted);font-size:.72rem;">{ld.get("organisation","")}</span></td>'
+            f'<td>{_plan_pill(ld.get("plan",""))}</td>'
+            f'<td style="font-size:.78rem;">{ld.get("email","")}</td>'
+            f'<td style="font-size:.72rem;color:var(--muted);">{ld.get("sectors","") or "—"}</td>'
+            f'<td style="font-size:.72rem;color:var(--muted);white-space:nowrap;">{created}</td>'
+            f'<td style="font-size:.75rem;{sc}">{(ld.get("status") or "enquiry").title()}</td>'
+            f'<td style="min-width:180px;">{action_btns}{notes_form}</td>'
+            f'</tr>'
+        )
+
+    pending = sum(1 for l in leads if l.get("status") == "enquiry")
+    body = (
+        f'<div class="ptitle">Leads</div>'
+        f'<div class="psub">{len(leads)} total &middot; {pending} pending review</div>'
+        f'{msg}'
+        f'<div class="card">'
+        f'<div class="ch"><span class="ct">Signup Enquiries</span></div>'
+        f'<div style="overflow-x:auto;">'
+        f'<table class="dt"><thead><tr>'
+        f'<th>Name / Org</th><th>Plan</th><th>Email</th>'
+        f'<th>Sectors</th><th>Date</th><th>Status</th><th>Actions / Notes</th>'
+        f'</tr></thead><tbody>'
+        f'{rows or "<tr><td colspan=7 style=color:var(--muted);text-align:center;padding:2rem>No leads yet</td></tr>"}'
+        f'</tbody></table></div></div>'
+    )
+    return _page("Admin — Leads", body, "admin-leads")
+
+
+# ── Admin — Clients list ──────────────────────────────────────────────────────
+
+@app.route("/admin/clients", methods=["GET", "POST"])
+@login_required
+@admin_required
+def admin_clients_list():
+    msg = ""
+    cfg = _load_cfg()
+
+    if request.method == "POST":
+        action   = request.form.get("action", "")
+        username = request.form.get("username", "")
+        data     = cfg.get("clients", {}).get(username, {})
+        if not data:
+            msg = '<div class="al al-er">User not found.</div>'
+        elif action == "change_plan":
+            new_plan = request.form.get("plan", "pursue")
+            data["plan"] = new_plan
+            _save_cfg(cfg)
+            msg = f'<div class="al al-ok">Plan updated to {new_plan} for {username}.</div>'
+        elif action == "change_billing":
+            new_status = request.form.get("billing_status", "active")
+            data["billing_status"] = new_status
+            _save_cfg(cfg)
+            msg = f'<div class="al al-ok">Billing status updated for {username}.</div>'
+        elif action == "reset_password":
+            new_pw = secrets.token_urlsafe(12)
+            data["password_hash"] = bcrypt.hashpw(new_pw.encode(), bcrypt.gensalt()).decode()
+            _save_cfg(cfg)
+            msg = f'<div class="al al-ok">Password reset for {username}: <code>{new_pw}</code></div>'
+        elif action == "suspend":
+            data["billing_status"] = "suspended"
+            _save_cfg(cfg)
+            msg = f'<div class="al al-ok">{username} suspended.</div>'
+        cfg = _load_cfg()  # reload after save
+
+    clients = {u: d for u, d in cfg.get("clients", {}).items() if not d.get("is_admin")}
+
+    rows = ""
+    for un, d in sorted(clients.items()):
+        plan    = d.get("plan", "pursue")
+        billing = d.get("billing_status", "active")
+        plan_sel = "".join(
+            f'<option value="{p}" {"selected" if plan==p else ""}>{_PLAN_LABELS[p]}</option>'
+            for p in ("watch", "pursue", "edge")
+        )
+        bill_sel = "".join(
+            f'<option value="{s}" {"selected" if billing==s else ""}>{s.title()}</option>'
+            for s in ("trial", "active", "suspended")
+        )
+        slug = d.get("artefact_slug") or _slug(d.get("display_name", un))
+        n_pursuits = len(_list_artefacts(slug, "*pursuit*.html"))
+
+        rows += (
+            f'<tr>'
+            f'<td><strong>{d.get("display_name", un)}</strong>'
+            f'<br><span style="color:var(--muted);font-size:.72rem;">@{un}</span></td>'
+            f'<td style="font-size:.78rem;">{d.get("email","—")}</td>'
+            f'<td>{_plan_pill(plan)}</td>'
+            f'<td>{_billing_pill(billing)}</td>'
+            f'<td style="font-size:.75rem;color:var(--muted);">{n_pursuits}</td>'
+            f'<td style="white-space:nowrap;min-width:320px;">'
+            # Change plan
+            f'<form method="POST" style="display:inline-flex;gap:.35rem;margin-right:.4rem;">'
+            f'<input type="hidden" name="username" value="{un}">'
+            f'<input type="hidden" name="action" value="change_plan">'
+            f'<select name="plan" class="fc2" style="font-size:.72rem;padding:.2rem .4rem;">'
+            f'{plan_sel}</select>'
+            f'<button class="btn bg-out sm" type="submit">Set plan</button></form>'
+            # Reset password
+            f'<form method="POST" style="display:inline;">'
+            f'<input type="hidden" name="username" value="{un}">'
+            f'<input type="hidden" name="action" value="reset_password">'
+            f'<button class="btn bg-ghost sm" type="submit"'
+            f' onclick="return confirm(\'Reset password for {un}?\')">Reset pw</button></form>'
+            # Suspend
+            + ('' if billing == 'suspended' else
+               f'<form method="POST" style="display:inline;margin-left:.25rem;">'
+               f'<input type="hidden" name="username" value="{un}">'
+               f'<input type="hidden" name="action" value="suspend">'
+               f'<button class="btn bg-ghost sm" type="submit" style="color:#f87171;"'
+               f' onclick="return confirm(\'Suspend {un}?\')">Suspend</button></form>')
+            # Manage link
+            + f'&nbsp;<a href="{url_for("admin_client", username=un)}" class="btn bg-out sm">Manage</a>'
+            f'</td></tr>'
+        )
+
+    body = (
+        f'<div class="ptitle">Clients</div>'
+        f'<div class="psub">{len(clients)} active accounts</div>'
+        f'{msg}'
+        f'<div class="card">'
+        f'<div class="ch"><span class="ct">All Accounts</span>'
+        f'<a href="{url_for("admin_add_client")}" class="btn bg-gold sm">+ Add client</a></div>'
+        f'<div style="overflow-x:auto;">'
+        f'<table class="dt"><thead><tr>'
+        f'<th>Name</th><th>Email</th><th>Plan</th><th>Billing</th>'
+        f'<th>Pursuits</th><th>Actions</th>'
+        f'</tr></thead><tbody>'
+        f'{rows or "<tr><td colspan=6 style=color:var(--muted);text-align:center;padding:2rem>No clients yet</td></tr>"}'
+        f'</tbody></table></div></div>'
+    )
+    return _page("Admin — Clients", body, "admin-clients")
+
+
+# ── Admin — Requests (all pursuit/competitor requests) ────────────────────────
+
+@app.route("/admin/requests")
+@login_required
+@admin_required
+def admin_requests():
+    try:
+        reqs = db.fetchall(
+            """
+            SELECT r.id, r.client_id, r.notice_id, r.request_type,
+                   r.priority, r.status, r.requested_at, r.completed_at,
+                   r.output_path, r.error_message,
+                   n.title AS notice_title
+              FROM pursuit_requests r
+              LEFT JOIN raw_notices n ON n.notice_id = r.notice_id
+             ORDER BY r.requested_at DESC
+             LIMIT 200
+            """
+        )
+    except Exception as exc:
+        reqs = []
+        logger.warning("admin_requests query failed (table may not exist yet): %s", exc)
+
+    STATUS_CSS = {
+        "pending":    "color:var(--gold);",
+        "generating": "color:#60a5fa;",
+        "complete":   "color:#4ade80;",
+        "failed":     "color:#f87171;",
+    }
+
+    rows = ""
+    for r in reqs:
+        sc  = STATUS_CSS.get(r.get("status", "pending"), "")
+        ts  = str(r.get("requested_at") or "")[:16]
+        rows += (
+            f'<tr>'
+            f'<td style="font-size:.75rem;color:var(--muted);">{r.get("client_id","")}</td>'
+            f'<td style="font-size:.78rem;max-width:280px;overflow:hidden;text-overflow:ellipsis;">'
+            f'{r.get("notice_title") or r.get("notice_id","—")}</td>'
+            f'<td style="font-size:.72rem;">{r.get("request_type","")}</td>'
+            f'<td><span style="font-size:.72rem;{sc}">{r.get("status","").title()}</span></td>'
+            f'<td style="font-size:.72rem;color:var(--muted);white-space:nowrap;">{ts}</td>'
+            f'<td>'
+        )
+        if r.get("output_path"):
+            _vurl = url_for("serve_artefact_file",
+                            client_slug=r["client_id"],
+                            filepath=r["output_path"])
+            rows += f'<a href="{_vurl}" target="_blank" class="btn bg-out sm">View</a>'
+        elif r.get("status") in ("pending", "failed"):
+            rows += (
+                f'<form method="POST" action="{url_for("admin_trigger_request")}" '
+                f'style="display:inline;">'
+                f'<input type="hidden" name="req_id" value="{r["id"]}">'
+                f'<button class="btn bg-gold sm" type="submit">Retry</button></form>'
+            )
+        rows += f'</td></tr>'
+
+    body = (
+        f'<div class="ptitle">Requests</div>'
+        f'<div class="psub">All pursuit and competitor profile requests</div>'
+        f'<div class="card">'
+        f'<div class="ch"><span class="ct">Request Queue</span></div>'
+        f'<div style="overflow-x:auto;">'
+        f'<table class="dt"><thead><tr>'
+        f'<th>Client</th><th>Notice</th><th>Type</th>'
+        f'<th>Status</th><th>Requested</th><th></th>'
+        f'</tr></thead><tbody>'
+        f'{rows or "<tr><td colspan=6 style=color:var(--muted);text-align:center;padding:2rem>No requests yet</td></tr>"}'
+        f'</tbody></table></div></div>'
+    )
+    return _page("Admin — Requests", body, "admin-requests")
+
+
+@app.route("/admin/requests/trigger", methods=["POST"])
+@login_required
+@admin_required
+def admin_trigger_request():
+    """Manually retry a failed or pending pursuit request."""
+    req_id = request.form.get("req_id", "")
+    if req_id:
+        try:
+            import pursuit_worker
+            row = db.fetchone("SELECT * FROM pursuit_requests WHERE id=%s", (req_id,))
+            if row:
+                cfg = _load_cfg()
+                client_data = cfg.get("clients", {}).get(row["client_id"], {})
+                portal_url = request.host_url.rstrip("/") + url_for("gw_pursuits")
+                pursuit_worker.dispatch(
+                    req_id=int(req_id),
+                    client_id=row["client_id"],
+                    client_name=client_data.get("display_name", row["client_id"]),
+                    client_email=client_data.get("email", ""),
+                    notice_id=row["notice_id"],
+                    preferred_sectors=client_data.get("preferred_sectors") or [],
+                    artefact_slug=client_data.get("artefact_slug") or _slug(client_data.get("display_name", row["client_id"])),
+                    portal_url=portal_url,
+                    immediate=True,
+                )
+                _flash(f"Request {req_id} dispatched.", "success")
+        except Exception as exc:
+            logger.exception("admin_trigger_request failed: %s", exc)
+            _flash(f"Trigger failed: {exc}", "error")
+    return redirect(url_for("admin_requests"))
+
+
+# ── Admin — Briefs send history ───────────────────────────────────────────────
+
+@app.route("/admin/briefs")
+@login_required
+@admin_required
+def admin_briefs():
+    try:
+        sends = db.fetchall(
+            "SELECT * FROM brief_sends ORDER BY sent_at DESC LIMIT 200"
+        )
+    except Exception as exc:
+        sends = []
+        logger.warning("admin_briefs query failed: %s", exc)
+
+    rows = ""
+    for s in sends:
+        ts = str(s.get("sent_at") or "")[:16]
+        sectors = ", ".join(s.get("sectors") or []) or "all"
+        status_css = "color:#4ade80;" if s.get("status") == "sent" else "color:#f87171;"
+        rows += (
+            f'<tr>'
+            f'<td style="font-size:.78rem;">{s.get("client_id","")}</td>'
+            f'<td style="font-size:.72rem;color:var(--muted);">{sectors}</td>'
+            f'<td style="font-size:.72rem;color:var(--muted);white-space:nowrap;">{ts}</td>'
+            f'<td style="font-size:.75rem;{status_css}">{(s.get("status") or "").title()}</td>'
+            f'<td style="font-size:.7rem;color:#f87171;">{s.get("error_msg") or ""}</td>'
+            f'</tr>'
+        )
+
+    body = (
+        f'<div class="ptitle">Watch Brief Sends</div>'
+        f'<div class="psub">{len(sends)} records</div>'
+        f'<div class="card">'
+        f'<div class="ch"><span class="ct">Send History</span></div>'
+        f'<div style="overflow-x:auto;">'
+        f'<table class="dt"><thead><tr>'
+        f'<th>Client</th><th>Sectors</th><th>Sent at</th><th>Status</th><th>Error</th>'
+        f'</tr></thead><tbody>'
+        f'{rows or "<tr><td colspan=5 style=color:var(--muted);text-align:center;padding:2rem>No sends yet</td></tr>"}'
+        f'</tbody></table></div></div>'
+    )
+    return _page("Admin — Briefs", body, "admin-briefs")
+
+
+# ── Admin — Pipeline control ──────────────────────────────────────────────────
+
+@app.route("/admin/pipeline", methods=["GET", "POST"])
+@login_required
+@admin_required
+def admin_pipeline():
+    msg = ""
+    if request.method == "POST":
+        stage = request.form.get("stage", "")
+        if stage in ("layer1", "layer2", "watch_brief"):
+            import threading as _thr
+
+            def _run_stage(s):
+                run_id = None
+                try:
+                    row = db.fetchone(
+                        "INSERT INTO pipeline_runs (stage, triggered_by, status) "
+                        "VALUES (%s, 'admin', 'running') RETURNING id",
+                        (s,),
+                    )
+                    run_id = row["id"] if row else None
+                except Exception:
+                    pass
+                try:
+                    from scheduler_railway import _run_layer1, _run_layer2, _run_watch_brief
+                    {"layer1": _run_layer1, "layer2": _run_layer2,
+                     "watch_brief": _run_watch_brief}[s]()
+                    summary = f"{s} completed successfully"
+                    status = "complete"
+                except Exception as exc:
+                    summary = str(exc)[:500]
+                    status = "failed"
+                if run_id:
+                    try:
+                        db.execute(
+                            "UPDATE pipeline_runs SET status=%s, summary=%s, finished_at=NOW() "
+                            "WHERE id=%s",
+                            (status, summary, run_id),
+                        )
+                    except Exception:
+                        pass
+
+            t = _thr.Thread(target=_run_stage, args=(stage,), daemon=True)
+            t.start()
+            labels = {"layer1": "Layer 1", "layer2": "Layer 2", "watch_brief": "Watch Briefs"}
+            msg = (f'<div class="al al-ok">{labels[stage]} started in background — '
+                   f'check Railway logs or refresh this page in a minute.</div>')
+
+    # Recent runs
+    try:
+        runs = db.fetchall(
+            "SELECT * FROM pipeline_runs ORDER BY started_at DESC LIMIT 50"
+        )
+    except Exception as exc:
+        runs = []
+        logger.warning("pipeline_runs query failed (table may not exist): %s", exc)
+
+    STATUS_CSS = {
+        "running":  "color:#60a5fa;",
+        "complete": "color:#4ade80;",
+        "failed":   "color:#f87171;",
+    }
+
+    run_rows = ""
+    for r in runs:
+        sc = STATUS_CSS.get(r.get("status",""), "")
+        ts = str(r.get("started_at") or "")[:16]
+        ft = str(r.get("finished_at") or "")[:16] or "—"
+        run_rows += (
+            f'<tr>'
+            f'<td style="font-size:.78rem;">{r.get("stage","")}</td>'
+            f'<td style="font-size:.72rem;color:var(--muted);">{r.get("triggered_by","")}</td>'
+            f'<td style="font-size:.72rem;color:var(--muted);white-space:nowrap;">{ts}</td>'
+            f'<td style="font-size:.72rem;color:var(--muted);white-space:nowrap;">{ft}</td>'
+            f'<td style="font-size:.75rem;{sc}">{(r.get("status") or "").title()}</td>'
+            f'<td style="font-size:.7rem;color:var(--muted);max-width:300px;overflow:hidden;'
+            f'text-overflow:ellipsis;">{r.get("summary") or ""}</td>'
+            f'</tr>'
+        )
+
+    def _trigger_btn(stage: str, label: str, colour: str = "bg-gold") -> str:
+        return (
+            f'<form method="POST" style="display:inline;">'
+            f'<input type="hidden" name="stage" value="{stage}">'
+            f'<button class="btn {colour}" type="submit" '
+            f'onclick="return confirm(\'Run {label} now?\') && '
+            f'(this.textContent=\'Starting…\', this.disabled=true, true)">'
+            f'{label}</button></form>'
+        )
+
+    body = (
+        f'<div class="ptitle">Pipeline Control</div>'
+        f'<div class="psub">Trigger pipeline stages manually. Jobs run in a background thread.</div>'
+        f'{msg}'
+        f'<div class="card" style="margin-bottom:1.5rem;">'
+        f'<div class="ch"><span class="ct">Manual Triggers</span></div>'
+        f'<div class="cb" style="display:flex;gap:1rem;flex-wrap:wrap;">'
+        f'{_trigger_btn("layer1", "⚙ Run Layer 1 now")}'
+        f'{_trigger_btn("layer2", "🛰 Run Layer 2 now", "bg-out")}'
+        f'{_trigger_btn("watch_brief", "📬 Generate Watch Briefs now", "bg-out")}'
+        f'</div>'
+        f'<div style="padding:.75rem 1.25rem 1rem;font-size:.78rem;color:var(--muted);'
+        f'line-height:1.6;">'
+        f'<strong>Layer 1</strong> — GETS ingest → parse → score → enrich → bidders → output<br>'
+        f'<strong>Layer 2</strong> — Awards ingestion → org profiles → pattern detection → MI<br>'
+        f'<strong>Watch Briefs</strong> — Generate and email brief to all active clients'
+        f'</div></div>'
+        f'<div class="card">'
+        f'<div class="ch"><span class="ct">Recent Runs</span></div>'
+        f'<div style="overflow-x:auto;">'
+        f'<table class="dt"><thead><tr>'
+        f'<th>Stage</th><th>Triggered by</th><th>Started</th><th>Finished</th>'
+        f'<th>Status</th><th>Summary</th>'
+        f'</tr></thead><tbody>'
+        f'{run_rows or "<tr><td colspan=6 style=color:var(--muted);text-align:center;padding:2rem>No runs recorded yet</td></tr>"}'
+        f'</tbody></table></div></div>'
+    )
+    return _page("Admin — Pipeline", body, "admin-pipeline")
+
+
+# ── Admin — Dashboard (existing, kept) ───────────────────────────────────────
+
 @app.route("/admin")
 @login_required
 @admin_required
@@ -3019,29 +3633,56 @@ def admin_dash():
     cfg     = _load_cfg()
     clients = {u: d for u, d in cfg.get("clients", {}).items() if not d.get("is_admin")}
     wl      = _latest_watchlist()
-    rows    = ""
+
+    # Pending leads count
+    try:
+        pending_leads = db.fetchone(
+            "SELECT COUNT(*) AS n FROM leads WHERE status='enquiry'"
+        ) or {}
+        n_pending = pending_leads.get("n", 0)
+    except Exception:
+        n_pending = "—"
+
+    rows = ""
     for username, data in clients.items():
         slug = data.get("artefact_slug") or _slug(data.get("display_name", username))
         p = len(_list_artefacts(slug, "*pursuit*.html"))
         c = len(_list_artefacts(slug, "competitor_*.html"))
         rows += (f'<tr><td><strong>{data.get("display_name",username)}</strong></td>'
                  f'<td style="color:var(--muted);">{username}</td>'
-                 f'<td>{data.get("email","—")}</td><td>{p}</td><td>{c}</td>'
+                 f'<td>{data.get("email","—")}</td>'
+                 f'<td>{_plan_pill(data.get("plan","pursue"))}</td>'
+                 f'<td>{p}</td><td>{c}</td>'
                  f'<td><a href="{url_for("admin_client",username=username)}" '
                  f'class="btn bg-out sm">Manage</a></td></tr>')
+
+    leads_alert = ""
+    if n_pending and int(str(n_pending)) > 0:
+        leads_alert = (
+            f'<div class="al al-in" style="margin-bottom:1.25rem;">'
+            f'<strong>{n_pending} new lead{"s" if int(str(n_pending))!=1 else ""}</strong> '
+            f'awaiting review. '
+            f'<a href="{url_for("admin_leads")}" style="color:inherit;font-weight:700;">'
+            f'Review now &rarr;</a></div>'
+        )
+
     body = (f'<div class="ptitle">Admin Dashboard</div>'
             f'<div class="psub">BidEdge platform administration</div>'
+            f'{leads_alert}'
             f'<div class="stats">'
             f'<div class="stat"><div class="sval">{len(clients)}</div><div class="slbl">Active clients</div></div>'
+            f'<div class="stat"><div class="sval">{n_pending}</div><div class="slbl">Pending leads</div></div>'
             f'<div class="stat"><div class="sval">{"Today" if wl and wl.stem.endswith(date.today().isoformat()) else "—"}</div>'
             f'<div class="slbl">Last watchlist</div></div></div>'
             f'<div class="card">'
             f'<div class="ch"><span class="ct">Client Accounts</span>'
+            f'<a href="{url_for("admin_clients_list")}" class="btn bg-out sm" style="margin-right:.5rem;">All clients</a>'
             f'<a href="{url_for("admin_add_client")}" class="btn bg-gold sm">+ Add client</a></div>'
             f'<table class="dt"><thead><tr>'
-            f'<th>Name</th><th>Username</th><th>Email</th><th>Pursuits</th><th>Competitors</th><th></th>'
+            f'<th>Name</th><th>Username</th><th>Email</th><th>Plan</th>'
+            f'<th>Pursuits</th><th>Competitors</th><th></th>'
             f'</tr></thead><tbody>'
-            f'{rows or "<tr><td colspan=6 style=color:var(--muted);text-align:center;padding:1.5rem>No clients yet</td></tr>"}'
+            f'{rows or "<tr><td colspan=7 style=color:var(--muted);text-align:center;padding:1.5rem>No clients yet</td></tr>"}'
             f'</tbody></table></div>')
     return _page("Admin — Groundwork", body, "admin")
 
@@ -3792,19 +4433,21 @@ def e404(e):
 # ── User management CLI ───────────────────────────────────────────────────────
 
 def _add_user(username, password, display_name="", email="",
-              is_admin=False, sectors=None):
+              is_admin=False, sectors=None, plan="pursue", billing_status="active"):
     hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
     cfg = _load_cfg()
     cfg.setdefault("clients", {})[username] = {
-        "password_hash":  hashed,
-        "display_name":   display_name or username,
-        "email":          email,
-        "is_admin":       is_admin,
+        "password_hash":     hashed,
+        "display_name":      display_name or username,
+        "email":             email,
+        "is_admin":          is_admin,
         "preferred_sectors": sectors or [],
-        "artefact_slug":  _slug(display_name or username),
+        "artefact_slug":     _slug(display_name or username),
+        "plan":              plan,
+        "billing_status":    billing_status,
     }
     _save_cfg(cfg)
-    print(f"User '{username}' {'[admin] ' if is_admin else ''}created.")
+    print(f"User '{username}' {'[admin] ' if is_admin else ''}created (plan={plan}).")
 
 
 def _bootstrap():
