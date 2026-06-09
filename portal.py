@@ -96,7 +96,10 @@ class User(UserMixin):
         self.username      = username
         self.name          = data.get("display_name", username)
         self.email         = data.get("email", "")
+        self.phone         = data.get("phone", "")
+        self.organisation  = data.get("organisation", "")
         self.is_admin_user    = data.get("is_admin", False)
+        self.temp_password = data.get("temp_password", False)
         # Support both old key "sectors" and new key "preferred_sectors"
         self.preferred_sectors = (
             data.get("preferred_sectors")
@@ -106,6 +109,8 @@ class User(UserMixin):
         self.slug           = data.get("artefact_slug") or _slug(data.get("display_name", username))
         self.plan           = data.get("plan", "pursue")        # watch | pursue | edge
         self.billing_status = data.get("billing_status", "active")  # trial | active | suspended
+        self.email_watchlist = data.get("email_watchlist", True)   # daily watchlist emails
+        self.email_briefs    = data.get("email_briefs", True)       # weekly brief emails
 
     def can(self, feature: str) -> bool:
         """Plan-based feature gate. Returns True if user's plan includes this feature."""
@@ -143,6 +148,17 @@ def admin_required(f):
             abort(403)
         return f(*args, **kwargs)
     return decorated
+
+
+@app.before_request
+def _force_password_change():
+    """Redirect temp-password users to the change-password page on every request."""
+    _EXEMPT = {"login", "logout", "account_change_password", "static",
+               "share_view", "serve_artefact_file"}
+    if (current_user.is_authenticated
+            and getattr(current_user, "temp_password", False)
+            and request.endpoint not in _EXEMPT):
+        return redirect(url_for("account_change_password"))
 
 
 # ── Share tokens ──────────────────────────────────────────────────────────────
@@ -228,6 +244,7 @@ def _watchlist_summary(
     """
     try:
         # DB is source of truth for sector preferences; JSON sectors are fallback only
+        min_value_nzd = 0
         if user_id:
             try:
                 from preferences import get_user_preferences
@@ -235,6 +252,7 @@ def _watchlist_summary(
                 db_sectors = db_prefs.get("sectors") or []
                 if db_sectors:
                     preferred_sectors = db_sectors
+                min_value_nzd = int(db_prefs.get("min_value_nzd") or 0)
             except Exception:
                 pass
 
@@ -246,10 +264,19 @@ def _watchlist_summary(
               JOIN raw_notices r ON r.notice_id = p.notice_id
              WHERE (p.days_until_close IS NULL OR p.days_until_close >= 0)
              ORDER BY p.days_until_close ASC NULLS LAST
-             LIMIT 50
+             LIMIT 100
         """)
 
         pool = [dict(r) for r in pool]
+
+        # Minimum value filter (TBC/unknown bands always pass)
+        if min_value_nzd and min_value_nzd > 0:
+            _BAND_MIN = {"under_100k": 0, "100k_500k": 100_000,
+                         "500k_2m": 500_000, "2m_10m": 2_000_000, "10m_plus": 10_000_000}
+            pool = [r for r in pool
+                    if _BAND_MIN.get(r.get("value_band") or "unknown", min_value_nzd) >= min_value_nzd
+                    or (r.get("value_band") or "unknown") not in _BAND_MIN]
+
         # If sectors preferred, surface matching notices first, then sort by urgency+value
         if preferred_sectors:
             matched   = [r for r in pool if (r.get("sector_tag") or "other") in preferred_sectors]
@@ -542,7 +569,7 @@ textarea.fc2{min-height:90px;resize:vertical;}
 
 # ── Layout helpers ────────────────────────────────────────────────────────────
 
-def _topnav(active: str = "") -> str:
+def _topnav(active: str = "", has_sidebar: bool = True) -> str:
     user_html = ""
     if current_user.is_authenticated:
         admin_link = ""
@@ -556,8 +583,9 @@ def _topnav(active: str = "") -> str:
                      f'</div>')
     ham_btn = (f'<label class="hamburger" for="nav-toggle" aria-label="Open menu">'
                f'<span></span><span></span><span></span></label>')
+    show_ham = current_user.is_authenticated and has_sidebar
     return (f'<nav class="nav">'
-            f'{ham_btn if current_user.is_authenticated else ""}'
+            f'{ham_btn if show_ham else ""}'
             f'<div class="nav-brand">'
             f'<div class="nav-brand-name">Groundwork <span class="by">by BidEdge</span></div>'
             f'<div class="nav-brand-sub">Procurement Intelligence</div>'
@@ -594,14 +622,15 @@ def _sidebar(active: str = "") -> str:
             f'<div class="side-sec">Actions</div>'
             f'{lnk(url_for("gw_request"),     "✉",  "Request",      "request")}'
             f'{admin_links}'
-            f'<div class="side-sec" style="margin-top:auto;padding-top:1rem;">Support</div>'
+            f'<div class="side-sec" style="margin-top:auto;padding-top:1rem;">Account</div>'
+            f'{lnk(url_for("account_page"),   "👤", "My Account",   "account")}'
             f'{lnk(url_for("gw_help"),        "?",  "Help",         "help")}'
             f'</nav>')
 
 
 def _page(title: str, body: str, active: str = "",
           sidebar: bool = True, public: bool = False) -> str:
-    nav  = "" if public else _topnav(active)
+    nav  = "" if public else _topnav(active, has_sidebar=(sidebar and not public))
     side = _sidebar(active) if sidebar and not public else ""
     if sidebar and not public:
         wrap_open  = '<div class="shell">'
@@ -1637,6 +1666,8 @@ def login():
                                request.form.get("password",""))
         if user:
             login_user(user, remember=request.form.get("remember") == "on")
+            if user.temp_password:
+                return redirect(url_for("account_change_password"))
             next_url = request.args.get("next")
             if not next_url:
                 from preferences import has_preferences
@@ -1791,6 +1822,209 @@ def onboarding():
 
 
 # ── Share ─────────────────────────────────────────────────────────────────────
+
+# ── Account ───────────────────────────────────────────────────────────────────
+
+@app.route("/account", methods=["GET", "POST"])
+@login_required
+def account_page():
+    cfg = _load_cfg()
+    data = cfg.get("clients", {}).get(current_user.id, {})
+    msg = ""
+
+    if request.method == "POST":
+        action = request.form.get("action", "")
+        if action == "profile":
+            data["display_name"]  = request.form.get("display_name", "").strip() or data.get("display_name", "")
+            data["organisation"]  = request.form.get("organisation", "").strip()
+            data["email"]         = request.form.get("email", "").strip()
+            data["phone"]         = request.form.get("phone", "").strip()
+            _save_cfg(cfg)
+            msg = '<div class="al al-ok">Profile updated.</div>'
+        elif action == "email_prefs":
+            data["email_watchlist"] = request.form.get("email_watchlist") == "1"
+            data["email_briefs"]    = request.form.get("email_briefs") == "1"
+            _save_cfg(cfg)
+            msg = '<div class="al al-ok">Email preferences saved.</div>'
+        data = _load_cfg().get("clients", {}).get(current_user.id, {})
+
+    from preferences import get_user_preferences
+    prefs = get_user_preferences(current_user.id)
+    sectors_display = ", ".join(prefs.get("sectors") or []) or "—"
+    min_val = prefs.get("min_value_nzd") or 0
+
+    # Request history from DB
+    try:
+        pursuit_reqs = db.fetchall(
+            "SELECT id, notice_id, status, requested_at, completed_at FROM pursuit_requests "
+            "WHERE client_id=%s ORDER BY requested_at DESC LIMIT 20",
+            (current_user.id,)
+        )
+    except Exception:
+        pursuit_reqs = []
+    try:
+        comp_reqs = db.fetchall(
+            "SELECT id, firm_name, status, requested_at, completed_at FROM competitor_requests "
+            "WHERE user_id=%s ORDER BY requested_at DESC LIMIT 20",
+            (current_user.id,)
+        )
+    except Exception:
+        comp_reqs = []
+
+    def _req_status_pill(s):
+        c = {"pending": "color:var(--gold);", "generating": "color:#60a5fa;",
+             "complete": "color:#4ade80;", "failed": "color:#f87171;"}.get(s or "", "color:var(--muted);")
+        return f'<span style="font-size:.72rem;{c}">{(s or "pending").title()}</span>'
+
+    req_rows = "".join(
+        f'<tr><td style="font-size:.78rem;">Pursuit</td>'
+        f'<td style="font-size:.75rem;color:var(--muted);">{r.get("notice_id","")}</td>'
+        f'<td>{_req_status_pill(r.get("status"))}</td>'
+        f'<td style="font-size:.72rem;color:var(--muted);">{str(r.get("requested_at",""))[:16]}</td>'
+        f'</tr>'
+        for r in pursuit_reqs
+    ) + "".join(
+        f'<tr><td style="font-size:.78rem;">Competitor</td>'
+        f'<td style="font-size:.75rem;color:var(--muted);">{r.get("firm_name","")}</td>'
+        f'<td>{_req_status_pill(r.get("status"))}</td>'
+        f'<td style="font-size:.72rem;color:var(--muted);">{str(r.get("requested_at",""))[:16]}</td>'
+        f'</tr>'
+        for r in comp_reqs
+    )
+
+    ew_chk = "checked" if data.get("email_watchlist", True) else ""
+    eb_chk = "checked" if data.get("email_briefs", True) else ""
+
+    billing_colour = {"active": "#4ade80", "trial": "#fbbf24", "suspended": "#f87171"}.get(
+        data.get("billing_status", "active"), "var(--muted)")
+
+    body = (
+        f'<div class="ptitle">My Account</div>'
+        f'<div class="psub">{current_user.name}</div>'
+        f'{msg}'
+        # ── Profile card ──────────────────────────────────────────────────────
+        f'<div class="card" style="max-width:600px;">'
+        f'<div class="ch"><span class="ct">Profile</span></div>'
+        f'<div class="cb">'
+        f'<form method="POST">'
+        f'<input type="hidden" name="action" value="profile">'
+        f'<div class="fg"><label class="fl">Display name</label>'
+        f'<input name="display_name" class="fc2" value="{data.get("display_name","")}" required></div>'
+        f'<div class="fg"><label class="fl">Organisation</label>'
+        f'<input name="organisation" class="fc2" value="{data.get("organisation","")}"></div>'
+        f'<div class="fg"><label class="fl">Email address</label>'
+        f'<input name="email" type="email" class="fc2" value="{data.get("email","")}"></div>'
+        f'<div class="fg"><label class="fl">Phone <span style="color:var(--muted);font-weight:400;">(optional)</span></label>'
+        f'<input name="phone" type="tel" class="fc2" value="{data.get("phone","")}"></div>'
+        f'<div class="fg">'
+        f'<label class="fl">Sector preferences</label>'
+        f'<div style="font-size:.83rem;color:var(--muted);margin-bottom:.35rem;">{sectors_display}</div>'
+        f'<a href="{url_for("onboarding")}" class="btn bg-out sm">Update sectors →</a>'
+        f'</div>'
+        f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:.5rem;">'
+        f'<div><div style="font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:.3rem;">Plan</div>'
+        f'<div>{_plan_pill(data.get("plan","pursue"))}</div></div>'
+        f'<div><div style="font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:.3rem;">Status</div>'
+        f'<div style="font-size:.8rem;color:{billing_colour};">{data.get("billing_status","active").title()}</div></div>'
+        f'</div>'
+        f'<div style="margin-top:1.25rem;">'
+        f'<button type="submit" class="btn bg-gold sm">Save profile</button></div>'
+        f'</form></div></div>'
+        # ── Password card ─────────────────────────────────────────────────────
+        f'<div class="card" style="max-width:600px;">'
+        f'<div class="ch"><span class="ct">Change Password</span></div>'
+        f'<div class="cb">'
+        f'<a href="{url_for("account_change_password")}" class="btn bg-out sm">Change password →</a>'
+        f'</div></div>'
+        # ── Email preferences ─────────────────────────────────────────────────
+        f'<div class="card" style="max-width:600px;">'
+        f'<div class="ch"><span class="ct">Email Preferences</span></div>'
+        f'<div class="cb">'
+        f'<form method="POST">'
+        f'<input type="hidden" name="action" value="email_prefs">'
+        f'<label style="display:flex;align-items:center;gap:.75rem;margin-bottom:1rem;cursor:pointer;">'
+        f'<input type="checkbox" name="email_watchlist" value="1" {ew_chk} style="accent-color:var(--gold);width:15px;height:15px;">'
+        f'<div><div style="font-size:.85rem;color:var(--text);">Daily watchlist emails</div>'
+        f'<div style="font-size:.75rem;color:var(--muted);">Get notified each morning when your watchlist is updated</div></div>'
+        f'</label>'
+        f'<label style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.25rem;cursor:pointer;">'
+        f'<input type="checkbox" name="email_briefs" value="1" {eb_chk} style="accent-color:var(--gold);width:15px;height:15px;">'
+        f'<div><div style="font-size:.85rem;color:var(--text);">Weekly watch brief emails</div>'
+        f'<div style="font-size:.75rem;color:var(--muted);">Receive your weekly intelligence brief each Monday morning</div></div>'
+        f'</label>'
+        f'<button type="submit" class="btn bg-gold sm">Save preferences</button>'
+        f'</form></div></div>'
+        # ── Request history ───────────────────────────────────────────────────
+        f'<div class="card" style="max-width:600px;">'
+        f'<div class="ch"><span class="ct">Request History</span></div>'
+        f'<div style="overflow-x:auto;">'
+        f'<table class="dt"><thead><tr>'
+        f'<th>Type</th><th>Reference</th><th>Status</th><th>Date</th>'
+        f'</tr></thead><tbody>'
+        f'{req_rows or "<tr><td colspan=4 style=color:var(--muted);text-align:center;padding:1.5rem>No requests yet</td></tr>"}'
+        f'</tbody></table></div></div>'
+    )
+    return _page("My Account — Groundwork", body, "account")
+
+
+@app.route("/account/password", methods=["GET", "POST"])
+@login_required
+def account_change_password():
+    msg = ""
+    error = ""
+
+    if request.method == "POST":
+        current_pw = request.form.get("current_password", "")
+        new_pw     = request.form.get("new_password", "")
+        confirm_pw = request.form.get("confirm_password", "")
+
+        if not new_pw or len(new_pw) < 8:
+            error = "New password must be at least 8 characters."
+        elif new_pw != confirm_pw:
+            error = "New passwords do not match."
+        else:
+            # Verify current password
+            user_check = _check_password(current_user.id, current_pw)
+            if not user_check:
+                error = "Current password is incorrect."
+            else:
+                cfg = _load_cfg()
+                data = cfg.get("clients", {}).get(current_user.id, {})
+                data["password_hash"] = bcrypt.hashpw(new_pw.encode(), bcrypt.gensalt()).decode()
+                data["temp_password"] = False
+                _save_cfg(cfg)
+                _flash("Password changed successfully.", "success")
+                from preferences import has_preferences
+                return redirect(url_for("gw_home") if has_preferences(current_user.id) else url_for("onboarding"))
+
+    is_temp = getattr(current_user, "temp_password", False)
+    temp_banner = (
+        '<div class="al al-in" style="margin-bottom:1.25rem;">'
+        '<strong>Welcome!</strong> You\'re signed in with a temporary password. '
+        'Please set a permanent password before continuing.</div>'
+    ) if is_temp else ""
+    err_html = f'<div class="al al-er">{error}</div>' if error else ""
+
+    body = (
+        f'<div class="ptitle">Change Password</div>'
+        f'<div class="psub">Choose a strong password for your account.</div>'
+        f'<div class="card" style="max-width:480px;">'
+        f'<div class="ch"><span class="ct">Set New Password</span></div>'
+        f'<div class="cb">'
+        f'{temp_banner}'
+        f'{err_html}'
+        f'<form method="POST">'
+        f'<div class="fg"><label class="fl">Current password</label>'
+        f'<input name="current_password" type="password" class="fc2" required autofocus></div>'
+        f'<div class="fg"><label class="fl">New password <span style="color:var(--muted);font-weight:400;">(min. 8 characters)</span></label>'
+        f'<input name="new_password" type="password" class="fc2" required minlength="8"></div>'
+        f'<div class="fg"><label class="fl">Confirm new password</label>'
+        f'<input name="confirm_password" type="password" class="fc2" required minlength="8"></div>'
+        f'<button type="submit" class="btn bg-gold">Update password &rarr;</button>'
+        f'</form></div></div>'
+    )
+    return _page("Change Password — Groundwork", body, "account")
+
 
 @app.route("/share/<token>")
 def share_view(token: str):
@@ -2186,6 +2420,8 @@ def gw_watchlist():
         else:
             preferred_sectors = list(current_user.preferred_sectors or []) or None
 
+        min_value_nzd = int(db_prefs.get("min_value_nzd") or 0)
+
         pool = db.fetchall("""
             SELECT r.notice_id, r.title, r.agency, r.source_url, r.close_date,
                    r.category_raw,
@@ -2198,19 +2434,39 @@ def gw_watchlist():
              WHERE (r.close_date IS NULL OR r.close_date >= CURRENT_DATE)
                AND (p.days_until_close IS NULL OR p.days_until_close >= 0)
              ORDER BY p.days_until_close ASC NULLS LAST
-             LIMIT 100
+             LIMIT 200
         """)
 
         pool = [dict(r) for r in pool]
+
+        # Apply minimum value filter: exclude known-value notices below threshold.
+        # "unknown" / TBC value_band always passes — we never know the true value.
+        if min_value_nzd and min_value_nzd > 0:
+            _BAND_MIN_NZD = {
+                "under_100k": 0,
+                "100k_500k":  100_000,
+                "500k_2m":    500_000,
+                "2m_10m":     2_000_000,
+                "10m_plus":   10_000_000,
+            }
+            def _passes_min_value(notice):
+                band = notice.get("value_band") or "unknown"
+                if band in ("unknown", "", None):
+                    return True  # TBC — always show
+                band_min = _BAND_MIN_NZD.get(band, 0)
+                return band_min >= min_value_nzd
+            pool = [r for r in pool if _passes_min_value(r)]
+
         # Sector-preferred notices bubble up first, then urgency+value within each group
         if preferred_sectors:
             matched   = [r for r in pool if (r.get("sector_tag") or "other") in preferred_sectors]
             unmatched = [r for r in pool if (r.get("sector_tag") or "other") not in preferred_sectors]
             matched.sort(key=_notice_sort_key)
             unmatched.sort(key=_notice_sort_key)
-            pool = matched + unmatched
+            pool = (matched + unmatched)[:100]
         else:
             pool.sort(key=_notice_sort_key)
+            pool = pool[:100]
 
     except Exception as exc:
         logger.error("gw_watchlist: %s", exc)
@@ -3019,8 +3275,109 @@ def gw_request():
                 )
                 sent = True
 
+        elif rtype == "competitor":
+            # ── Competitor profile: automated generation ──────────────────────
+            firm_name = request.form.get("firm_name", "").strip()
+            comp_context = request.form.get("comp_context", "").strip()
+            if firm_name:
+                try:
+                    import threading as _thr
+                    import mailer as _mailer
+
+                    # Save to competitor_requests table
+                    try:
+                        comp_req_id = db.fetchone(
+                            "INSERT INTO competitor_requests "
+                            "(user_id, firm_name, context, status, requested_at) "
+                            "VALUES (%s, %s, %s, 'pending', NOW()) RETURNING id",
+                            (current_user.id, firm_name, comp_context),
+                        )
+                        comp_req_id = (comp_req_id or {}).get("id")
+                    except Exception as exc:
+                        logger.warning("Could not save competitor_request to DB: %s", exc)
+                        comp_req_id = None
+
+                    portal_base = request.host_url.rstrip("/")
+                    comp_portal_url = portal_base + url_for("gw_competitors")
+
+                    def _generate_competitor(req_id, firm, context, client_id, client_name,
+                                             client_email, slug, portal_url):
+                        try:
+                            if req_id:
+                                db.execute(
+                                    "UPDATE competitor_requests SET status='generating' WHERE id=%s",
+                                    (req_id,))
+                            from competitor_profile import generate_competitor_profile
+                            import config as _cfg
+                            from pathlib import Path as _Path
+                            output_dir = _Path(_cfg.ARTEFACTS_DIR) / slug
+                            output_dir.mkdir(parents=True, exist_ok=True)
+                            profile_path = generate_competitor_profile(
+                                competitor_name=firm,
+                                client_name=client_name,
+                                output_dir=output_dir,
+                            )
+                            if req_id:
+                                try:
+                                    rel = str(profile_path.relative_to(_Path(_cfg.ARTEFACTS_DIR)))
+                                except ValueError:
+                                    rel = str(profile_path)
+                                db.execute(
+                                    "UPDATE competitor_requests SET status='complete', "
+                                    "artefact_path=%s, completed_at=NOW() WHERE id=%s",
+                                    (rel, req_id))
+                            # Build direct file URL
+                            rel_parts = _Path(profile_path.name)
+                            direct_url = f"{portal_url.rstrip('/')}"
+                            import mailer as _m
+                            if client_email:
+                                _m.send_competitor_profile_ready(
+                                    client_name=client_name,
+                                    client_email=client_email,
+                                    firm_name=firm,
+                                    portal_url=portal_url,
+                                )
+                        except Exception as exc:
+                            logger.exception("Competitor generation failed for %s: %s", firm, exc)
+                            if req_id:
+                                try:
+                                    db.execute(
+                                        "UPDATE competitor_requests SET status='failed' WHERE id=%s",
+                                        (req_id,))
+                                except Exception:
+                                    pass
+                            import mailer as _m
+                            _m.send_admin_only(
+                                subject=f"[Groundwork] Competitor profile FAILED — {firm}",
+                                html=f"<p>Client: {client_name}<br>Firm: {firm}</p><pre>{exc}</pre>",
+                            )
+
+                    _thr.Thread(
+                        target=_generate_competitor,
+                        args=(comp_req_id, firm_name, comp_context, current_user.id,
+                              current_user.name, current_user.email, current_user.slug,
+                              comp_portal_url),
+                        daemon=True, name=f"comp-{firm_name[:20]}",
+                    ).start()
+
+                    ok_msg = (
+                        f'<div class="al al-ok">'
+                        f'Competitor profile for <strong>{firm_name}</strong> is being generated — '
+                        f'you\'ll receive an email when it\'s ready. '
+                        f'It will appear in your <a href="{url_for("gw_competitors")}" '
+                        f'style="color:inherit;font-weight:700;">Competitors library</a>.'
+                        f'</div>'
+                    )
+                    sent = True
+                except Exception as exc:
+                    logger.exception("gw_request competitor dispatch failed: %s", exc)
+                    ok_msg = '<div class="al al-er">Request submitted — BidEdge will be in touch.</div>'
+                    sent = True
+            else:
+                ok_msg = '<div class="al al-er">Please enter the competitor firm name.</div>'
+
         else:
-            # ── Non-pursuit or no notice_id: email admin as before ────────────
+            # ── Other request types: email admin ──────────────────────────────
             import mailer as _mailer
             _mailer.notify_admin_new_request(
                 client_name=current_user.name,
@@ -3033,8 +3390,15 @@ def gw_request():
             ok_msg = '<div class="al al-ok">Request submitted — BidEdge will be in touch.</div>'
             sent = True
 
-    # ── Build form ────────────────────────────────────────────────────────────
-    # Notice ID field — read-only if pre-filled from watchlist, editable otherwise
+    # ── Build forms ────────────────────────────────────────────────────────────
+    # Determine which tab is active (from query param or form submission)
+    active_tab = request.args.get("tab", "pursuit")
+    if request.method == "POST":
+        rtype_post = request.form.get("type", "pursuit")
+        if rtype_post == "competitor":
+            active_tab = "competitor"
+
+    # Notice ID field — read-only if pre-filled from watchlist
     if prefill_notice_id:
         notice_id_field = (
             f'<div class="fg"><label class="fl">GETS Notice ID</label>'
@@ -3045,34 +3409,64 @@ def gw_request():
         )
     else:
         notice_id_field = (
-            f'<div class="fg"><label class="fl">GETS Notice ID (for pursuit packages)</label>'
+            f'<div class="fg"><label class="fl">GETS Notice ID</label>'
             f'<input name="notice_id" class="fc2" placeholder="e.g. 34060392">'
             f'<div class="fh">Find the notice ID in the GETS URL or your watchlist.</div></div>'
         )
-    body = (f'<div class="ptitle">Request Intelligence</div>'
-            f'<div class="psub">Your request goes directly to the BidEdge team.</div>'
-            f'{ok_msg}'
-            f'<div class="card" style="max-width:580px;">'
-            f'<div class="ch"><span class="ct">New Request</span></div>'
-            f'<div class="cb">'
-            f'<form method="POST">'
-            f'<div class="fg"><label class="fl">Request type</label>'
-            f'<select name="type" class="fc2">'
-            f'<option value="pursuit">Pursuit Intelligence Package</option>'
-            f'<option value="competitor">Competitor Profile</option>'
-            f'<option value="brief">Weekly Watch Brief (immediate)</option>'
-            f'<option value="other">Other</option>'
-            f'</select></div>'
-            f'{notice_id_field}'
-            f'<div class="fg"><label class="fl">Details</label>'
-            f'<textarea name="details" class="fc2" placeholder="Please describe what you need..."></textarea></div>'
-            f'<div class="fg"><label class="fl">Priority</label>'
-            f'<select name="priority" class="fc2">'
-            f'<option value="normal">Normal — within 24 hours</option>'
-            f'<option value="urgent">Urgent — within 4 hours</option>'
-            f'</select></div>'
-            f'<button type="submit" class="btn bg-gold">Submit request &rarr;</button>'
-            f'</form></div></div>')
+
+    def _tab_btn(tab_id, label):
+        active_style = ("background:var(--gold);color:#fff;"
+                        if active_tab == tab_id
+                        else "background:var(--surf2);color:var(--muted);")
+        return (f'<a href="{url_for("gw_request")}?tab={tab_id}" '
+                f'style="padding:.45rem 1.1rem;border-radius:5px;font-size:.83rem;'
+                f'font-weight:600;text-decoration:none;{active_style}">{label}</a>')
+
+    pursuit_form = (
+        f'<form method="POST">'
+        f'<input type="hidden" name="type" value="pursuit">'
+        f'{notice_id_field}'
+        f'<div class="fg"><label class="fl">Additional context <span style="color:var(--muted);font-weight:400;">(optional)</span></label>'
+        f'<textarea name="details" class="fc2" rows="3" '
+        f'placeholder="Any specific aspects to focus on, evaluation criteria, known incumbents..."></textarea></div>'
+        f'<div class="fg"><label class="fl">Priority</label>'
+        f'<select name="priority" class="fc2">'
+        f'<option value="normal">Normal — within 24 hours</option>'
+        f'<option value="urgent">Urgent — within 4 hours (closes soon)</option>'
+        f'</select></div>'
+        f'<button type="submit" class="btn bg-gold">Request pursuit package &rarr;</button>'
+        f'</form>'
+    )
+
+    org_val = current_user.organisation or ""
+    competitor_form = (
+        f'<form method="POST">'
+        f'<input type="hidden" name="type" value="competitor">'
+        f'<div class="fg"><label class="fl">Competitor firm name *</label>'
+        f'<input name="firm_name" class="fc2" placeholder="e.g. Downer NZ, Spotless, Hawkins" required></div>'
+        f'<div class="fg"><label class="fl">Your organisation <span style="color:var(--muted);font-weight:400;">(pre-filled)</span></label>'
+        f'<input name="client_org" class="fc2" value="{org_val}" placeholder="Your firm name"></div>'
+        f'<div class="fg"><label class="fl">Context <span style="color:var(--muted);font-weight:400;">(optional)</span></label>'
+        f'<textarea name="comp_context" class="fc2" rows="3" '
+        f'placeholder="e.g. Particularly interested in their FM contract history with Auckland Council, or their civil infrastructure work in Canterbury..."></textarea></div>'
+        f'<button type="submit" class="btn bg-gold">Request competitor profile &rarr;</button>'
+        f'</form>'
+    )
+
+    body = (
+        f'<div class="ptitle">Request Intelligence</div>'
+        f'<div class="psub">Request a pursuit package for a specific tender, or a competitor profile for any NZ firm.</div>'
+        f'{ok_msg}'
+        f'<div style="display:flex;gap:.5rem;margin-bottom:1.25rem;">'
+        f'{_tab_btn("pursuit", "🎯 Pursuit Package")}'
+        f'{_tab_btn("competitor", "📊 Competitor Profile")}'
+        f'</div>'
+        f'<div class="card" style="max-width:580px;">'
+        f'<div class="ch"><span class="ct">{"Pursuit Intelligence Package" if active_tab == "pursuit" else "Competitor Profile"}</span></div>'
+        f'<div class="cb">'
+        f'{pursuit_form if active_tab == "pursuit" else competitor_form}'
+        f'</div></div>'
+    )
     return _page("Request — Groundwork", body, "request")
 
 
@@ -3157,7 +3551,8 @@ def admin_leads():
                 sectors = [s.strip() for s in (lead.get("sectors") or "").split(",")
                            if s.strip()]
                 _add_user(username, temp_pw, lead["name"], lead["email"],
-                          is_admin=False, sectors=sectors, plan=plan, billing_status="active")
+                          is_admin=False, sectors=sectors, plan=plan, billing_status="active",
+                          temp_password=True)
 
                 db.execute(
                     "UPDATE leads SET status='approved', portal_username=%s, "
@@ -4498,7 +4893,8 @@ def e404(e):
 # ── User management CLI ───────────────────────────────────────────────────────
 
 def _add_user(username, password, display_name="", email="",
-              is_admin=False, sectors=None, plan="pursue", billing_status="active"):
+              is_admin=False, sectors=None, plan="pursue", billing_status="active",
+              temp_password=False):
     hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
     cfg = _load_cfg()
     cfg.setdefault("clients", {})[username] = {
@@ -4510,6 +4906,9 @@ def _add_user(username, password, display_name="", email="",
         "artefact_slug":     _slug(display_name or username),
         "plan":              plan,
         "billing_status":    billing_status,
+        "temp_password":     temp_password,
+        "email_watchlist":   True,
+        "email_briefs":      True,
     }
     _save_cfg(cfg)
     print(f"User '{username}' {'[admin] ' if is_admin else ''}created (plan={plan}).")

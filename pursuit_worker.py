@@ -116,13 +116,29 @@ def _generate(
         )
         # Store path relative to ARTEFACTS_DIR so it's portable
         import config
+        artefacts_root = Path(config.ARTEFACTS_DIR)
         try:
-            rel = str(html_path.relative_to(Path(config.ARTEFACTS_DIR)))
+            rel = str(html_path.relative_to(artefacts_root))
         except ValueError:
             rel = str(html_path)
 
         _set_status(req_id, "complete", output_path=rel)
         logger.info("WORKER: Complete req_id=%s → %s", req_id, rel)
+
+        # Build a direct link to the file using serve_artefact_file route.
+        # rel is like "<slug>/<filename>.html" — first component is the slug.
+        rel_parts = Path(rel).parts
+        if len(rel_parts) >= 2:
+            file_slug = rel_parts[0]
+            file_path = str(Path(*rel_parts[1:]))
+            # portal_url is the base URL of the request (e.g. https://app.bidedge.co.nz)
+            # Strip any path component — we only want the scheme+host
+            from urllib.parse import urlparse, urlunparse
+            parsed = urlparse(portal_url)
+            base = urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
+            direct_url = f"{base}/groundwork/files/{file_slug}/{file_path}"
+        else:
+            direct_url = portal_url  # fallback to library page
 
         # Fetch notice title for the email
         row = db.fetchone("SELECT title FROM raw_notices WHERE notice_id = %s", (notice_id,))
@@ -134,7 +150,7 @@ def _generate(
                 client_email=client_email,
                 notice_title=notice_title,
                 notice_id=notice_id,
-                portal_url=portal_url,
+                portal_url=direct_url,
             )
         else:
             logger.warning("WORKER: No email for client %s — skipping notification", client_id)
