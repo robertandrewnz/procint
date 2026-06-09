@@ -23,5 +23,7 @@ venv/
 data/mbie/
 logs/
 
-# Claude Code session data
-.claude/
+# Claude Code session data — worktrees and transcripts only, not CLAUDE.md
+.claude/worktrees/
+.claude/*.jsonl
+.claude/projects/
