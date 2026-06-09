@@ -3282,7 +3282,13 @@ def gw_request():
             # ── Competitor profile: automated generation ──────────────────────
             firm_name = request.form.get("firm_name", "").strip()
             comp_context = request.form.get("comp_context", "").strip()
-            if firm_name:
+            sector_context = request.form.get("sector_context", "").strip()
+            if firm_name and not sector_context:
+                ok_msg = (
+                    '<div class="al al-er">Please specify the procurement sector — '
+                    'this is required to frame the competitive analysis.</div>'
+                )
+            elif firm_name:
                 try:
                     import threading as _thr
                     import mailer as _mailer
@@ -3303,8 +3309,8 @@ def gw_request():
                     portal_base = request.host_url.rstrip("/")
                     comp_portal_url = portal_base + url_for("gw_competitors")
 
-                    def _generate_competitor(req_id, firm, context, client_id, client_name,
-                                             client_email, slug, portal_url):
+                    def _generate_competitor(req_id, firm, context, sector, client_id,
+                                             client_name, client_email, slug, portal_url):
                         try:
                             if req_id:
                                 db.execute(
@@ -3318,6 +3324,7 @@ def gw_request():
                             profile_path = generate_competitor_profile(
                                 competitor_name=firm,
                                 client_name=client_name,
+                                sector_context=sector,
                                 output_dir=output_dir,
                             )
                             if req_id:
@@ -3329,16 +3336,18 @@ def gw_request():
                                     "UPDATE competitor_requests SET status='complete', "
                                     "artefact_path=%s, completed_at=NOW() WHERE id=%s",
                                     (rel, req_id))
-                            # Build direct file URL
-                            rel_parts = _Path(profile_path.name)
-                            direct_url = f"{portal_url.rstrip('/')}"
+                            # Build direct file URL (slug-stripped path for serve_artefact_file)
+                            from urllib.parse import urlparse as _urlparse
+                            _parsed = _urlparse(portal_url)
+                            _base = f"{_parsed.scheme}://{_parsed.netloc}"
+                            direct_url = f"{_base}/groundwork/files/{slug}/{profile_path.name}"
                             import mailer as _m
                             if client_email:
                                 _m.send_competitor_profile_ready(
                                     client_name=client_name,
                                     client_email=client_email,
                                     firm_name=firm,
-                                    portal_url=portal_url,
+                                    portal_url=direct_url,
                                 )
                         except Exception as exc:
                             logger.exception("Competitor generation failed for %s: %s", firm, exc)
@@ -3357,9 +3366,9 @@ def gw_request():
 
                     _thr.Thread(
                         target=_generate_competitor,
-                        args=(comp_req_id, firm_name, comp_context, current_user.id,
-                              current_user.name, current_user.email, current_user.slug,
-                              comp_portal_url),
+                        args=(comp_req_id, firm_name, comp_context, sector_context,
+                              current_user.id, current_user.name, current_user.email,
+                              current_user.slug, comp_portal_url),
                         daemon=True, name=f"comp-{firm_name[:20]}",
                     ).start()
 
@@ -3446,12 +3455,16 @@ def gw_request():
         f'<form method="POST">'
         f'<input type="hidden" name="type" value="competitor">'
         f'<div class="fg"><label class="fl">Competitor firm name *</label>'
-        f'<input name="firm_name" class="fc2" placeholder="e.g. Downer NZ, Spotless, Hawkins" required></div>'
+        f'<input name="firm_name" class="fc2" placeholder="e.g. Bastion, Kordia, Datacom" required></div>'
         f'<div class="fg"><label class="fl">Your organisation <span style="color:var(--muted);font-weight:400;">(pre-filled)</span></label>'
         f'<input name="client_org" class="fc2" value="{org_val}" placeholder="Your firm name"></div>'
-        f'<div class="fg"><label class="fl">Context <span style="color:var(--muted);font-weight:400;">(optional)</span></label>'
+        f'<div class="fg"><label class="fl">Procurement sector *</label>'
+        f'<input name="sector_context" class="fc2" '
+        f'placeholder="e.g. government cybersecurity and SOC services, ICT infrastructure, facilities management" required>'
+        f'<div class="fh">Required — frames the competitive analysis around the sector where you compete against this firm.</div></div>'
+        f'<div class="fg"><label class="fl">Additional context <span style="color:var(--muted);font-weight:400;">(optional)</span></label>'
         f'<textarea name="comp_context" class="fc2" rows="3" '
-        f'placeholder="e.g. Particularly interested in their FM contract history with Auckland Council, or their civil infrastructure work in Canterbury..."></textarea></div>'
+        f'placeholder="e.g. Particularly interested in their contract history with Auckland Council, or their approach to central government ICT panels..."></textarea></div>'
         f'<button type="submit" class="btn bg-gold">Request competitor profile &rarr;</button>'
         f'</form>'
     )
