@@ -355,5 +355,38 @@ DEMO_WEBSITE: str = os.getenv("DEMO_WEBSITE", "")
 # How many competitors to show in pursuit packages
 PURSUIT_COMPETITOR_LIMIT: int = int(os.getenv("PURSUIT_COMPETITOR_LIMIT", "8"))
 
+# ── Contract Expiry Radar — inferred duration table ───────────────────────────
+# Maps MBIE sector_tag values to typical NZ government contract durations (months).
+# Used when contract_duration_months is absent from the award record.
+# Typical values reflect the MBIE award dataset coverage window (~18 months) and
+# common NZ government initial contract terms (1–2 year initial + renewal options).
+# All durations in months.
+INFERRED_CONTRACT_DURATIONS: dict = {
+    # Roading and civil
+    "roading":               {"min": 12, "typical": 24, "max": 60},
+    "infrastructure":        {"min": 12, "typical": 24, "max": 60},
+    # Facilities management
+    "FM":                    {"min": 12, "typical": 24, "max": 60},
+    "fm":                    {"min": 12, "typical": 24, "max": 60},
+    # ICT and digital
+    "ICT":                   {"min": 12, "typical": 24, "max": 48},
+    "ict":                   {"min": 12, "typical": 24, "max": 48},
+    "cybersecurity":         {"min": 12, "typical": 24, "max": 36},
+    # Construction (project-based, shorter)
+    "construction":          {"min":  6, "typical": 18, "max": 36},
+    # Professional services and advisory
+    "advisory":              {"min": 12, "typical": 24, "max": 36},
+    "professional_services": {"min": 12, "typical": 24, "max": 36},
+    # Defence and security
+    "defence":               {"min": 12, "typical": 24, "max": 60},
+    "security":              {"min": 12, "typical": 24, "max": 48},
+    # Health
+    "health":                {"min": 12, "typical": 24, "max": 48},
+    # Utilities
+    "utilities":             {"min": 12, "typical": 24, "max": 84},
+    # Default fallback
+    "other":                 {"min": 12, "typical": 24, "max": 60},
+}
+
 # ── Logging ───────────────────────────────────────────────────────────────────
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

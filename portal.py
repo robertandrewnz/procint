@@ -2107,7 +2107,7 @@ def gw_home():
     # ── Section 4: Renewal pipeline (three-tier) ─────────────────────────────
     try:
         from renewal_radar import get_renewal_pipeline
-        _pipeline = get_renewal_pipeline(user_sectors=eff_sectors or None)
+        _pipeline = get_renewal_pipeline(user_sectors=eff_sectors or None, days_ahead=365)
     except Exception as _e:
         logger.warning("renewal_radar unavailable: %s", _e)
         _pipeline = {"imminent": [], "approaching": [], "market_sounding": [], "data_note": ""}
@@ -2175,6 +2175,9 @@ def gw_home():
         supplier  = r.get("supplier_name") or ""
         ed        = r.get("expiry_date")
         ad        = r.get("awarded_date")
+        term_src  = r.get("term_source", "inferred")
+        dur_mo    = r.get("duration_months")
+
         # Expiry label
         if ed:
             from datetime import date as _date
@@ -2210,6 +2213,24 @@ def gw_home():
                 award_str = str(ad)[:7]
 
         wl_colour = "var(--red)" if tier == "imminent" else "#e07b39"
+
+        # Term source badge
+        if term_src == "confirmed":
+            term_badge = (
+                f'<span style="display:inline-block;padding:.1rem .4rem;border-radius:3px;'
+                f'font-size:.62rem;font-weight:700;letter-spacing:.05em;'
+                f'background:rgba(78,204,163,.15);color:#4ecca3;border:1px solid rgba(78,204,163,.3);">'
+                f'✓ Stated term</span>'
+            )
+        else:
+            dur_label = f"{dur_mo} month typical term" if dur_mo else "estimated term"
+            term_badge = (
+                f'<span style="display:inline-block;padding:.1rem .4rem;border-radius:3px;'
+                f'font-size:.62rem;font-weight:700;letter-spacing:.05em;'
+                f'background:rgba(224,123,57,.15);color:#e07b39;border:1px solid rgba(224,123,57,.3);">'
+                f'~ Estimated {dur_label}</span>'
+            )
+
         supplier_line = (
             f'<div style="font-size:.72rem;margin-top:.15rem;">'
             f'<span style="color:var(--muted);">Incumbent: </span>'
@@ -2231,6 +2252,7 @@ def gw_home():
             f'{award_line}'
             f'<div class="nmeta" style="margin-top:.25rem;">'
             f'{_sector_badge(r.get("sector_tag",""))}'
+            f'&ensp;{term_badge}'
             f'</div></div>'
             f'<div style="flex-shrink:0;text-align:right;">'
             f'<div style="font-size:.85rem;font-weight:700;color:var(--gold);">{val_str}</div>'
@@ -2252,7 +2274,7 @@ def gw_home():
         return hdr + rows
 
     _imminent_html   = _expiry_tier_section("Expires within 3 months",  "imminent",   "var(--red)")
-    _approching_html = _expiry_tier_section("Expires in 3–6 months",     "approaching","#e07b39")
+    _approching_html = _expiry_tier_section("Expires in 3–12 months",   "approaching","#e07b39")
 
     _renewal_body = _imminent_html + _approching_html
     _data_note = _pipeline.get("data_note", "")
@@ -2260,13 +2282,14 @@ def gw_home():
     if not _renewal_body:
         _renewal_body = (
             f'<div style="padding:1rem 1.1rem;font-size:.82rem;color:var(--muted);">'
-            + (_data_note or "No contracts with calculable expiry dates found in the next 6 months for your sectors.")
+            + (_data_note or "No contracts with calculable expiry dates found in the next 12 months for your sectors. Try widening your sector preferences.")
             + '</div>'
         )
         _data_note = ""
 
     _data_note_html = (
-        f'<div style="padding:.6rem 1.1rem;font-size:.76rem;color:var(--muted);">'
+        f'<div style="padding:.6rem 1.1rem;font-size:.76rem;color:var(--muted);'
+        f'border-top:1px solid var(--border);margin-top:.25rem;">'
         f'{_data_note}</div>'
     ) if _data_note else ""
 
@@ -2274,7 +2297,7 @@ def gw_home():
         f'<div class="card" style="margin-top:1.25rem;">'
         f'<div class="ch"><span class="ct">Contract Expiry Radar</span>'
         f'<span style="font-size:.72rem;color:var(--muted);">'
-        f'Contracts with calculable expiry dates in the next 6 months</span></div>'
+        f'Contracts approaching estimated re-procurement in the next 12 months</span></div>'
         f'{_renewal_body}{_data_note_html}'
         f'</div>'
     )
