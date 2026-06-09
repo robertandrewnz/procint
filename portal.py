@@ -15,11 +15,9 @@ Setup:
   python portal.py                    # start server
 """
 from __future__ import annotations
-import argparse, json, logging, os, secrets, smtplib, sys
+import argparse, json, logging, os, secrets, sys
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from functools import wraps
 from pathlib import Path
 from typing import Optional
@@ -177,22 +175,17 @@ def _resolve_token(token: str) -> Optional[dict]:
     return entry
 
 
-# ── SMTP ──────────────────────────────────────────────────────────────────────
+# ── Email ─────────────────────────────────────────────────────────────────────
+# All email goes through mailer.py (Resend API). Never use smtplib directly.
+
+import mailer as _mailer_mod  # noqa: E402 — imported after Flask setup
 
 def _send_email(subject: str, html: str, to: list[str]) -> bool:
-    if not (config.SMTP_HOST and config.SMTP_USER and config.SMTP_PASSWORD and config.SMTP_FROM):
-        logger.warning("SMTP not configured — email skipped")
-        return False
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject; msg["From"] = config.SMTP_FROM; msg["To"] = ", ".join(to)
-        msg.attach(MIMEText(html, "html", "utf-8"))
-        with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT) as s:
-            s.ehlo(); s.starttls(); s.login(config.SMTP_USER, config.SMTP_PASSWORD)
-            s.sendmail(config.SMTP_FROM, to, msg.as_string())
-        return True
-    except Exception as exc:
-        logger.error("Email failed: %s", exc); return False
+    """Legacy shim — delegates to mailer.send_email(). Kept for old call sites."""
+    ok = True
+    for addr in to:
+        ok = _mailer_mod.send_email(addr, subject, html) and ok
+    return ok
 
 def _admin_emails() -> list[str]:
     a = _load_cfg().get("settings", {}).get("admin_email") or os.getenv("ADMIN_EMAIL", "")
@@ -1149,7 +1142,7 @@ def request_access():
         subject = f"[BidEdge] Access Request — {name}"
         html = (f"<p><b>Name:</b> {name}<br><b>Email:</b> {email}<br>"
                 f"<b>Organisation:</b> {org or '(not given)'}</p>")
-        _send_email(subject, html, _admin_emails())
+        _mailer_mod.send_admin_only(subject, html, _async=True)
     return redirect(url_for("homepage") + "?sent=1")
 
 
@@ -1226,13 +1219,18 @@ def signup():
         _mailer.send_admin_only(
             subject=f"[BidEdge] New sign-up — {plan_label} — {name}",
             html=email_html,
+            _async=True,
         )
 
         # ── 3. Prospect confirmation email (non-blocking) ─────────────────────
-        try:
-            _mailer.send_signup_confirmation(name=name, email=email, plan_label=plan_label)
-        except Exception as _conf_err:
-            logger.warning("Prospect confirmation email failed for %s: %s", email, _conf_err)
+        # Prospect confirmation — fire-and-forget, never blocks the redirect
+        import threading as _thr
+        _thr.Thread(
+            target=_mailer.send_signup_confirmation,
+            kwargs={"name": name, "email": email, "plan_label": plan_label},
+            daemon=True,
+            name="mailer-signup-confirm",
+        ).start()
 
         return redirect(url_for("signup") + f"?plan={plan}&sent=1&name={_esc(name)}")
 
@@ -2951,17 +2949,22 @@ def gw_request():
                 )
                 notice_title = (nrow or {}).get("title") or notice
 
-                # 3. Send confirmation email to client
+                # 3. Send confirmation email to client (async — never blocks request)
                 if current_user.email:
-                    _mailer.send_request_confirmation(
-                        client_name=current_user.name,
-                        client_email=current_user.email,
-                        notice_id=notice,
-                        notice_title=notice_title,
-                        urgent=urgent,
-                    )
+                    import threading as _thr
+                    _thr.Thread(
+                        target=_mailer.send_request_confirmation,
+                        kwargs=dict(
+                            client_name=current_user.name,
+                            client_email=current_user.email,
+                            notice_id=notice,
+                            notice_title=notice_title,
+                            urgent=urgent,
+                        ),
+                        daemon=True, name="mailer-req-confirm",
+                    ).start()
 
-                # 4. Notify admin
+                # 4. Notify admin (async)
                 _mailer.notify_admin_new_request(
                     client_name=current_user.name,
                     client_id=current_user.id,
@@ -3199,6 +3202,7 @@ def admin_leads():
                     subject="Welcome to Groundwork — your account is ready",
                     html=welcome_html,
                     client_email=lead["email"],
+                    _async=True,
                 )
                 msg = (f'<div class="al al-ok">Lead approved — account <strong>{username}</strong> '
                        f'created and welcome email sent to {lead["email"]}.</div>')

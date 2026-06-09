@@ -29,13 +29,10 @@ Environment variables (all in .env):
 import argparse
 import logging
 import os
-import smtplib
 import subprocess
 import sys
 import time
 from datetime import date, datetime
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Optional
 
@@ -81,33 +78,15 @@ def _admin_recipient() -> list[str]:
     return recs[:1] if recs else []
 
 
-def _smtp_configured() -> bool:
-    return bool(config.SMTP_HOST and config.SMTP_USER and config.SMTP_PASSWORD and config.SMTP_FROM)
-
-
 def send_email(subject: str, html_body: str, recipients: list[str]) -> bool:
-    """Send an HTML email. Returns True on success."""
-    if not _smtp_configured():
-        logger.warning("SMTP not configured — email skipped. Set SMTP_* in .env")
-        return False
+    """Send an HTML email via Resend. Returns True on success."""
     if not recipients:
         return False
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"] = config.SMTP_FROM
-        msg["To"] = ", ".join(recipients)
-        msg.attach(MIMEText(html_body, "html", "utf-8"))
-        with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT) as srv:
-            srv.ehlo()
-            srv.starttls()
-            srv.login(config.SMTP_USER, config.SMTP_PASSWORD)
-            srv.sendmail(config.SMTP_FROM, recipients, msg.as_string())
-        logger.info("Email sent to %s: %s", recipients, subject)
-        return True
-    except Exception as exc:
-        logger.error("Email failed: %s", exc)
-        return False
+    import mailer as _mailer
+    ok = True
+    for addr in recipients:
+        ok = _mailer.send_email(addr, subject, html_body) and ok
+    return ok
 
 
 def alert(job_name: str, error: str, elapsed: Optional[float] = None) -> None:
