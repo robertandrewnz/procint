@@ -455,7 +455,7 @@ Be specific — use the actual data provided above. Do not be generic. Tone: dir
 
 Return a JSON object with EXACTLY these keys:
 
-"executive_summary": Two paragraphs. First: what this opportunity is and its strategic significance. Second: why this matters specifically for {client_name} given their track record.
+"executive_summary": Two paragraphs. First: structural assessment of the opportunity ONLY — what it is, its strategic significance, and the structural GO/NO-GO signal (incumbent retention rate, pre-engagement signs, days to close vs complexity, evaluation criteria published/absent, agency award history). Do NOT mention {client_name} anywhere in paragraph 1. Second: open with EXACTLY one of the following data statements — if client has recorded history: "MBIE award data shows [N] recorded government contract wins for {client_name}, totalling $[X]M. The most recent win was [date] with [agency] for [description]." — if client has NO recorded history: "No government contract award history is held for {client_name} in the MBIE dataset. The client position assessment below is based on opportunity structure only — {client_name} should apply their own knowledge of their capabilities, relationships, and pipeline context to this assessment." Then continue with client-specific positioning factors. Never infer capabilities or absence of capabilities from missing award data.
 
 "strategic_fit_score": Integer 1-10. Base this on: client's sector capability, prior agency relationship, competitive positioning.
 
@@ -476,8 +476,8 @@ Return a JSON object with EXACTLY these keys:
 
 "competitive_narrative": 3-4 paragraph analytical narrative covering: (1) the realistic competitive field for this specific contract — not a generic sector list, name actual firms where data exists; (2) the incumbent risk assessment including both disclosed incumbents (from award history) and undisclosed incumbents (platform vendors, direct engagements, informal relationships that wouldn't appear in award data); (3) the key competitive dynamic — what will actually determine who wins and where genuine differentiation opportunity exists; (4) any sector-specific competitive patterns relevant to this contract type. Be specific — not "several firms may bid" but analytical conclusions with reasoning.
 
-"ach_table": Array of 3-4 objects, each representing a hypothesis about the procurement outcome. Each object has:
-  "hypothesis": String (e.g. "Incumbent platform vendor retains contract")
+"ach_table": Array of 3-4 objects, each representing a hypothesis about WHO WINS THIS PROCUREMENT AND WHY — modelling the competitive field, not the client's success. Each object has:
+  "hypothesis": String framing a competitive outcome (e.g. "Incumbent retains contract on relationship strength", "New entrant displaces incumbent by competing on total cost of ownership", "Panel shortlist favours established IT panel suppliers"). CRITICAL: Do NOT frame any hypothesis as "{client_name} successfully [does X]" or name {client_name} as the subject of a hypothesis. The ACH models who wins in the market — {client_name} can read where they fit, but must not be named as a hypothesis subject.
   "evidence_for": Array of 2-3 strings — specific evidence supporting this hypothesis from the data provided
   "evidence_against": Array of 1-2 strings — specific evidence working against this hypothesis
   "probability": Exactly one of "High", "Medium", or "Low"
@@ -494,7 +494,7 @@ Return a JSON object with EXACTLY these keys:
   "most_likely": Object with "scenario" (string — adjusted for this agency's actual award patterns and notice characteristics) and "rationale" (string — reasoning drawn from agency data provided)
   "optimistic": Object with "scenario" (string — weighting most favourable for {client_name}) and "rationale" (string — why this would favour the client and under what conditions)
 
-"positioning_recommendations": Array of 3-5 objects, each with "title" (short label) and "detail" (2-3 sentences of specific, actionable advice tailored to {client_name}).
+"pursuit_positioning": Array of exactly 4 objects, each with "title" (short label) and "detail" (2-3 sentences). The 4 objects MUST address these structural questions in order: (1) What does a credible new entrant need to be competitive on this opportunity — what threshold capabilities, relationships, or proof points are required regardless of who is bidding? (2) What single piece of intelligence would most change a go/no-go decision for this opportunity, and how could a bidder realistically obtain it before close? (3) If the primary pursuit path is not viable, what is the best alternative path — a different lot, a subcontract position, a partnership, or a different timing window? (4) What does winning this contract enable strategically — what doors does it open, what capability does it prove, what relationships does it build? Do NOT assess {client_name}'s specific capabilities. Do NOT give advice premised on capabilities you cannot verify from the data provided. All four answers must be grounded in the opportunity structure, agency patterns, and competitive landscape data.
 
 "risk_register": Array of exactly 5 objects, each with "risk" (label), "likelihood" (High/Medium/Low), "impact" (High/Medium/Low), "mitigation" (1-2 sentences).
 
@@ -533,7 +533,11 @@ def _call_claude(context: dict) -> Optional[dict]:
     # Client history note
     ch = context.get("client_history", {})
     if ch.get("sector_wins", 0) == 0:
-        client_data_note = "Client not found in published government contract award data — may operate under a different trading name or primarily serve private sector buyers."
+        client_data_note = (
+            f"No government contract award history is held for {context['client_name']} in the MBIE dataset. "
+            "This is a data absence, not a capability assessment. Win position must be assessed on opportunity structure only. "
+            "Do not infer capabilities, sector experience, or relationships from the absence of MBIE records."
+        )
     else:
         client_data_note = f"Client has {ch['sector_wins']} confirmed sector wins in MBIE data since {str(ch.get('sector_first_win', ''))[:4]}."
 
@@ -881,9 +885,9 @@ def _render_html(
             f"<td>{lw}</td></tr>"
         )
 
-    # Positioning cards
+    # Positioning cards — read from pursuit_positioning (new name) or positioning_recommendations (legacy)
     pos_cards = ""
-    for rec in (a.get("positioning_recommendations") or []):
+    for rec in (a.get("pursuit_positioning") or a.get("positioning_recommendations") or []):
         if isinstance(rec, dict):
             pos_cards += (
                 f'<div class="pos-card">'
@@ -1073,7 +1077,7 @@ def _render_html(
     <a href="#agency">03 Agency Profile</a>
     <a href="#cog">04 Centre of Gravity</a>
     <a href="#competitive">05 Competitive Landscape</a>
-    <a href="#positioning">06 Positioning Brief</a>
+    <a href="#positioning">06 Pursuit Positioning</a>
     <a href="#risks">07 Risk Register</a>
     <a href="#actions">08 Recommended Actions</a>
   </nav>
@@ -1096,7 +1100,7 @@ def _render_html(
       <a href="#agency">03 Agency Profile</a>
       <a href="#cog">04 Centre of Gravity</a>
       <a href="#competitive">05 Competitive Landscape</a>
-      <a href="#positioning">06 Positioning Brief</a>
+      <a href="#positioning">06 Pursuit Positioning</a>
       <a href="#risks">07 Risk Register</a>
       <a href="#actions">08 Recommended Actions</a>
     </nav>
@@ -1170,6 +1174,25 @@ def _render_html(
       </div>
     </div>
 
+    {(
+        f'<div style="background:#1a3a2a;border:1px solid #2d6a4f;border-radius:6px;'
+        f'padding:.75rem 1rem;margin-bottom:.85rem;font-size:.8rem;color:#a8d8c0;">'
+        f'<span style="font-weight:700;letter-spacing:.06em;text-transform:uppercase;'
+        f'font-size:.68rem;color:#4ecca3;">MBIE Client Record</span>&ensp;'
+        f'No government contract award history found for <strong>{_safe(client_name)}</strong> '
+        f'in the MBIE dataset. This is a data absence, not a capability assessment. '
+        f'Win position is assessed on opportunity structure only.</div>'
+    ) if ch.get('sector_wins', 0) == 0 else (
+        f'<div style="background:#1a2d3a;border:1px solid #2d4a6a;border-radius:6px;'
+        f'padding:.75rem 1rem;margin-bottom:.85rem;font-size:.8rem;color:#a8c8e0;">'
+        f'<span style="font-weight:700;letter-spacing:.06em;text-transform:uppercase;'
+        f'font-size:.68rem;color:#4ea8cc;">MBIE Client Record</span>&ensp;'
+        f'<strong>{_safe(client_name)}</strong>: '
+        f'{ch.get("sector_wins", 0)} recorded government contract wins | '
+        f'{_fmt_value(ch.get("sector_total_value", 0))} total. '
+        f'Most recent: {str(ch.get("sector_last_win", ""))[:10] or "unknown"}.'
+        f'</div>'
+    )}
     <table style="margin-top:.75rem;">
       <thead><tr>
         <th>Dimension</th><th>Data</th>
@@ -1238,10 +1261,10 @@ def _render_html(
     {ach_table_html}
   </div>
 
-  <!-- 06 Positioning Brief -->
+  <!-- 06 Pursuit Positioning -->
   <div class="section" id="positioning">
     <div class="section-number">06</div>
-    <div class="section-title">Positioning Brief for {_safe(client_name)}</div>
+    <div class="section-title">Pursuit Positioning</div>
     {pos_cards}
   </div>
 
