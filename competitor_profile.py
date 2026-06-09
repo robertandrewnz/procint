@@ -404,15 +404,27 @@ def generate_competitor_profile(
     html = _render_profile_html(data, client_name=client_name, h2h=h2h)
 
     folder_name = client_name or f"competitor_{_slug(competitor_name)}"
+    folder_slug = _slug(folder_name)
     filename = f"competitor_{_slug(competitor_name)}.html"
+
+    local_path = Path(config.OUTPUT_DIR) / "competitors" / folder_slug / filename
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    local_path.write_text(html, encoding="utf-8")
+
+    import storage as _storage
+    storage_path = f"competitors/{folder_slug}/{filename}"
+    if not _storage.upload_file(str(local_path), storage_path, "text/html"):
+        logger.warning("Storage upload failed for %s — file available in DB only", filename)
+
     db.save_output(
         "competitor_profile",
         date.today(),
         filename,
         content=html,
-        client_slug=_slug(folder_name),
+        storage_path=storage_path,
+        client_slug=folder_slug,
     )
-    logger.info("Competitor profile saved to DB: %s", filename)
+    logger.info("Competitor profile written locally and saved to DB: %s", filename)
     return html
 
 

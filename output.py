@@ -936,8 +936,22 @@ def write_html(watchlist: list[dict], run_date: date) -> str:
     )
 
     filename = f"watchlist_{run_date.isoformat()}.html"
-    db.save_output("watchlist_html", run_date, filename, content=html)
-    logger.info("HTML watchlist saved to DB: %s", filename)
+
+    # Write locally then upload to Storage
+    from pathlib import Path
+    local_path = Path(config.OUTPUT_DIR) / "watchlist" / filename
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    local_path.write_text(html, encoding="utf-8")
+
+    import storage as _storage
+    storage_path = f"watchlist/{filename}"
+    if not _storage.upload_file(str(local_path), storage_path, "text/html"):
+        logger.warning("Storage upload failed for %s — file available in DB only", filename)
+
+    db.save_output(
+        "watchlist_html", run_date, filename, content=html, storage_path=storage_path
+    )
+    logger.info("HTML watchlist written locally and saved to DB: %s", filename)
     return filename
 
 

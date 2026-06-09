@@ -9,3 +9,4 @@ rapidfuzz>=3.6.0
 flask>=3.0.0
 weasyprint>=60.0
 schedule>=1.2.0
+supabase==2.3.4

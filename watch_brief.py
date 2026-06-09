@@ -447,14 +447,26 @@ def generate_watch_brief(
     )
 
     filename = f"watch_brief_{run_date.isoformat()}.html"
+    client_slug_val = _slug(client_name)
+
+    local_path = Path(config.OUTPUT_DIR) / "briefs" / client_slug_val / filename
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    local_path.write_text(html, encoding="utf-8")
+
+    import storage as _storage
+    storage_path = f"briefs/{client_slug_val}/{filename}"
+    if not _storage.upload_file(str(local_path), storage_path, "text/html"):
+        logger.warning("Storage upload failed for %s — file available in DB only", filename)
+
     db.save_output(
         "watch_brief",
         run_date,
         filename,
         content=html,
-        client_slug=_slug(client_name),
+        storage_path=storage_path,
+        client_slug=client_slug_val,
     )
-    logger.info("Watch brief saved to DB: %s", filename)
+    logger.info("Watch brief written locally and saved to DB: %s", filename)
     return html
 
 

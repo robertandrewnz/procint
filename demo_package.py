@@ -279,6 +279,8 @@ def generate_demo_package(
     """
     logger.info("Generating demo package: notice=%s prospect=%s", notice_id, prospect_name)
 
+    import storage as _storage
+
     watermark_text = (
         f"This is a sample produced by {config.DEMO_FIRM_NAME}. "
         "Contact us to discuss how we support your procurement pursuits."
@@ -293,32 +295,53 @@ def generate_demo_package(
 
     html_content = _inject_demo_styles(pursuit_html, prospect_name)
 
-    client_slug = f"DEMO_{_slug(prospect_name)}"
+    demo_slug = f"DEMO_{_slug(prospect_name)}"
     html_filename = f"DEMO_{_slug(prospect_name)}_{notice_id}.html"
+
+    local_html = Path(config.OUTPUT_DIR) / "demo" / html_filename
+    local_html.parent.mkdir(parents=True, exist_ok=True)
+    local_html.write_text(html_content, encoding="utf-8")
+
+    html_storage_path = f"demo/{html_filename}"
+    if not _storage.upload_file(str(local_html), html_storage_path, "text/html"):
+        logger.warning("Storage upload failed for %s — file available in DB only", html_filename)
+
     db.save_output(
         "demo_html",
         date.today(),
         html_filename,
         content=html_content,
-        client_slug=client_slug,
+        storage_path=html_storage_path,
+        client_slug=demo_slug,
         notice_id=notice_id,
     )
-    logger.info("Demo HTML saved to DB: %s", html_filename)
+    logger.info("Demo HTML written locally and saved to DB: %s", html_filename)
 
     pdf_filename = None
     if generate_pdf:
         pdf_bytes = _html_to_pdf_bytes(html_content)
         if pdf_bytes:
             pdf_filename = f"DEMO_{_slug(prospect_name)}_{notice_id}.pdf"
+
+            local_pdf = Path(config.OUTPUT_DIR) / "demo" / pdf_filename
+            local_pdf.write_bytes(pdf_bytes)
+
+            pdf_storage_path = f"demo/{pdf_filename}"
+            if not _storage.upload_file(str(local_pdf), pdf_storage_path, "application/pdf"):
+                logger.warning(
+                    "Storage upload failed for %s — file available in DB only", pdf_filename
+                )
+
             db.save_output(
                 "demo_pdf",
                 date.today(),
                 pdf_filename,
                 content_bytes=pdf_bytes,
-                client_slug=client_slug,
+                storage_path=pdf_storage_path,
+                client_slug=demo_slug,
                 notice_id=notice_id,
             )
-            logger.info("Demo PDF saved to DB: %s", pdf_filename)
+            logger.info("Demo PDF written locally and saved to DB: %s", pdf_filename)
 
     return {"html": html_filename, "pdf": pdf_filename}
 

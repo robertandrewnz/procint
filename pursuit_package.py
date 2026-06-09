@@ -974,17 +974,29 @@ def generate_pursuit_package(
     html = _render_html(notice, analysis, context, client_name,
                         is_demo=is_demo, demo_watermark=demo_watermark)
 
-    # 4. Save to database
+    # 4. Write locally, upload to Storage, save to DB
     filename = f"{notice_id}_pursuit_package.html"
+    client_slug_val = _slug(client_name)
+
+    local_path = Path(config.OUTPUT_DIR) / "pursuits" / client_slug_val / filename
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    local_path.write_text(html, encoding="utf-8")
+
+    import storage as _storage
+    storage_path = f"pursuits/{client_slug_val}/{filename}"
+    if not _storage.upload_file(str(local_path), storage_path, "text/html"):
+        logger.warning("Storage upload failed for %s — file available in DB only", filename)
+
     db.save_output(
         "pursuit_package",
         date.today(),
         filename,
         content=html,
-        client_slug=_slug(client_name),
+        storage_path=storage_path,
+        client_slug=client_slug_val,
         notice_id=notice_id,
     )
-    logger.info("Pursuit package saved to DB: %s", filename)
+    logger.info("Pursuit package written locally and saved to DB: %s", filename)
     return html
 
 

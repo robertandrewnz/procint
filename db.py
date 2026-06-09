@@ -76,21 +76,23 @@ def save_output(
     content_bytes: Optional[bytes] = None,
     client_slug: Optional[str] = None,
     notice_id: Optional[str] = None,
+    storage_path: Optional[str] = None,
 ) -> None:
     """Upsert a generated artefact into pipeline_outputs."""
     execute(
         """
         INSERT INTO pipeline_outputs
                (output_type, run_date, filename, content, content_bytes,
-                client_slug, notice_id)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                client_slug, notice_id, storage_path)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (output_type, run_date, filename) DO UPDATE
           SET content       = EXCLUDED.content,
               content_bytes = EXCLUDED.content_bytes,
+              storage_path  = EXCLUDED.storage_path,
               created_at    = NOW()
         """,
         (output_type, run_date, filename, content, content_bytes,
-         client_slug, notice_id),
+         client_slug, notice_id, storage_path),
     )
 
 

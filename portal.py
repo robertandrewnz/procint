@@ -35,6 +35,9 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.secret_key = config.PORTAL_SECRET_KEY
 
+# Startup — create local output dirs and sync any existing demo files
+config.ensure_output_dirs()
+
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -268,6 +271,47 @@ _COMPETITORS_HTML = _BASE_STYLE + """
 </div>
 """
 
+_STORAGE_CHECK_HTML = _BASE_STYLE + """
+<div class="nav">
+  <span class="nav-brand">Procurement Intelligence</span>
+  <a class="nav-link" href="{{ url_for('dashboard') }}">Watchlist</a>
+  <a class="nav-link" href="{{ url_for('packages_page') }}">Pursuit Packages</a>
+  <a class="nav-link" href="{{ url_for('competitors_page') }}">Competitors</a>
+  <div class="nav-right"><a href="{{ url_for('logout') }}" style="color:var(--muted);">Sign out</a></div>
+</div>
+<div class="page">
+  <div class="page-title">Storage Status — {{ bucket }}</div>
+  {% if error %}
+  <div class="alert alert-error">{{ error }}</div>
+  {% endif %}
+  <div class="card" style="margin-bottom:1rem;">
+    <div class="card-title">Bucket: {{ bucket }}</div>
+    <div class="card-meta">Total files in Storage: {{ storage_count }}</div>
+  </div>
+  {% for prefix, files in storage_by_prefix.items() %}
+  <div class="card">
+    <div class="card-title">{{ prefix }}/  <span style="color:var(--muted);font-weight:400;">{{ files|length }} file(s)</span></div>
+    {% for f in files %}
+    <div style="font-size:.73rem;color:var(--muted);padding:.15rem 0 .15rem .5rem;">{{ f }}</div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  {% if local_only %}
+  <div class="card">
+    <div class="card-title" style="color:var(--amber);">Local files not yet in Storage ({{ local_only|length }})</div>
+    {% for f in local_only %}
+    <div style="font-size:.73rem;color:var(--amber);padding:.15rem 0 .15rem .5rem;">{{ f }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if not storage_count and not error %}
+  <div class="card" style="color:var(--muted);font-style:italic;">
+    Storage is empty or not configured. Set SUPABASE_URL, SUPABASE_SERVICE_KEY, and STORAGE_BUCKET.
+  </div>
+  {% endif %}
+</div>
+"""
+
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
 
@@ -307,6 +351,29 @@ def _list_artefacts(output_type: str) -> list[dict]:
             "rel_path": f"{client_slug}/{run_date}/{filename}",
         })
     return results
+
+
+def _sync_demo_artefacts() -> None:
+    """Upload demo HTML files from local output/demo/ to Storage if not already present."""
+    import storage as _storage
+    demo_dir = os.path.join(config.OUTPUT_DIR, "demo")
+    if not os.path.isdir(demo_dir):
+        return
+    try:
+        for filename in os.listdir(demo_dir):
+            if not filename.endswith(".html"):
+                continue
+            storage_path = f"demo/{filename}"
+            if not _storage.file_exists(storage_path):
+                local_path = os.path.join(demo_dir, filename)
+                result = _storage.upload_file(local_path, storage_path, "text/html")
+                if result:
+                    logger.info("Synced demo artefact to Storage: %s", storage_path)
+    except Exception as exc:
+        logger.warning("Demo artefact sync failed: %s", exc)
+
+
+_sync_demo_artefacts()
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -405,11 +472,16 @@ def serve_artefact(filepath: str):
     auth = _require_auth()
     if auth:
         return auth
-    # Extract the filename from the last path component (client_slug/date/filename)
+
+    # Extract filename from path component (client_slug/run_date/filename)
     filename = filepath.strip("/").split("/")[-1]
+    content_type = (
+        "application/pdf" if filename.endswith(".pdf") else "text/html; charset=utf-8"
+    )
+
     row = db.fetchone(
         """
-        SELECT content, content_bytes, filename
+        SELECT content, content_bytes, filename, storage_path
           FROM pipeline_outputs
          WHERE filename = %s
          ORDER BY created_at DESC
@@ -417,8 +489,34 @@ def serve_artefact(filepath: str):
         """,
         (filename,),
     )
+
     if not row:
-        abort(404)
+        return Response(
+            "<html><body style='font-family:system-ui;padding:2rem;'>"
+            "<h2>File not available</h2>"
+            "<p>This file is being generated or is no longer available. "
+            "Please check your requests page.</p></body></html>",
+            status=404,
+            content_type="text/html; charset=utf-8",
+        )
+
+    storage_path = row.get("storage_path")
+
+    # Step 1 — Check local filesystem (fast path for current-session files)
+    if storage_path:
+        local_path = os.path.join(config.OUTPUT_DIR, storage_path)
+        if os.path.isfile(local_path):
+            with open(local_path, "rb") as f:
+                return Response(f.read(), content_type=content_type)
+
+    # Step 2 — Fetch from Supabase Storage
+    if storage_path:
+        import storage as _storage
+        file_bytes = _storage.download_file(storage_path)
+        if file_bytes:
+            return Response(file_bytes, content_type=content_type)
+
+    # Step 3 — Fall back to DB content (always available)
     if row.get("content"):
         return Response(row["content"], content_type="text/html; charset=utf-8")
     if row.get("content_bytes"):
@@ -427,7 +525,16 @@ def serve_artefact(filepath: str):
             content_type="application/pdf",
             headers={"Content-Disposition": f'inline; filename="{filename}"'},
         )
-    abort(404)
+
+    # Step 4 — Not found anywhere
+    return Response(
+        "<html><body style='font-family:system-ui;padding:2rem;'>"
+        "<h2>File not available</h2>"
+        "<p>This file is being generated or is no longer available. "
+        "Please check your requests page.</p></body></html>",
+        status=404,
+        content_type="text/html; charset=utf-8",
+    )
 
 
 @app.route("/api/watchlist")
@@ -448,6 +555,51 @@ def api_watchlist():
     return app.response_class(
         json.dumps([dict(n) for n in notices], default=_serialise),
         mimetype="application/json",
+    )
+
+
+@app.route("/admin/storage-check")
+def storage_check():
+    """Admin dashboard: list Storage contents and flag local-only files."""
+    auth = _require_auth()
+    if auth:
+        return auth
+
+    import storage as _storage
+
+    error = None
+    storage_by_prefix = {}
+    storage_count = 0
+
+    try:
+        for prefix in ["watchlist", "pursuits", "competitors", "briefs", "demo"]:
+            files = _storage.list_files(prefix)
+            if files:
+                storage_by_prefix[prefix] = files
+                storage_count += len(files)
+    except Exception as exc:
+        error = f"Storage check failed: {exc}"
+
+    # Find local files that are not yet in Storage
+    local_only = []
+    for prefix in ["watchlist", "pursuits", "competitors", "briefs", "demo"]:
+        local_dir = os.path.join(config.OUTPUT_DIR, prefix)
+        if not os.path.isdir(local_dir):
+            continue
+        for root, _dirs, files in os.walk(local_dir):
+            for fname in files:
+                rel = os.path.relpath(os.path.join(root, fname), config.OUTPUT_DIR)
+                sp = rel.replace(os.sep, "/")
+                if not _storage.file_exists(sp):
+                    local_only.append(sp)
+
+    return render_template_string(
+        _STORAGE_CHECK_HTML,
+        error=error,
+        bucket=config.STORAGE_BUCKET,
+        storage_count=storage_count,
+        storage_by_prefix=storage_by_prefix,
+        local_only=local_only,
     )
 
 
