@@ -2855,19 +2855,119 @@ def gw_request():
     # Pre-fill notice_id from query string (e.g. ?notice_id=32705858)
     prefill_notice_id = request.args.get("notice_id", "").strip()
     sent = False
+    ok_msg = ""
+
     if request.method == "POST":
         rtype   = request.form.get("type", "pursuit")
         details = request.form.get("details", "")
-        notice  = request.form.get("notice_id", "")
+        notice  = request.form.get("notice_id", "").strip()
         prio    = request.form.get("priority", "normal")
-        subject = (f"[Groundwork] {rtype.title()} Request — "
-                   f"{current_user.name} ({current_user.id})")
-        html    = (f"<p><b>Client:</b> {current_user.name}<br>"
-                   f"<b>Type:</b> {rtype}<br><b>Notice ID:</b> {notice or '—'}<br>"
-                   f"<b>Priority:</b> {prio}</p><p>{details}</p>")
-        _send_email(subject, html, _admin_emails())
-        sent = True
-    ok = '<div class="al al-ok">Request submitted — BidEdge will be in touch.</div>' if sent else ""
+
+        # ── Pursuit package: automated generation ─────────────────────────────
+        if rtype == "pursuit" and notice:
+            try:
+                import pursuit_worker
+                import mailer as _mailer
+
+                # Check urgency: notices closing within 7 days → immediate thread
+                dtc = pursuit_worker._days_until_close(notice)
+                urgent = (dtc is not None and dtc <= 7) or (prio == "urgent")
+
+                # 1. Save request to DB
+                req_id = pursuit_worker.create_request(
+                    client_id=current_user.id,
+                    notice_id=notice,
+                    request_type="pursuit",
+                    details=details,
+                    priority="urgent" if urgent else prio,
+                )
+
+                # 2. Fetch notice title for confirmation email
+                nrow = db.fetchone(
+                    "SELECT title FROM raw_notices WHERE notice_id = %s", (notice,)
+                )
+                notice_title = (nrow or {}).get("title") or notice
+
+                # 3. Send confirmation email to client
+                if current_user.email:
+                    _mailer.send_request_confirmation(
+                        client_name=current_user.name,
+                        client_email=current_user.email,
+                        notice_id=notice,
+                        notice_title=notice_title,
+                        urgent=urgent,
+                    )
+
+                # 4. Notify admin
+                _mailer.notify_admin_new_request(
+                    client_name=current_user.name,
+                    client_id=current_user.id,
+                    notice_id=notice,
+                    request_type=rtype,
+                    priority="urgent" if urgent else prio,
+                    details=details,
+                )
+
+                # 5. Dispatch background generation
+                portal_base = request.host_url.rstrip("/")
+                portal_url = portal_base + url_for("gw_pursuits")
+                pursuit_worker.dispatch(
+                    req_id=req_id,
+                    client_id=current_user.id,
+                    client_name=current_user.name,
+                    client_email=current_user.email or "",
+                    notice_id=notice,
+                    preferred_sectors=list(current_user.preferred_sectors or []),
+                    artefact_slug=current_user.slug,
+                    portal_url=portal_url,
+                    immediate=urgent,
+                )
+
+                eta = "within the hour" if urgent else "within 24 hours"
+                ok_msg = (
+                    f'<div class="al al-ok">'
+                    f'Your pursuit package is being generated — '
+                    f'you\'ll receive an email when it\'s ready ({eta}). '
+                    f'It will appear in your <a href="{url_for("gw_pursuits")}" '
+                    f'style="color:inherit;font-weight:700;">Pursuits library</a>.'
+                    f'</div>'
+                )
+                sent = True
+
+            except Exception as exc:
+                logger.exception("gw_request pursuit dispatch failed: %s", exc)
+                ok_msg = (
+                    '<div class="al al-er">Request submitted but automated generation '
+                    'could not start — the BidEdge team has been notified and will '
+                    'process it manually.</div>'
+                )
+                # Fallback: email admin as before
+                import mailer as _mailer
+                _mailer.notify_admin_new_request(
+                    client_name=current_user.name,
+                    client_id=current_user.id,
+                    notice_id=notice,
+                    request_type=rtype,
+                    priority=prio,
+                    details=f"{details}\n\n[AUTOMATION FAILED: {exc}]",
+                )
+                sent = True
+
+        else:
+            # ── Non-pursuit or no notice_id: email admin as before ────────────
+            import mailer as _mailer
+            _mailer.notify_admin_new_request(
+                client_name=current_user.name,
+                client_id=current_user.id,
+                notice_id=notice,
+                request_type=rtype,
+                priority=prio,
+                details=details,
+            )
+            ok_msg = '<div class="al al-ok">Request submitted — BidEdge will be in touch.</div>'
+            sent = True
+
+    # ── Build form ────────────────────────────────────────────────────────────
     # Notice ID field — read-only if pre-filled from watchlist, editable otherwise
     if prefill_notice_id:
         notice_id_field = (
@@ -2885,7 +2985,7 @@ def gw_request():
         )
     body = (f'<div class="ptitle">Request Intelligence</div>'
             f'<div class="psub">Your request goes directly to the BidEdge team.</div>'
-            f'{ok}'
+            f'{ok_msg}'
             f'<div class="card" style="max-width:580px;">'
             f'<div class="ch"><span class="ct">New Request</span></div>'
             f'<div class="cb">'

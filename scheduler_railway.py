@@ -89,6 +89,14 @@ def _run_layer1() -> None:
                 # Continue remaining steps rather than aborting the whole run
     except Exception as exc:
         logger.exception("SCHEDULER: Layer 1 pipeline error: %s", exc)
+        try:
+            import mailer
+            mailer.send_admin_only(
+                subject="[Groundwork] Layer 1 pipeline ERROR",
+                html=f"<p>The Layer 1 daily pipeline failed:</p><pre>{exc}</pre>",
+            )
+        except Exception:
+            pass
     finally:
         logger.info("SCHEDULER: Layer 1 pipeline finished at %s", datetime.utcnow().isoformat())
 
@@ -103,38 +111,42 @@ def _run_layer2() -> None:
         layer2_pipeline.main()
     except Exception as exc:
         logger.exception("SCHEDULER: Layer 2 pipeline error: %s", exc)
+        try:
+            import mailer
+            mailer.send_admin_only(
+                subject="[Groundwork] Layer 2 pipeline ERROR",
+                html=f"<p>The Layer 2 intelligence pipeline failed:</p><pre>{exc}</pre>",
+            )
+        except Exception:
+            pass
     finally:
         logger.info("SCHEDULER: Layer 2 pipeline finished at %s", datetime.utcnow().isoformat())
 
 
 def _run_watch_brief() -> None:
-    """Weekly watch brief — generated for each active client in L3_CLIENTS."""
+    """
+    Weekly watch brief — generate and email to every active portal client.
+    Uses pursuit_worker.send_all_watch_briefs() which reads portal_config.json,
+    generates a brief per client using their saved sector preferences, emails
+    each client directly, and logs each send to the brief_sends table.
+    Admin receives a separate summary copy via mailer.send_admin_only().
+    """
     logger.info("=" * 60)
     logger.info("SCHEDULER: Watch brief starting at %s", datetime.utcnow().isoformat())
     logger.info("=" * 60)
     try:
-        from watch_brief import generate_watch_brief
-        import config
-
-        raw = os.getenv("L3_CLIENTS", "").strip()
-        clients = [c.strip() for c in raw.split(",") if c.strip()] if raw else []
-
-        if not clients:
-            logger.warning("SCHEDULER: L3_CLIENTS not set — skipping watch brief")
-            return
-
-        raw_sectors = os.getenv("L3_SECTORS", "").strip()
-        sectors = [s.strip() for s in raw_sectors.split(",") if s.strip()] or None
-
-        for client in clients:
-            logger.info("SCHEDULER: Generating watch brief for %s", client)
-            try:
-                path = generate_watch_brief(client_name=client, sectors=sectors)
-                logger.info("SCHEDULER: Watch brief written → %s", path)
-            except Exception as exc:
-                logger.exception("SCHEDULER: Watch brief failed for %s: %s", client, exc)
+        from pursuit_worker import send_all_watch_briefs
+        send_all_watch_briefs()
     except Exception as exc:
         logger.exception("SCHEDULER: Watch brief job error: %s", exc)
+        try:
+            import mailer
+            mailer.send_admin_only(
+                subject="[Groundwork] Watch brief scheduler ERROR",
+                html=f"<p>The watch brief scheduler job failed:</p><pre>{exc}</pre>",
+            )
+        except Exception:
+            pass
     finally:
         logger.info("SCHEDULER: Watch brief finished at %s", datetime.utcnow().isoformat())
 
