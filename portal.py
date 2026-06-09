@@ -987,25 +987,23 @@ function toggleBilling(cb) {{
 
     body = (
         f'{pricing_css}'
+        f'<style>'
+        f'.pub-nav-link{{font-size:.82rem;color:var(--muted);padding:.3rem .5rem;'
+        f'text-decoration:none;transition:color .12s;white-space:nowrap;}}'
+        f'.pub-nav-link:hover{{color:var(--text);}}'
+        f'.pub-nav-login{{margin-left:auto;font-size:.82rem;flex-shrink:0;}}'
+        f'@media(max-width:768px){{'
+        f'.pub-nav-link{{display:none;}}'
+        f'.pub-nav{{overflow:hidden;}}'
+        f'}}'
+        f'</style>'
         f'<nav class="pub-nav">'
-        f'<div class="pub-brand">Groundwork <span>by BidEdge</span></div>'
-        f'<a href="#how-it-works" style="font-size:.82rem;color:var(--muted);padding:.3rem .5rem;'
-        f'text-decoration:none;transition:color .12s;" '
-        f'onmouseover="this.style.color=\'var(--text)\'" '
-        f'onmouseout="this.style.color=\'var(--muted)\'">How it works</a>'
-        f'<a href="#pricing" style="font-size:.82rem;color:var(--muted);padding:.3rem .5rem;'
-        f'text-decoration:none;transition:color .12s;" '
-        f'onmouseover="this.style.color=\'var(--text)\'" '
-        f'onmouseout="this.style.color=\'var(--muted)\'">Pricing</a>'
-        f'<a href="{url_for("demo")}" style="font-size:.82rem;color:var(--muted);padding:.3rem .5rem;'
-        f'text-decoration:none;transition:color .12s;" '
-        f'onmouseover="this.style.color=\'var(--text)\'" '
-        f'onmouseout="this.style.color=\'var(--muted)\'">Demo</a>'
-        f'<a href="{url_for("about")}" style="font-size:.82rem;color:var(--muted);padding:.3rem .5rem;'
-        f'text-decoration:none;transition:color .12s;" '
-        f'onmouseover="this.style.color=\'var(--text)\'" '
-        f'onmouseout="this.style.color=\'var(--muted)\'">About</a>'
-        f'<a href="{url_for("login")}" class="btn bg-out" style="margin-left:auto;font-size:.82rem;">Client Login</a>'
+        f'<div class="pub-brand" style="flex-shrink:0;">Groundwork <span>by BidEdge</span></div>'
+        f'<a href="#how-it-works" class="pub-nav-link">How it works</a>'
+        f'<a href="#pricing" class="pub-nav-link">Pricing</a>'
+        f'<a href="{url_for("demo")}" class="pub-nav-link">Demo</a>'
+        f'<a href="{url_for("about")}" class="pub-nav-link">About</a>'
+        f'<a href="{url_for("login")}" class="btn bg-out pub-nav-login">Client Login</a>'
         f'</nav>'
         f'<div class="hero">{sent}'
         f'<h1>Know before you bid.<br><span>Win when you do.</span></h1>'
@@ -1229,6 +1227,12 @@ def signup():
             subject=f"[BidEdge] New sign-up — {plan_label} — {name}",
             html=email_html,
         )
+
+        # ── 3. Prospect confirmation email (non-blocking) ─────────────────────
+        try:
+            _mailer.send_signup_confirmation(name=name, email=email, plan_label=plan_label)
+        except Exception as _conf_err:
+            logger.warning("Prospect confirmation email failed for %s: %s", email, _conf_err)
 
         return redirect(url_for("signup") + f"?plan={plan}&sent=1&name={_esc(name)}")
 
@@ -3119,6 +3123,17 @@ def admin_leads():
                        (lead_id,))
             msg = '<div class="al al-ok">Lead marked rejected.</div>'
 
+        elif action == "delete" and lead_id:
+            db.execute("DELETE FROM leads WHERE id=%s", (lead_id,))
+            msg = '<div class="al al-ok">Lead deleted.</div>'
+
+        elif action == "delete_all_test":
+            db.execute(
+                "DELETE FROM leads WHERE email ILIKE '%test%' OR email ILIKE '%example%' "
+                "OR name ILIKE '%test%'"
+            )
+            msg = '<div class="al al-ok">Test/example leads deleted.</div>'
+
         elif action == "approve" and lead_id:
             lead = db.fetchone("SELECT * FROM leads WHERE id=%s", (lead_id,))
             if not lead:
@@ -3205,6 +3220,13 @@ def admin_leads():
         sc  = STATUS_COLOUR.get(ld.get("status", "enquiry"), "")
         approved = ld.get("status") == "approved"
         rejected = ld.get("status") == "rejected"
+        delete_btn = (
+            f'<form method="POST" style="display:inline;margin-left:.25rem;">'
+            f'<input type="hidden" name="lead_id" value="{sid}">'
+            f'<input type="hidden" name="action" value="delete">'
+            f'<button class="btn bg-ghost sm" type="submit" style="color:#f87171;"'
+            f' onclick="return confirm(\'Delete this lead permanently?\')">Delete</button></form>'
+        )
         action_btns = ""
         if not approved and not rejected:
             action_btns = (
@@ -3217,9 +3239,15 @@ def admin_leads():
                 f'<input type="hidden" name="action" value="reject">'
                 f'<button class="btn bg-ghost sm" type="submit"'
                 f' onclick="return confirm(\'Reject this lead?\')">Reject</button></form>'
+                + delete_btn
             )
         elif approved:
-            action_btns = f'<span style="color:#4ade80;font-size:.75rem;">✓ {ld.get("portal_username","")}</span>'
+            action_btns = (
+                f'<span style="color:#4ade80;font-size:.75rem;">✓ {ld.get("portal_username","")}</span>'
+                + delete_btn
+            )
+        else:
+            action_btns = delete_btn
 
         notes_form = (
             f'<form method="POST" style="margin-top:.35rem;display:flex;gap:.4rem;">'
@@ -3251,7 +3279,12 @@ def admin_leads():
         f'<div class="psub">{len(leads)} total &middot; {pending} pending review</div>'
         f'{msg}'
         f'<div class="card">'
-        f'<div class="ch"><span class="ct">Signup Enquiries</span></div>'
+        f'<div class="ch"><span class="ct">Signup Enquiries</span>'
+        f'<form method="POST" style="display:inline;">'
+        f'<input type="hidden" name="action" value="delete_all_test">'
+        f'<button class="btn bg-ghost sm" type="submit" style="color:#f87171;font-size:.72rem;"'
+        f' onclick="return confirm(\'Delete all test/example leads?\')">Delete test entries</button>'
+        f'</form></div>'
         f'<div style="overflow-x:auto;">'
         f'<table class="dt"><thead><tr>'
         f'<th>Name / Org</th><th>Plan</th><th>Email</th>'
@@ -3297,6 +3330,14 @@ def admin_clients_list():
             data["billing_status"] = "suspended"
             _save_cfg(cfg)
             msg = f'<div class="al al-ok">{username} suspended.</div>'
+        elif action == "delete_client" and username:
+            clients_dict = cfg.get("clients", {})
+            if username in clients_dict and not clients_dict[username].get("is_admin"):
+                del clients_dict[username]
+                _save_cfg(cfg)
+                msg = f'<div class="al al-ok">Account <strong>{username}</strong> deleted.</div>'
+            else:
+                msg = '<div class="al al-er">Cannot delete — user not found or is admin.</div>'
         cfg = _load_cfg()  # reload after save
 
     clients = {u: d for u, d in cfg.get("clients", {}).items() if not d.get("is_admin")}
@@ -3345,6 +3386,12 @@ def admin_clients_list():
                f'<input type="hidden" name="action" value="suspend">'
                f'<button class="btn bg-ghost sm" type="submit" style="color:#f87171;"'
                f' onclick="return confirm(\'Suspend {un}?\')">Suspend</button></form>')
+            # Delete
+            + (f'<form method="POST" style="display:inline;margin-left:.25rem;">'
+               f'<input type="hidden" name="username" value="{un}">'
+               f'<input type="hidden" name="action" value="delete_client">'
+               f'<button class="btn bg-ghost sm" type="submit" style="color:#f87171;"'
+               f' onclick="return confirm(\'Delete account {un} permanently? This cannot be undone.\')">Delete</button></form>')
             # Manage link
             + f'&nbsp;<a href="{url_for("admin_client", username=un)}" class="btn bg-out sm">Manage</a>'
             f'</td></tr>'

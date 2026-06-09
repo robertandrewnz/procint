@@ -66,8 +66,16 @@ def _raw_send(subject: str, html: str, to: list[str]) -> bool:
     a broken SMTP connection can never crash a web request or worker process.
     """
     if not _smtp_configured():
-        logger.warning("SMTP not configured — email skipped: %s → %s", subject, to)
+        logger.warning(
+            "SMTP not configured — email skipped. "
+            "Set SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, SMTP_FROM. "
+            "Subject: %s → %s", subject, to
+        )
         return False
+    logger.info("SMTP: attempting send — host=%s port=%s user=%s from=%s to=%s subject=%s",
+                config.SMTP_HOST, config.SMTP_PORT,
+                config.SMTP_USER[:4] + "…" if config.SMTP_USER else "(none)",
+                config.SMTP_FROM, to, subject[:60])
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
@@ -78,12 +86,23 @@ def _raw_send(subject: str, html: str, to: list[str]) -> bool:
                           timeout=_SMTP_TIMEOUT) as s:
             s.ehlo()
             s.starttls()
+            s.ehlo()
             s.login(config.SMTP_USER, config.SMTP_PASSWORD)
             s.sendmail(config.SMTP_FROM, to, msg.as_string())
-        logger.info("Email sent: %s → %s", subject[:60], to)
+        logger.info("SMTP: sent OK — %s → %s", subject[:60], to)
         return True
+    except smtplib.SMTPAuthenticationError as exc:
+        logger.error("SMTP: authentication failed (check SMTP_USERNAME/SMTP_PASSWORD) — %s", exc)
+        return False
+    except smtplib.SMTPException as exc:
+        logger.error("SMTP: send failed (%s → %s): %s", subject[:60], to, exc)
+        return False
+    except OSError as exc:
+        logger.error("SMTP: connection error (host=%s port=%s timeout=%ss): %s",
+                     config.SMTP_HOST, config.SMTP_PORT, _SMTP_TIMEOUT, exc)
+        return False
     except Exception as exc:
-        logger.error("Email failed (%s → %s): %s", subject[:60], to, exc)
+        logger.error("SMTP: unexpected error (%s → %s): %s", subject[:60], to, exc)
         return False
 
 
@@ -265,3 +284,114 @@ def notify_admin_new_request(
 <p><b>Details:</b><br>{details or '—'}</p>
 """
     return send_admin_only(subject, html)
+
+
+def send_signup_confirmation(
+    name: str,
+    email: str,
+    plan_label: str,
+) -> bool:
+    """
+    Confirmation email sent immediately to the prospect after they submit the
+    signup form. Non-blocking — failure is logged but never surfaced to the user.
+    """
+    first = name.split()[0] if name else "there"
+    admin_email = _admin_email() or "hello@bidedge.co.nz"
+    subject = "Thanks for your interest in Groundwork by BidEdge"
+    html = f"""
+<div style="font-family:'Inter',system-ui,sans-serif;max-width:600px;
+  margin:0 auto;background:#fff;color:#1a2d4a;">
+  <div style="background:#1a2d4a;padding:1.5rem 2rem;">
+    <div style="font-size:1rem;font-weight:800;color:#fff;letter-spacing:-.01em;">
+      Groundwork <span style="color:#2a9d8f;font-weight:400;">by BidEdge</span></div>
+  </div>
+  <div style="padding:2rem 2rem 1.5rem;">
+    <h2 style="font-size:1.2rem;font-weight:800;color:#1a2d4a;margin:0 0 1rem;">
+      Thanks for your interest, {first}.</h2>
+    <p style="color:#4a5568;line-height:1.7;margin:0 0 1rem;">
+      We've received your enquiry for the <strong>{plan_label}</strong> plan and someone from
+      the BidEdge team will be in touch within one business day.</p>
+    <p style="color:#4a5568;line-height:1.7;margin:0 0 1rem;">
+      Groundwork scans every New Zealand government procurement notice daily, scores
+      them against your firm's profile, and delivers ranked intelligence so you can
+      focus pursuit effort where it counts — rather than trawling GETS yourself.</p>
+    <p style="color:#4a5568;line-height:1.7;margin:0 0 1.5rem;">
+      In the meantime, explore a sample of what Groundwork delivers at
+      <a href="https://bidedge.co.nz/demo" style="color:#2a9d8f;">bidedge.co.nz/demo</a>.</p>
+    <div style="border-top:1px solid #dde2ea;margin-top:1.5rem;padding-top:1.25rem;
+      font-size:.84rem;color:#4a5568;line-height:1.7;">
+      If you have any immediate questions, reply to this email or contact us at
+      <a href="mailto:{admin_email}" style="color:#2a9d8f;">{admin_email}</a>.<br><br>
+      The BidEdge Team
+    </div>
+  </div>
+</div>
+"""
+    return send_to_client(subject, html, email, add_footer=False)
+
+
+def send_watchlist_ready(
+    client_name: str,
+    client_email: str,
+    notice_count: int,
+    portal_url: str,
+    date_label: str,
+) -> bool:
+    """
+    Email sent to each active client after Layer 1 pipeline completes with new notices.
+    Only called when notice_count > 0.
+    """
+    subject = f"Your Groundwork watchlist is ready — {date_label}"
+    html = f"""
+<div style="font-family:'Inter',system-ui,sans-serif;max-width:600px;
+  margin:0 auto;background:#fff;color:#1a2d4a;">
+  <div style="background:#1a2d4a;padding:1.5rem 2rem;">
+    <div style="font-size:1rem;font-weight:800;color:#fff;letter-spacing:-.01em;">
+      Groundwork <span style="color:#2a9d8f;font-weight:400;">by BidEdge</span></div>
+  </div>
+  <div style="padding:2rem 2rem 1.5rem;">
+    <h2 style="font-size:1.2rem;font-weight:800;color:#1a2d4a;margin:0 0 .75rem;">
+      Your daily watchlist is ready</h2>
+    <p style="color:#4a5568;line-height:1.7;margin:0 0 1.25rem;">
+      Hi {client_name},<br><br>
+      Your daily procurement intelligence watchlist has been updated.
+      <strong>{notice_count}</strong> {"opportunity has" if notice_count == 1 else "opportunities have"}
+      been scored and ranked for your sectors today.</p>
+    <a href="{portal_url}" style="display:inline-block;background:#2a9d8f;color:#fff;
+      font-weight:700;font-size:.9rem;padding:.7rem 1.5rem;border-radius:6px;
+      text-decoration:none;">View your watchlist &rarr;</a>
+  </div>
+</div>
+"""
+    return send_to_client(subject, html, client_email)
+
+
+def send_competitor_profile_ready(
+    client_name: str,
+    client_email: str,
+    firm_name: str,
+    portal_url: str,
+) -> bool:
+    """Email sent to client when their competitor profile is ready."""
+    subject = f"Your competitor profile is ready — {firm_name}"
+    html = f"""
+<div style="font-family:'Inter',system-ui,sans-serif;max-width:600px;
+  margin:0 auto;background:#fff;color:#1a2d4a;">
+  <div style="background:#1a2d4a;padding:1.5rem 2rem;">
+    <div style="font-size:1rem;font-weight:800;color:#fff;letter-spacing:-.01em;">
+      Groundwork <span style="color:#2a9d8f;font-weight:400;">by BidEdge</span></div>
+  </div>
+  <div style="padding:2rem 2rem 1.5rem;">
+    <h2 style="font-size:1.2rem;font-weight:800;color:#1a2d4a;margin:0 0 .75rem;">
+      Your competitor profile is ready</h2>
+    <p style="color:#4a5568;line-height:1.7;margin:0 0 1.25rem;">
+      Hi {client_name},<br><br>
+      Your competitor intelligence profile for <strong>{firm_name}</strong> has been
+      generated and is now available in your Competitors library.</p>
+    <a href="{portal_url}" style="display:inline-block;background:#2a9d8f;color:#fff;
+      font-weight:700;font-size:.9rem;padding:.7rem 1.5rem;border-radius:6px;
+      text-decoration:none;">View competitor profile &rarr;</a>
+  </div>
+</div>
+"""
+    return send_to_client(subject, html, client_email)

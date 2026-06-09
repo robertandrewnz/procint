@@ -58,11 +58,75 @@ def _acquire_lock() -> bool:
 
 # ── Job functions ─────────────────────────────────────────────────────────────
 
+def _notify_watchlist_ready(notice_count: int) -> None:
+    """
+    Email every active non-admin client that today's watchlist is ready.
+    Only called when notice_count > 0. Non-blocking — all errors are logged.
+    """
+    import json
+    from pathlib import Path
+    from datetime import date
+
+    if notice_count <= 0:
+        logger.info("SCHEDULER: watchlist notify skipped — 0 notices processed")
+        return
+
+    cfg_path = Path("portal_config.json")
+    if not cfg_path.exists():
+        logger.warning("SCHEDULER: watchlist notify skipped — portal_config.json not found")
+        return
+
+    try:
+        cfg = json.loads(cfg_path.read_text())
+    except Exception as exc:
+        logger.error("SCHEDULER: watchlist notify — could not read portal_config.json: %s", exc)
+        return
+
+    import mailer
+    date_label = date.today().strftime("%-d %B %Y")
+    # Build portal URL from env — fall back to relative path
+    portal_base = os.getenv("PORTAL_BASE_URL", "").rstrip("/")
+    watchlist_url = portal_base + "/groundwork/watchlist" if portal_base else "/groundwork/watchlist"
+
+    sent = failed = skipped = 0
+    for username, data in cfg.get("clients", {}).items():
+        if data.get("is_admin"):
+            continue
+        if data.get("billing_status", "active") != "active":
+            skipped += 1
+            continue
+        email = data.get("email", "").strip()
+        if not email:
+            skipped += 1
+            continue
+        display_name = data.get("display_name", username)
+        try:
+            ok = mailer.send_watchlist_ready(
+                client_name=display_name,
+                client_email=email,
+                notice_count=notice_count,
+                portal_url=watchlist_url,
+                date_label=date_label,
+            )
+            if ok:
+                sent += 1
+            else:
+                failed += 1
+        except Exception as exc:
+            logger.error("SCHEDULER: watchlist notify failed for %s: %s", username, exc)
+            failed += 1
+
+    logger.info("SCHEDULER: watchlist notify complete — sent=%d failed=%d skipped=%d",
+                sent, failed, skipped)
+
+
 def _run_layer1() -> None:
     """Full Layer 1 pipeline: ingest → parse → score → enrich → bidders → output."""
     logger.info("=" * 60)
     logger.info("SCHEDULER: Layer 1 pipeline starting at %s", datetime.utcnow().isoformat())
     logger.info("=" * 60)
+    notice_count = 0
+    pipeline_ok = False
     try:
         import ingestion
         import parsing
@@ -84,9 +148,28 @@ def _run_layer1() -> None:
             try:
                 result = fn()
                 logger.info("SCHEDULER L1: %s complete — %s", name, result)
+                # Try to read notice count from scoring/output result
+                if name == "Output" and isinstance(result, (int, float)):
+                    notice_count = int(result)
             except Exception as exc:
                 logger.exception("SCHEDULER L1: %s FAILED — %s", name, exc)
                 # Continue remaining steps rather than aborting the whole run
+
+        pipeline_ok = True
+
+        # Attempt to get notice count from DB if not returned by output step
+        if notice_count == 0:
+            try:
+                import db
+                from datetime import date
+                row = db.fetchone(
+                    "SELECT COUNT(*) AS n FROM parsed_notices WHERE date_parsed::date = %s",
+                    (date.today(),),
+                )
+                notice_count = int((row or {}).get("n", 0))
+            except Exception as exc:
+                logger.warning("SCHEDULER L1: could not query notice count: %s", exc)
+
     except Exception as exc:
         logger.exception("SCHEDULER: Layer 1 pipeline error: %s", exc)
         try:
@@ -98,7 +181,15 @@ def _run_layer1() -> None:
         except Exception:
             pass
     finally:
-        logger.info("SCHEDULER: Layer 1 pipeline finished at %s", datetime.utcnow().isoformat())
+        logger.info("SCHEDULER: Layer 1 pipeline finished at %s — notices=%d",
+                    datetime.utcnow().isoformat(), notice_count)
+
+    # Send watchlist-ready emails to all active clients (non-blocking)
+    if pipeline_ok:
+        try:
+            _notify_watchlist_ready(notice_count)
+        except Exception as exc:
+            logger.error("SCHEDULER: _notify_watchlist_ready raised: %s", exc)
 
 
 def _run_layer2() -> None:
