@@ -26,7 +26,7 @@ import anthropic
 
 import config
 import db
-from pursuit_package import _artefact_dir, _slug, _safe, _fmt_value
+from pursuit_package import _slug, _safe, _fmt_value
 
 logger = logging.getLogger(__name__)
 
@@ -421,11 +421,11 @@ def _render_brief_html(
 def generate_watch_brief(
     client_name: str,
     sectors: Optional[list[str]] = None,
-    output_dir: Optional[Path] = None,
-) -> Path:
+    output_dir: Optional[Path] = None,  # ignored — artefacts stored in DB
+) -> str:
     """
     Generate a weekly watch brief personalised for a client.
-    Returns path to the HTML file.
+    Saves to pipeline_outputs in the database and returns the HTML content.
     """
     logger.info("Generating watch brief for %s", client_name)
     run_date = date.today()
@@ -446,14 +446,16 @@ def generate_watch_brief(
         insight=insight,
     )
 
-    if output_dir is None:
-        output_dir = _artefact_dir(client_name, run_date)
-
     filename = f"watch_brief_{run_date.isoformat()}.html"
-    out_path = output_dir / filename
-    out_path.write_text(html, encoding="utf-8")
-    logger.info("Watch brief written to %s", out_path)
-    return out_path
+    db.save_output(
+        "watch_brief",
+        run_date,
+        filename,
+        content=html,
+        client_slug=_slug(client_name),
+    )
+    logger.info("Watch brief saved to DB: %s", filename)
+    return html
 
 
 if __name__ == "__main__":

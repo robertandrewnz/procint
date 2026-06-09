@@ -10,8 +10,6 @@ import json
 import logging
 from datetime import date
 from decimal import Decimal
-from pathlib import Path
-from typing import Tuple
 
 import config
 import db
@@ -122,15 +120,14 @@ def _serialise(obj):
     raise TypeError(f"Not serialisable: {type(obj)}")
 
 
-def write_json(watchlist: list[dict], output_dir: Path, run_date: date) -> Path:
+def write_json(watchlist: list[dict], run_date: date) -> str:
     for item in watchlist:
         item["bidders"] = _fetch_top_bidders(item["notice_id"])
-
-    path = output_dir / f"watchlist_{run_date.isoformat()}.json"
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(watchlist, f, indent=2, default=_serialise)
-    logger.info("JSON watchlist written to %s", path)
-    return path
+    filename = f"watchlist_{run_date.isoformat()}.json"
+    content = json.dumps(watchlist, indent=2, default=_serialise)
+    db.save_output("watchlist_json", run_date, filename, content=content)
+    logger.info("JSON watchlist saved to DB: %s", filename)
+    return filename
 
 
 # ── Markdown output ───────────────────────────────────────────────────────────
@@ -144,7 +141,7 @@ def _format_bidder_md(b: dict) -> str:
     )
 
 
-def write_markdown(watchlist: list[dict], output_dir: Path, run_date: date) -> Path:
+def write_markdown(watchlist: list[dict], run_date: date) -> str:
     lines = [
         f"# Procurement Intelligence Watchlist — {run_date.isoformat()}",
         "",
@@ -197,11 +194,10 @@ def write_markdown(watchlist: list[dict], output_dir: Path, run_date: date) -> P
             "", "---", "",
         ]
 
-    path = output_dir / f"watchlist_{run_date.isoformat()}.md"
-    with open(path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
-    logger.info("Markdown watchlist written to %s", path)
-    return path
+    filename = f"watchlist_{run_date.isoformat()}.md"
+    db.save_output("watchlist_md", run_date, filename, content="\n".join(lines))
+    logger.info("Markdown watchlist saved to DB: %s", filename)
+    return filename
 
 
 # ── HTML output ───────────────────────────────────────────────────────────────
@@ -927,7 +923,7 @@ _HTML_TEMPLATE = """\
 """
 
 
-def write_html(watchlist: list[dict], output_dir: Path, run_date: date) -> Path:
+def write_html(watchlist: list[dict], run_date: date) -> str:
     cards = []
     for rank, item in enumerate(watchlist, start=1):
         bidders = _fetch_top_bidders(item["notice_id"])
@@ -939,26 +935,23 @@ def write_html(watchlist: list[dict], output_dir: Path, run_date: date) -> Path:
         cards_html="\n".join(cards),
     )
 
-    path = output_dir / f"watchlist_{run_date.isoformat()}.html"
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(html)
-    logger.info("HTML watchlist written to %s", path)
-    return path
+    filename = f"watchlist_{run_date.isoformat()}.html"
+    db.save_output("watchlist_html", run_date, filename, content=html)
+    logger.info("HTML watchlist saved to DB: %s", filename)
+    return filename
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
-def run_output() -> Tuple[Path, Path, Path]:
+def run_output() -> tuple[str, str, str]:
     logger.info("Generating prioritisation output")
     run_date = date.today()
-    output_dir = Path(config.OUTPUT_DIR)
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     watchlist = _fetch_watchlist()
     logger.info("%d notices in watchlist", len(watchlist))
 
-    json_path = write_json(watchlist, output_dir, run_date)
-    md_path   = write_markdown(watchlist, output_dir, run_date)
-    html_path = write_html(watchlist, output_dir, run_date)
+    json_fn = write_json(watchlist, run_date)
+    md_fn   = write_markdown(watchlist, run_date)
+    html_fn = write_html(watchlist, run_date)
 
-    return json_path, md_path, html_path
+    return json_fn, md_fn, html_fn

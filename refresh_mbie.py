@@ -17,15 +17,21 @@ Log output goes to logs/scheduler.log (via scheduler.py) and stdout.
 import json
 import logging
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
 import requests
 
+import db
+
 logger = logging.getLogger(__name__)
 
-METADATA_FILE = Path("data/mbie/metadata.json")
+# MBIE CSV files are large (5–50 MB each) and are only needed during ingestion.
+# They are downloaded to /tmp for the duration of the run, then discarded.
+# The source files are Supabase Storage candidates if offline re-ingestion
+# is ever required without re-downloading from MBIE.
+MBIE_TMP_DIR = Path("/tmp/data/mbie")
 
 MBIE_URLS = {
     "award_notices":          "https://www.mbie.govt.nz/assets/Data-Files/NZGPP-GETS-Open-Data/GETS-award-notices.csv",
@@ -39,20 +45,28 @@ MBIE_URLS = {
 HEADERS = {"User-Agent": "ProcintBot/1.0 (NZ govt open data monitor)"}
 
 
-# ── Metadata store ────────────────────────────────────────────────────────────
+# ── Metadata store (persisted in DB across Railway runs) ──────────────────────
+
+_METADATA_SENTINEL_DATE = date(1970, 1, 1)
+
 
 def _load_metadata() -> dict:
-    if METADATA_FILE.exists():
+    row = db.load_output("mbie_metadata", _METADATA_SENTINEL_DATE, "metadata.json")
+    if row and row.get("content"):
         try:
-            return json.loads(METADATA_FILE.read_text())
+            return json.loads(row["content"])
         except Exception:
             pass
     return {}
 
 
 def _save_metadata(meta: dict) -> None:
-    METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
-    METADATA_FILE.write_text(json.dumps(meta, indent=2))
+    db.save_output(
+        "mbie_metadata",
+        _METADATA_SENTINEL_DATE,
+        "metadata.json",
+        content=json.dumps(meta, indent=2),
+    )
 
 
 # ── Remote header check ───────────────────────────────────────────────────────
@@ -95,8 +109,8 @@ def _has_changed(key: str, stored: dict, remote: dict) -> bool:
                 key, stored["last_modified"], remote["last_modified"],
             )
             return True
-    # If neither header available, check local file size vs content-length
-    local = Path("data/mbie") / Path(MBIE_URLS[key]).name
+    # If neither header available, check local /tmp file size vs content-length
+    local = MBIE_TMP_DIR / Path(MBIE_URLS[key]).name
     if local.exists() and remote.get("content_length"):
         if str(local.stat().st_size) != remote["content_length"]:
             logger.info("%s: local size differs from remote", key)
@@ -108,9 +122,9 @@ def _has_changed(key: str, stored: dict, remote: dict) -> bool:
 
 def _download(key: str) -> Optional[Path]:
     url = MBIE_URLS[key]
-    dest = Path("data/mbie") / Path(url).name
+    dest = MBIE_TMP_DIR / Path(url).name
     dest.parent.mkdir(parents=True, exist_ok=True)
-    logger.info("Downloading %s ...", dest.name)
+    logger.info("Downloading %s to /tmp ...", dest.name)
     try:
         resp = requests.get(url, headers=HEADERS, timeout=120, stream=True)
         resp.raise_for_status()

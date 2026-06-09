@@ -16,7 +16,7 @@ from typing import Optional
 
 import config
 import db
-from pursuit_package import _artefact_dir, _slug, _safe, _fmt_value, _paras
+from pursuit_package import _slug, _safe, _fmt_value, _paras
 
 logger = logging.getLogger(__name__)
 
@@ -391,23 +391,29 @@ def _render_profile_html(data: dict, client_name: Optional[str] = None,
 def generate_competitor_profile(
     competitor_name: str,
     client_name: Optional[str] = None,
-    output_dir: Optional[Path] = None,
-) -> Path:
+    output_dir: Optional[Path] = None,  # ignored — artefacts stored in DB
+) -> str:
+    """
+    Generate a competitor intelligence profile.
+    Saves to pipeline_outputs in the database and returns the HTML content.
+    """
     logger.info("Generating competitor profile: %s", competitor_name)
 
     data = _get_competitor_data(competitor_name)
     h2h = _get_head_to_head(competitor_name, client_name) if client_name else None
     html = _render_profile_html(data, client_name=client_name, h2h=h2h)
 
-    if output_dir is None:
-        folder_name = client_name or f"competitor_{_slug(competitor_name)}"
-        output_dir = _artefact_dir(folder_name)
-
+    folder_name = client_name or f"competitor_{_slug(competitor_name)}"
     filename = f"competitor_{_slug(competitor_name)}.html"
-    out_path = output_dir / filename
-    out_path.write_text(html, encoding="utf-8")
-    logger.info("Competitor profile written to %s", out_path)
-    return out_path
+    db.save_output(
+        "competitor_profile",
+        date.today(),
+        filename,
+        content=html,
+        client_slug=_slug(folder_name),
+    )
+    logger.info("Competitor profile saved to DB: %s", filename)
+    return html
 
 
 if __name__ == "__main__":

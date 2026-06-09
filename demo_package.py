@@ -20,7 +20,8 @@ from pathlib import Path
 from typing import Optional
 
 import config
-from pursuit_package import generate_pursuit_package, _artefact_dir, _slug
+import db
+from pursuit_package import generate_pursuit_package, _slug
 
 logger = logging.getLogger(__name__)
 
@@ -179,44 +180,35 @@ def _human_size(n: int) -> str:
 
 # ── PDF generation ─────────────────────────────────────────────────────────────
 
-def _html_to_pdf(html_path: Path, pdf_path: Path) -> bool:
+def _html_to_pdf_bytes(html_content: str) -> Optional[bytes]:
     """
-    Convert HTML to PDF via weasyprint.
-    Injects _PDF_PRINT_CSS directly into <head> so it overrides the flex
-    layout and hides screen-only elements.
-    Install: pip install weasyprint && brew install pango
+    Convert HTML content to PDF bytes via weasyprint (fully in-memory, no temp files).
+    Injects _PDF_PRINT_CSS into <head> before rendering.
+    Install: pip install weasyprint
+    NOTE: PDF output may exceed 1 MB for large pursuit packages. If storage costs
+    become a concern, move demo_pdf rows to Supabase Storage and keep only the
+    Storage path in pipeline_outputs.
     """
     try:
         from weasyprint import HTML  # type: ignore
         from weasyprint.text.fonts import FontConfiguration  # type: ignore
     except ImportError:
         logger.warning("weasyprint not installed — skipping PDF. pip install weasyprint")
-        return False
+        return None
 
-    # Inject print CSS into a temp copy of the HTML
-    html_content = html_path.read_text(encoding="utf-8")
     html_content = html_content.replace(
         "</head>",
         f"<style>{_PDF_PRINT_CSS}</style>\n</head>",
         1,
     )
-
-    tmp_path = pdf_path.with_suffix(".pdf_tmp.html")
-    tmp_path.write_text(html_content, encoding="utf-8")
-
     try:
         font_config = FontConfiguration()
-        HTML(filename=str(tmp_path)).write_pdf(
-            target=str(pdf_path),
-            font_config=font_config,
-        )
-        logger.info("PDF generated: %s (%s)", pdf_path, _human_size(pdf_path.stat().st_size))
-        return True
+        pdf_bytes = HTML(string=html_content).write_pdf(font_config=font_config)
+        logger.info("PDF generated in memory (%s)", _human_size(len(pdf_bytes)))
+        return pdf_bytes
     except Exception as exc:
         logger.warning("weasyprint conversion failed: %s", exc)
-        return False
-    finally:
-        tmp_path.unlink(missing_ok=True)
+        return None
 
 
 # ── Demo branding ──────────────────────────────────────────────────────────────
@@ -277,12 +269,13 @@ def _inject_demo_styles(html: str, prospect_name: str) -> str:
 def generate_demo_package(
     notice_id: str,
     prospect_name: str,
-    output_dir: Optional[Path] = None,
+    output_dir: Optional[Path] = None,  # ignored — artefacts stored in DB
     generate_pdf: bool = True,
 ) -> dict:
     """
     Generate a branded demo pursuit intelligence package.
-    Returns {"html": Path, "pdf": Path or None}.
+    Saves HTML (and optionally PDF bytes) to pipeline_outputs in the database.
+    Returns {"html": filename, "pdf": filename or None}.
     """
     logger.info("Generating demo package: notice=%s prospect=%s", notice_id, prospect_name)
 
@@ -291,35 +284,43 @@ def generate_demo_package(
         "Contact us to discuss how we support your procurement pursuits."
     )
 
-    if output_dir is None:
-        output_dir = _artefact_dir(f"DEMO_{prospect_name}")
-
-    html_path = generate_pursuit_package(
+    pursuit_html = generate_pursuit_package(
         notice_id=notice_id,
         client_name=prospect_name,
-        output_dir=output_dir,
         is_demo=True,
         demo_watermark=watermark_text,
     )
 
-    html_content = html_path.read_text(encoding="utf-8")
-    html_content = _inject_demo_styles(html_content, prospect_name)
+    html_content = _inject_demo_styles(pursuit_html, prospect_name)
 
-    demo_html_path = output_dir / f"DEMO_{_slug(prospect_name)}_{notice_id}.html"
-    demo_html_path.write_text(html_content, encoding="utf-8")
+    client_slug = f"DEMO_{_slug(prospect_name)}"
+    html_filename = f"DEMO_{_slug(prospect_name)}_{notice_id}.html"
+    db.save_output(
+        "demo_html",
+        date.today(),
+        html_filename,
+        content=html_content,
+        client_slug=client_slug,
+        notice_id=notice_id,
+    )
+    logger.info("Demo HTML saved to DB: %s", html_filename)
 
-    if html_path != demo_html_path:
-        html_path.unlink(missing_ok=True)
-
-    logger.info("Demo HTML written to %s", demo_html_path)
-
-    pdf_path = None
+    pdf_filename = None
     if generate_pdf:
-        pdf_dest = demo_html_path.with_suffix(".pdf")
-        if _html_to_pdf(demo_html_path, pdf_dest):
-            pdf_path = pdf_dest
+        pdf_bytes = _html_to_pdf_bytes(html_content)
+        if pdf_bytes:
+            pdf_filename = f"DEMO_{_slug(prospect_name)}_{notice_id}.pdf"
+            db.save_output(
+                "demo_pdf",
+                date.today(),
+                pdf_filename,
+                content_bytes=pdf_bytes,
+                client_slug=client_slug,
+                notice_id=notice_id,
+            )
+            logger.info("Demo PDF saved to DB: %s", pdf_filename)
 
-    return {"html": demo_html_path, "pdf": pdf_path}
+    return {"html": html_filename, "pdf": pdf_filename}
 
 
 if __name__ == "__main__":

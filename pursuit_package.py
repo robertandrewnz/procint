@@ -922,13 +922,13 @@ def _render_html(
 def generate_pursuit_package(
     notice_id: str,
     client_name: str,
-    output_dir: Optional[Path] = None,
+    output_dir: Optional[Path] = None,  # ignored — artefacts stored in DB
     is_demo: bool = False,
     demo_watermark: str = "",
-) -> Path:
+) -> str:
     """
     Generate a pursuit intelligence package for a given notice and client.
-    Returns path to the generated HTML file.
+    Saves to pipeline_outputs in the database and returns the HTML content.
     """
     logger.info("Generating pursuit package: notice=%s client=%s", notice_id, client_name)
 
@@ -974,15 +974,18 @@ def generate_pursuit_package(
     html = _render_html(notice, analysis, context, client_name,
                         is_demo=is_demo, demo_watermark=demo_watermark)
 
-    # 4. Save
-    if output_dir is None:
-        output_dir = _artefact_dir(client_name)
-
+    # 4. Save to database
     filename = f"{notice_id}_pursuit_package.html"
-    out_path = output_dir / filename
-    out_path.write_text(html, encoding="utf-8")
-    logger.info("Pursuit package written to %s", out_path)
-    return out_path
+    db.save_output(
+        "pursuit_package",
+        date.today(),
+        filename,
+        content=html,
+        client_slug=_slug(client_name),
+        notice_id=notice_id,
+    )
+    logger.info("Pursuit package saved to DB: %s", filename)
+    return html
 
 
 if __name__ == "__main__":

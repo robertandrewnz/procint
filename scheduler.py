@@ -289,10 +289,9 @@ def run_weekly_brief() -> bool:
         logger.info("Generating weekly brief for '%s'", client)
         try:
             from watch_brief import generate_watch_brief
-            out_path = generate_watch_brief(client, sectors=sectors)
+            html = generate_watch_brief(client, sectors=sectors)
 
             if recipients:
-                html = out_path.read_text(encoding="utf-8")
                 week = date.today().strftime("Week of %-d %B %Y")
                 subject = f"Procurement Intelligence — {week}"
                 sent = send_email(subject, html, recipients)
@@ -301,7 +300,7 @@ def run_weekly_brief() -> bool:
                     len(recipients), sent,
                 )
             else:
-                logger.warning("No BRIEFING_RECIPIENTS — brief saved but not emailed")
+                logger.warning("No BRIEFING_RECIPIENTS — brief saved to DB but not emailed")
 
         except Exception as exc:
             logger.error("Weekly brief failed for '%s': %s", client, exc)

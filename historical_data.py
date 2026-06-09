@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
-MBIE_DIR = Path("data/mbie")
+MBIE_DIR = Path("/tmp/data/mbie")
 
 MBIE_FILES = {
     "award_notices":         "GETS-award-notices.csv",

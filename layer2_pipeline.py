@@ -24,7 +24,6 @@ import argparse
 import logging
 import sys
 from datetime import date
-from pathlib import Path
 
 import config  # noqa: must be first so .env is loaded
 
@@ -383,15 +382,11 @@ def _build_market_intelligence_html(
 """
 
 
-def _inject_into_html(html_path: Path, mi_html: str) -> None:
-    """Inject the Market Intelligence section before </body>."""
-    content = html_path.read_text(encoding="utf-8")
+def _inject_into_html(content: str, mi_html: str) -> str:
+    """Inject the Market Intelligence section before </body>. Returns updated HTML."""
     if "</body>" not in content:
-        content += mi_html
-    else:
-        content = content.replace("</body>", mi_html + "\n</body>", 1)
-    html_path.write_text(content, encoding="utf-8")
-    logger.info("Market Intelligence section injected into %s", html_path)
+        return content + mi_html
+    return content.replace("</body>", mi_html + "\n</body>", 1)
 
 
 # ── Main pipeline ─────────────────────────────────────────────────────────────
@@ -453,7 +448,7 @@ def main(
     # ── 6. HTML output ───────────────────────────────────────────────────────
     logger.info("--- Market Intelligence output ---")
     run_date = date.today()
-    html_path = Path(config.OUTPUT_DIR) / f"watchlist_{run_date.isoformat()}.html"
+    watchlist_filename = f"watchlist_{run_date.isoformat()}.html"
 
     # Fetch agency profiles for display
     agency_profile_rows = db.fetchall(
@@ -476,21 +471,26 @@ def main(
         run_date=run_date,
     )
 
-    if html_path.exists():
-        _inject_into_html(html_path, mi_html)
+    row = db.load_output("watchlist_html", run_date, watchlist_filename)
+    if row and row.get("content"):
+        updated = _inject_into_html(row["content"], mi_html)
+        db.save_output("watchlist_html", run_date, watchlist_filename, content=updated)
+        logger.info("Market Intelligence section injected into DB: %s", watchlist_filename)
     else:
         # Write standalone MI file if Layer 1 HTML not present
-        mi_path = Path(config.OUTPUT_DIR) / f"market_intelligence_{run_date.isoformat()}.html"
-        mi_path.write_text(
-            f"<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-            f"<style>:root{{--bg:#0d1117;--surface:#161b22;--surf2:#1c2230;"
-            f"--border:#2a3344;--text:#e6edf3;--muted:#7d8fa8;}}"
-            f"body{{background:var(--bg);color:var(--text);"
-            f"font-family:system-ui;padding:2rem;}}</style></head>"
-            f"<body>{mi_html}</body></html>",
-            encoding="utf-8",
+        mi_filename = f"market_intelligence_{run_date.isoformat()}.html"
+        mi_content = (
+            "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+            "<style>:root{--bg:#0d1117;--surface:#161b22;--surf2:#1c2230;"
+            "--border:#2a3344;--text:#e6edf3;--muted:#7d8fa8;}"
+            "body{background:var(--bg);color:var(--text);"
+            "font-family:system-ui;padding:2rem;}</style></head>"
+            f"<body>{mi_html}</body></html>"
         )
-        logger.info("Standalone Market Intelligence written to %s", mi_path)
+        db.save_output(
+            "market_intelligence_html", run_date, mi_filename, content=mi_content
+        )
+        logger.info("Standalone Market Intelligence written to DB: %s", mi_filename)
 
     elapsed = (datetime.now() - start).total_seconds()
     logger.info("=" * 60)

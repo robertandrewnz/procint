@@ -234,7 +234,6 @@ def run_ingestion() -> int:
     """
     logger.info("Starting GETS ingestion")
     new_count = 0
-    first_page = True
 
     for page_url in _get_search_pages():
         logger.debug("Fetching page: %s", page_url)
@@ -242,14 +241,6 @@ def run_ingestion() -> int:
         html = _fetch_html_requests(page_url)
         if html is None:
             html = _fetch_html_playwright(page_url)
-
-        # Dump the first page HTML for selector inspection
-        if first_page:
-            debug_path = "debug_gets.html"
-            with open(debug_path, "w", encoding="utf-8") as f:
-                f.write(html)
-            logger.info("Dumped first-page HTML to %s (%d bytes)", debug_path, len(html))
-            first_page = False
 
         notices = _extract_notices_from_html(html, config.GETS_BASE_URL)
 

@@ -25,8 +25,6 @@ import argparse
 import logging
 import sys
 from datetime import date
-from pathlib import Path
-
 import config  # noqa: must be first
 
 logging.basicConfig(
@@ -40,7 +38,7 @@ logging.basicConfig(
 logger = logging.getLogger("layer3")
 
 import db
-from pursuit_package import generate_pursuit_package, _artefact_dir
+from pursuit_package import generate_pursuit_package
 from demo_package import generate_demo_package
 from watch_brief import generate_watch_brief
 from competitor_profile import generate_competitor_profile
@@ -85,7 +83,6 @@ def main() -> None:
                         help="Skip PDF generation for demo packages")
     args = parser.parse_args()
 
-    output_dir = Path(args.output_dir) if args.output_dir else None
     client = args.client
 
     if not any([args.pursuit, args.demo, args.brief, args.competitor, args.all_pursuits]):
@@ -104,13 +101,10 @@ def main() -> None:
     if args.pursuit:
         logger.info("--- Pursuit package: %s for %s ---", args.pursuit, client)
         try:
-            out = generate_pursuit_package(
-                notice_id=args.pursuit,
-                client_name=client,
-                output_dir=output_dir,
-            )
-            generated.append(str(out))
-            logger.info("Pursuit package: %s", out)
+            generate_pursuit_package(notice_id=args.pursuit, client_name=client)
+            filename = f"{args.pursuit}_pursuit_package.html"
+            generated.append(filename)
+            logger.info("Pursuit package saved to DB: %s", filename)
         except Exception as exc:
             logger.error("Pursuit package failed: %s", exc)
 
@@ -121,13 +115,12 @@ def main() -> None:
             result = generate_demo_package(
                 notice_id=args.demo,
                 prospect_name=client,
-                output_dir=output_dir,
                 generate_pdf=not args.no_pdf,
             )
             for k, v in result.items():
                 if v:
-                    generated.append(str(v))
-                    logger.info("Demo %s: %s", k.upper(), v)
+                    generated.append(v)
+                    logger.info("Demo %s saved to DB: %s", k.upper(), v)
         except Exception as exc:
             logger.error("Demo package failed: %s", exc)
 
@@ -135,12 +128,11 @@ def main() -> None:
     if args.brief:
         logger.info("--- Weekly watch brief for %s ---", client)
         try:
-            out = generate_watch_brief(
-                client_name=client,
-                output_dir=output_dir,
-            )
-            generated.append(str(out))
-            logger.info("Watch brief: %s", out)
+            generate_watch_brief(client_name=client)
+            from datetime import date as _date
+            filename = f"watch_brief_{_date.today().isoformat()}.html"
+            generated.append(filename)
+            logger.info("Watch brief saved to DB: %s", filename)
         except Exception as exc:
             logger.error("Watch brief failed: %s", exc)
 
@@ -148,13 +140,14 @@ def main() -> None:
     if args.competitor:
         logger.info("--- Competitor profile: %s ---", args.competitor)
         try:
-            out = generate_competitor_profile(
+            from pursuit_package import _slug
+            generate_competitor_profile(
                 competitor_name=args.competitor,
                 client_name=client if client != "Client" else None,
-                output_dir=output_dir,
             )
-            generated.append(str(out))
-            logger.info("Competitor profile: %s", out)
+            filename = f"competitor_{_slug(args.competitor)}.html"
+            generated.append(filename)
+            logger.info("Competitor profile saved to DB: %s", filename)
         except Exception as exc:
             logger.error("Competitor profile failed: %s", exc)
 
@@ -164,13 +157,10 @@ def main() -> None:
         logger.info("--- All pursuits: %d notices for %s ---", len(notice_ids), client)
         for nid in notice_ids:
             try:
-                out = generate_pursuit_package(
-                    notice_id=nid,
-                    client_name=client,
-                    output_dir=output_dir,
-                )
-                generated.append(str(out))
-                logger.info("  Generated: %s", out)
+                generate_pursuit_package(notice_id=nid, client_name=client)
+                filename = f"{nid}_pursuit_package.html"
+                generated.append(filename)
+                logger.info("  Saved to DB: %s", filename)
             except Exception as exc:
                 logger.error("  Failed for %s: %s", nid, exc)
 

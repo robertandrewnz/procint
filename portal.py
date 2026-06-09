@@ -20,12 +20,11 @@ import logging
 import os
 from datetime import date
 from decimal import Decimal
-from pathlib import Path
 from typing import Optional
 
 from flask import (
     Flask, render_template_string, request, session,
-    redirect, url_for, jsonify, send_file, abort
+    redirect, url_for, jsonify, abort, Response
 )
 
 import config
@@ -290,18 +289,23 @@ def _get_watchlist() -> list[dict]:
     )
 
 
-def _list_artefacts(pattern: str) -> list[dict]:
-    """List artefact files matching pattern under ARTEFACTS_DIR."""
-    artefacts_path = Path(config.ARTEFACTS_DIR)
+def _list_artefacts(output_type: str) -> list[dict]:
+    """List artefact rows from DB for the given output_type."""
+    rows = db.list_outputs(output_type, limit=20)
     results = []
-    if artefacts_path.exists():
-        for f in sorted(artefacts_path.rglob(pattern), reverse=True)[:20]:
-            rel = f.relative_to(artefacts_path)
-            results.append({
-                "name": f.stem.replace("_", " ").title(),
-                "date": f.parent.name,
-                "rel_path": str(rel),
-            })
+    for row in rows:
+        run_date = (
+            row["run_date"].isoformat()
+            if hasattr(row["run_date"], "isoformat")
+            else str(row["run_date"])
+        )
+        client_slug = row.get("client_slug") or "unknown"
+        filename = row["filename"]
+        results.append({
+            "name": filename.replace("_", " ").replace(".html", "").title(),
+            "date": run_date,
+            "rel_path": f"{client_slug}/{run_date}/{filename}",
+        })
     return results
 
 
@@ -344,7 +348,7 @@ def packages_page():
     auth = _require_auth()
     if auth:
         return auth
-    packages = _list_artefacts("*pursuit_package*.html")
+    packages = _list_artefacts("pursuit_package")
     return render_template_string(_PACKAGES_HTML, packages=packages)
 
 
@@ -372,7 +376,7 @@ def competitors_page():
     auth = _require_auth()
     if auth:
         return auth
-    profiles = _list_artefacts("competitor_*.html")
+    profiles = _list_artefacts("competitor_profile")
     message = request.args.get("msg")
     return render_template_string(_COMPETITORS_HTML, profiles=profiles, message=message)
 
@@ -401,15 +405,29 @@ def serve_artefact(filepath: str):
     auth = _require_auth()
     if auth:
         return auth
-    full_path = Path(config.ARTEFACTS_DIR) / filepath
-    if not full_path.exists() or not full_path.is_file():
+    # Extract the filename from the last path component (client_slug/date/filename)
+    filename = filepath.strip("/").split("/")[-1]
+    row = db.fetchone(
+        """
+        SELECT content, content_bytes, filename
+          FROM pipeline_outputs
+         WHERE filename = %s
+         ORDER BY created_at DESC
+         LIMIT 1
+        """,
+        (filename,),
+    )
+    if not row:
         abort(404)
-    # Security: ensure path stays within ARTEFACTS_DIR
-    try:
-        full_path.resolve().relative_to(Path(config.ARTEFACTS_DIR).resolve())
-    except ValueError:
-        abort(403)
-    return send_file(str(full_path))
+    if row.get("content"):
+        return Response(row["content"], content_type="text/html; charset=utf-8")
+    if row.get("content_bytes"):
+        return Response(
+            bytes(row["content_bytes"]),
+            content_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        )
+    abort(404)
 
 
 @app.route("/api/watchlist")
