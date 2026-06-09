@@ -47,6 +47,12 @@ login_manager.login_message = ""
 
 # ── Background scheduler (Railway) ────────────────────────────────────────────
 # Starts APScheduler in a daemon thread when running on Railway.
+# Ensure all application DB tables exist. Idempotent — safe to run every startup.
+try:
+    db.ensure_tables()
+except Exception as _db_err:
+    logging.getLogger("portal").warning("db.ensure_tables() raised: %s", _db_err)
+
 # Gunicorn single-instance lock prevents duplicate schedulers across workers.
 # Set DISABLE_SCHEDULER=1 to suppress (local dev, maintenance windows).
 try:

@@ -56,8 +56,15 @@ def _admin_email() -> Optional[str]:
     return e if e else None
 
 
+_SMTP_TIMEOUT = 10  # seconds — prevents a hung SMTP server from killing a Gunicorn worker
+
+
 def _raw_send(subject: str, html: str, to: list[str]) -> bool:
-    """Send a single email. Returns True on success."""
+    """
+    Send a single email. Returns True on success, False on any failure.
+    Never raises — all exceptions are caught, logged, and swallowed so that
+    a broken SMTP connection can never crash a web request or worker process.
+    """
     if not _smtp_configured():
         logger.warning("SMTP not configured — email skipped: %s → %s", subject, to)
         return False
@@ -67,7 +74,8 @@ def _raw_send(subject: str, html: str, to: list[str]) -> bool:
         msg["From"] = config.SMTP_FROM
         msg["To"] = ", ".join(to)
         msg.attach(MIMEText(html, "html", "utf-8"))
-        with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT) as s:
+        with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT,
+                          timeout=_SMTP_TIMEOUT) as s:
             s.ehlo()
             s.starttls()
             s.login(config.SMTP_USER, config.SMTP_PASSWORD)
