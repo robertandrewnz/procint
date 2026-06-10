@@ -1971,16 +1971,13 @@ def demo():
   .demo-sc{padding:1.1rem 1rem;}.demo-sc-icon{font-size:1.5rem;}}
 </style>
 """
-    # Reverse map: sector key → clean slug (e.g. "FM" → "fm", "ICT" → "ict")
-    _key_to_slug = {v: k for k, v in _DEMO_SLUG_MAP.items()}
-
     sector_grid = ""
     for sk, meta in _DEMO_SECTOR_META.items():
         has_content = bool(sectors_data.get(sk, {}).get("items"))
         ready_badge = "" if has_content else (
             ' <span style="font-size:.65rem;color:var(--muted);font-weight:400;">(coming soon)</span>'
         )
-        sector_url = url_for("demo_sector", sector_slug=_key_to_slug.get(sk, sk.lower()))
+        sector_url = url_for("demo") + f"?sector={sk}"
         sector_grid += (
             f'<a href="{sector_url}" class="demo-sc">'
             f'<div class="demo-sc-icon">{meta["icon"]}</div>'
