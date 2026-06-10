@@ -1,9 +1,10 @@
 """
-BidEdge Groundwork — Client Portal
+BidEdge — Client Portal
 
 Routes:
-  Public:  /  /login  /logout  /share/<token>  /request-access
-  Client:  /groundwork  /groundwork/watchlist  /groundwork/pursuits
+  Public:  /  /groundwork  /terrain  /keystone  /pricing
+           /login  /logout  /share/<token>  /request-access
+  Client:  /groundwork/home  /groundwork/watchlist  /groundwork/pursuits
            /groundwork/competitors  /groundwork/briefs  /groundwork/request
            /groundwork/share  /groundwork/files/<slug>/<path>
            /groundwork/output/<path>
@@ -619,7 +620,7 @@ def _sidebar(active: str = "") -> str:
         )
     return (f'<nav class="side">'
             f'<div class="side-sec">Intelligence</div>'
-            f'{lnk(url_for("gw_home"),        "⬛", "Dashboard",    "home")}'
+            f'{lnk(url_for("gw_dashboard"),        "⬛", "Dashboard",    "home")}'
             f'{lnk(url_for("gw_watchlist"),   "📋", "Watchlist",    "watchlist")}'
             f'{lnk(url_for("gw_pursuits"),    "🎯", "Pursuits",     "pursuits")}'
             f'{lnk(url_for("gw_competitors"), "📊", "Competitors",  "competitors")}'
@@ -775,11 +776,14 @@ def about():
 .about-footer a:hover{{color:var(--text);}}
 </style>
 <div class="about-nav">
-  <div class="pub-brand">Groundwork <span>by BidEdge</span></div>
-  <a href="{url_for('homepage')}#how-it-works" style="font-size:.82rem;color:var(--muted);
+  <a href="/" class="pub-brand" style="text-decoration:none;color:#fff;">BidEdge</a>
+  <a href="{url_for('groundwork_landing')}" style="font-size:.82rem;color:var(--muted);
+     text-decoration:none;transition:color .12s;"
+     onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">Groundwork</a>
+  <a href="{url_for('groundwork_landing')}#how-it-works" style="font-size:.82rem;color:var(--muted);
      text-decoration:none;transition:color .12s;"
      onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">How it works</a>
-  <a href="{url_for('homepage')}#pricing" style="font-size:.82rem;color:var(--muted);
+  <a href="{url_for('groundwork_landing')}#pricing" style="font-size:.82rem;color:var(--muted);
      text-decoration:none;transition:color .12s;"
      onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">Pricing</a>
   <a href="{url_for('demo')}" style="font-size:.82rem;color:var(--muted);
@@ -834,8 +838,9 @@ def about():
 </div>
 <div class="about-footer">
   &copy; BidEdge Ltd &middot;
-  <a href="{url_for('homepage')}">Groundwork</a> &middot;
-  <a href="{url_for('homepage')}#pricing">Pricing</a> &middot;
+  <a href="{url_for('homepage')}">BidEdge suite</a> &middot;
+  <a href="{url_for('groundwork_landing')}">Groundwork</a> &middot;
+  <a href="{url_for('groundwork_landing')}#pricing">Pricing</a> &middot;
   <a href="{url_for('demo')}">Demo</a> &middot;
   <a href="{url_for('login')}">Client Login</a>
 </div>
@@ -845,6 +850,345 @@ def about():
 
 @app.route("/")
 def homepage():
+    body = (
+        '<style>'
+        '.pub-nav-link{font-size:.82rem;color:var(--muted);padding:.3rem .5rem;'
+        'text-decoration:none;transition:color .12s;white-space:nowrap;}'
+        '.pub-nav-link:hover{color:var(--text);}'
+        '.pub-nav-login{margin-left:auto;font-size:.82rem;flex-shrink:0;}'
+        '.suite-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem;'
+        'max-width:1020px;margin:3rem auto 5rem;padding:0 2.5rem;}'
+        '.suite-card{background:var(--surf);border:1px solid var(--border);border-radius:12px;'
+        'padding:2rem 1.75rem;display:flex;flex-direction:column;}'
+        '.suite-card.primary{border-color:var(--gold);border-width:2px;'
+        'box-shadow:0 0 0 1px rgba(42,157,143,.15),0 8px 32px rgba(0,0,0,.35);}'
+        '.suite-lbl{font-size:.65rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;'
+        'color:var(--gold);margin-bottom:.5rem;}'
+        '.suite-name{font-size:1.5rem;font-weight:900;color:var(--text);margin-bottom:.6rem;}'
+        '.suite-tagline{font-size:.9rem;color:var(--text);line-height:1.5;font-weight:600;'
+        'margin-bottom:.75rem;}'
+        '.suite-desc{font-size:.83rem;color:var(--muted);line-height:1.65;flex:1;'
+        'margin-bottom:1.75rem;}'
+        '@media(max-width:768px){'
+        '.suite-cards{grid-template-columns:1fr;padding:0 1rem;gap:1.25rem;margin:2rem auto 3rem;}'
+        '.suite-card{padding:1.5rem 1.25rem;}'
+        '.pub-nav-link{display:none;}'
+        '.pub-nav{overflow:hidden;}'
+        '}'
+        '</style>'
+        f'<nav class="pub-nav">'
+        f'<a href="/" class="pub-brand" style="flex-shrink:0;text-decoration:none;color:#fff;">BidEdge</a>'
+        f'<a href="{url_for("groundwork_landing")}" class="pub-nav-link">Groundwork</a>'
+        f'<a href="{url_for("demo")}" class="pub-nav-link">Demo</a>'
+        f'<a href="{url_for("about")}" class="pub-nav-link">About</a>'
+        f'<a href="{url_for("login")}" class="btn bg-out pub-nav-login">Client Login</a>'
+        f'</nav>'
+        f'<div class="hero">'
+        f'<h1>BidEdge<br><span>Intelligence for better business decisions.</span></h1>'
+        f'<p class="hero-sub">New Zealand procurement intelligence for organisations'
+        f' that compete for government contracts.</p>'
+        f'</div>'
+        f'<div style="text-align:center;padding:0 0 1rem;">'
+        f'<div style="font-size:.72rem;font-weight:700;letter-spacing:.12em;'
+        f'text-transform:uppercase;color:var(--muted);">Our products</div>'
+        f'</div>'
+        f'<div class="suite-cards">'
+        f'<div class="suite-card primary">'
+        f'<div class="suite-lbl">Procurement Intelligence</div>'
+        f'<div class="suite-name">Groundwork</div>'
+        f'<div class="suite-tagline">Know before you bid. Win when you do.</div>'
+        f'<p class="suite-desc">Daily scored opportunity monitoring across every NZ government'
+        f' tender. Know the field, the incumbents, and whether it\'s worth your'
+        f' team\'s time — before the close date.</p>'
+        f'<a href="{url_for("groundwork_landing")}" class="btn bg-gold">Explore Groundwork &rarr;</a>'
+        f'</div>'
+        f'<div class="suite-card">'
+        f'<div class="suite-lbl">Location Intelligence</div>'
+        f'<div class="suite-name">Terrain</div>'
+        f'<div class="suite-tagline">Know the ground before you move.</div>'
+        f'<p class="suite-desc">Environmental, planning, and infrastructure intelligence'
+        f' for property and site decisions. Understand constraints, risks, and'
+        f' opportunities before you commit resources.</p>'
+        f'<a href="{url_for("terrain_landing")}" class="btn bg-out">Request a scan &rarr;</a>'
+        f'</div>'
+        f'<div class="suite-card">'
+        f'<div class="suite-lbl">Strategic Intelligence</div>'
+        f'<div class="suite-name">Keystone</div>'
+        f'<div class="suite-tagline">Every signal. One decision agenda.</div>'
+        f'<p class="suite-desc">Cross-market signals, pattern detection, and strategic'
+        f' intelligence synthesised into a single decision-ready briefing'
+        f' for leadership teams.</p>'
+        f'<a href="{url_for("keystone_landing")}" class="btn bg-out">Talk to us &rarr;</a>'
+        f'</div>'
+        f'</div>'
+        f'<div class="pub-footer">&copy; BidEdge Ltd &middot; '
+        f'Intelligence for NZ organisations &middot; '
+        f'<a href="{url_for("about")}">About</a> &middot; '
+        f'<a href="{url_for("login")}">Client Login</a>'
+        f'</div>'
+    )
+    return _page("BidEdge — Intelligence for Better Business Decisions", body, public=True, sidebar=False)
+
+
+@app.route("/terrain", methods=["GET", "POST"])
+def terrain_landing():
+    import json as _json
+    from pathlib import Path as _Path
+    from html import escape as _esc
+
+    sent  = False
+    error = ""
+
+    if request.method == "POST":
+        name  = request.form.get("name", "").strip()
+        org   = request.form.get("org", "").strip()
+        email = request.form.get("email", "").strip()
+        role  = request.form.get("role", "").strip()
+
+        if not (name and email):
+            error = "Please provide your name and email address."
+        else:
+            try:
+                db.execute(
+                    """INSERT INTO leads
+                           (name, organisation, role, email, plan, source, status)
+                       VALUES (%s, %s, %s, %s, 'terrain', 'terrain_form', 'enquiry')""",
+                    (name, org, role, email),
+                )
+                logger.info("Terrain lead saved: %s <%s>", name, email)
+            except Exception as exc:
+                logger.error("terrain lead save failed: %s", exc)
+                signups_path = _Path(__file__).parent / "signups.json"
+                try:
+                    existing = _json.loads(signups_path.read_text()) if signups_path.exists() else []
+                except Exception:
+                    existing = []
+                import time as _time
+                existing.append({"ts": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+                                  "source": "terrain_form", "name": name, "org": org,
+                                  "email": email, "role": role})
+                signups_path.write_text(_json.dumps(existing, indent=2))
+            return redirect(url_for("terrain_landing") + "?sent=1")
+
+    sent = bool(request.args.get("sent"))
+    err_banner = (f'<div class="al al-er">{_esc(error)}</div>') if error else ""
+    sent_banner = (
+        '<div class="al al-ok" style="max-width:560px;margin:0 auto 1.5rem;">'
+        'Request received — a BidEdge adviser will be in touch within one business day.'
+        '</div>'
+    ) if sent else ""
+
+    form_html = (
+        f'<div class="lcard" style="max-width:480px;margin:0 auto;">'
+        f'{err_banner}'
+        f'<form action="{url_for("terrain_landing")}" method="POST">'
+        f'<div class="fg"><label class="fl">Full name *</label>'
+        f'<input name="name" type="text" class="fc2" placeholder="Jane Smith" required></div>'
+        f'<div class="fg"><label class="fl">Organisation *</label>'
+        f'<input name="org" type="text" class="fc2" placeholder="Your company or agency"></div>'
+        f'<div class="fg"><label class="fl">Email address *</label>'
+        f'<input name="email" type="email" class="fc2" placeholder="jane@example.com" required></div>'
+        f'<div class="fg"><label class="fl">Your role <span style="color:var(--muted);font-weight:400;">(optional)</span></label>'
+        f'<input name="role" type="text" class="fc2" placeholder="e.g. Property Manager, Director"></div>'
+        f'<button type="submit" class="btn bg-gold" style="width:100%;justify-content:center;'
+        f'font-size:.9rem;padding:.7rem 1.5rem;">Request a scan &rarr;</button>'
+        f'<p style="font-size:.75rem;color:var(--muted);text-align:center;margin-top:1rem;">'
+        f'No commitment — we\'ll discuss your requirements and confirm scope.</p>'
+        f'</form></div>'
+    )
+
+    body = (
+        f'<nav class="pub-nav">'
+        f'<a href="/" class="pub-brand" style="flex-shrink:0;text-decoration:none;color:#fff;">'
+        f'BidEdge <span>&#8594; Terrain</span></a>'
+        f'<a href="{url_for("homepage")}" class="pub-nav-link" style="font-size:.74rem;'
+        f'color:var(--muted);">&#8592; BidEdge suite</a>'
+        f'<a href="{url_for("login")}" class="btn bg-out pub-nav-login">Client Login</a>'
+        f'</nav>'
+        f'<div style="max-width:680px;margin:0 auto;padding:3.5rem 1.5rem 5rem;">'
+        f'{sent_banner}'
+        f'<div style="font-size:.65rem;font-weight:700;letter-spacing:.12em;'
+        f'text-transform:uppercase;color:var(--gold);margin-bottom:.65rem;">'
+        f'Location Intelligence</div>'
+        f'<h1 style="font-size:2.25rem;font-weight:900;color:var(--text);'
+        f'letter-spacing:-.02em;line-height:1.2;margin-bottom:.75rem;">Terrain</h1>'
+        f'<p style="font-size:1.05rem;font-weight:600;color:var(--text);margin-bottom:1rem;">'
+        f'Know the ground before you move.</p>'
+        f'<p style="font-size:.93rem;color:var(--muted);line-height:1.75;margin-bottom:1.75rem;">'
+        f'Terrain delivers environmental, planning, and infrastructure intelligence for'
+        f' property and site decisions. Before you commit resources, know the constraints,'
+        f' risks, and opportunities that will shape your outcome. Each scan is'
+        f' tailored to your location, sector, and decision timeline.</p>'
+        f'<div style="background:var(--surf);border:1px solid var(--border);border-radius:10px;'
+        f'padding:1.5rem 1.75rem;margin-bottom:2.5rem;">'
+        f'<div style="font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;'
+        f'color:var(--gold);margin-bottom:1rem;">What you get</div>'
+        f'<ul style="list-style:none;margin:0;padding:0;">'
+        f'<li style="font-size:.87rem;color:var(--muted);padding:.4rem 0;'
+        f'border-top:1px solid var(--border);display:flex;gap:.6rem;">'
+        f'<span style="color:var(--gold);flex-shrink:0;">&#10003;</span>'
+        f'Site-specific planning and zoning constraints mapped against your timeline</li>'
+        f'<li style="font-size:.87rem;color:var(--muted);padding:.4rem 0;'
+        f'border-top:1px solid var(--border);display:flex;gap:.6rem;">'
+        f'<span style="color:var(--gold);flex-shrink:0;">&#10003;</span>'
+        f'Environmental risk profile — contamination, flood, seismic, and ecological flags</li>'
+        f'<li style="font-size:.87rem;color:var(--muted);padding:.4rem 0;'
+        f'border-top:1px solid var(--border);display:flex;gap:.6rem;">'
+        f'<span style="color:var(--gold);flex-shrink:0;">&#10003;</span>'
+        f'Infrastructure capacity and servicing constraints for the target parcel</li>'
+        f'<li style="font-size:.87rem;color:var(--muted);padding:.4rem 0;'
+        f'border-top:1px solid var(--border);display:flex;gap:.6rem;">'
+        f'<span style="color:var(--gold);flex-shrink:0;">&#10003;</span>'
+        f'Decision-ready summary with go/conditional/no-go assessment</li>'
+        f'</ul></div>'
+        f'<h2 style="font-size:1.1rem;font-weight:800;color:var(--text);margin-bottom:.75rem;">'
+        f'Request a Terrain scan</h2>'
+        f'<p style="font-size:.87rem;color:var(--muted);margin-bottom:1.5rem;">'
+        f'Tell us about your project and we\'ll be in touch to discuss scope and timeline.</p>'
+        f'{form_html}'
+        f'</div>'
+        f'<div class="pub-footer">&copy; BidEdge Ltd &middot; '
+        f'<a href="{url_for("homepage")}">Suite</a> &middot; '
+        f'<a href="{url_for("login")}">Client Login</a></div>'
+    )
+    return _page("Terrain by BidEdge", body, public=True, sidebar=False)
+
+
+@app.route("/keystone", methods=["GET", "POST"])
+def keystone_landing():
+    import json as _json
+    from pathlib import Path as _Path
+    from html import escape as _esc
+
+    sent  = False
+    error = ""
+
+    if request.method == "POST":
+        name    = request.form.get("name", "").strip()
+        org     = request.form.get("org", "").strip()
+        email   = request.form.get("email", "").strip()
+        role    = request.form.get("role", "").strip()
+        context = request.form.get("context", "").strip()
+
+        if not (name and email):
+            error = "Please provide your name and email address."
+        else:
+            try:
+                db.execute(
+                    """INSERT INTO leads
+                           (name, organisation, role, email, plan, source, status, notes)
+                       VALUES (%s, %s, %s, %s, 'keystone', 'keystone_form', 'enquiry', %s)""",
+                    (name, org, role, email, context or None),
+                )
+                logger.info("Keystone lead saved: %s <%s>", name, email)
+            except Exception as exc:
+                logger.error("keystone lead save failed: %s", exc)
+                signups_path = _Path(__file__).parent / "signups.json"
+                try:
+                    existing = _json.loads(signups_path.read_text()) if signups_path.exists() else []
+                except Exception:
+                    existing = []
+                import time as _time
+                existing.append({"ts": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+                                  "source": "keystone_form", "name": name, "org": org,
+                                  "email": email, "role": role, "context": context})
+                signups_path.write_text(_json.dumps(existing, indent=2))
+            return redirect(url_for("keystone_landing") + "?sent=1")
+
+    sent = bool(request.args.get("sent"))
+    err_banner = (f'<div class="al al-er">{_esc(error)}</div>') if error else ""
+    sent_banner = (
+        '<div class="al al-ok" style="max-width:560px;margin:0 auto 1.5rem;">'
+        'Request received — a BidEdge adviser will be in touch within one business day.'
+        '</div>'
+    ) if sent else ""
+
+    form_html = (
+        f'<div class="lcard" style="max-width:480px;margin:0 auto;">'
+        f'{err_banner}'
+        f'<form action="{url_for("keystone_landing")}" method="POST">'
+        f'<div class="fg"><label class="fl">Full name *</label>'
+        f'<input name="name" type="text" class="fc2" placeholder="Jane Smith" required></div>'
+        f'<div class="fg"><label class="fl">Organisation *</label>'
+        f'<input name="org" type="text" class="fc2" placeholder="Your company or agency"></div>'
+        f'<div class="fg"><label class="fl">Email address *</label>'
+        f'<input name="email" type="email" class="fc2" placeholder="jane@example.com" required></div>'
+        f'<div class="fg"><label class="fl">Your role <span style="color:var(--muted);font-weight:400;">(optional)</span></label>'
+        f'<input name="role" type="text" class="fc2" placeholder="e.g. CEO, Strategy Director"></div>'
+        f'<div class="fg"><label class="fl">Tell us about your decision context <span style="color:var(--muted);font-weight:400;">(optional)</span></label>'
+        f'<textarea name="context" class="fc2" rows="3" placeholder="What markets or decisions are you navigating? What signals matter most?"></textarea></div>'
+        f'<button type="submit" class="btn bg-gold" style="width:100%;justify-content:center;'
+        f'font-size:.9rem;padding:.7rem 1.5rem;">Talk to us &rarr;</button>'
+        f'<p style="font-size:.75rem;color:var(--muted);text-align:center;margin-top:1rem;">'
+        f'We\'ll discuss your intelligence needs and tailor a briefing schedule.</p>'
+        f'</form></div>'
+    )
+
+    body = (
+        f'<nav class="pub-nav">'
+        f'<a href="/" class="pub-brand" style="flex-shrink:0;text-decoration:none;color:#fff;">'
+        f'BidEdge <span>&#8594; Keystone</span></a>'
+        f'<a href="{url_for("homepage")}" class="pub-nav-link" style="font-size:.74rem;'
+        f'color:var(--muted);">&#8592; BidEdge suite</a>'
+        f'<a href="{url_for("login")}" class="btn bg-out pub-nav-login">Client Login</a>'
+        f'</nav>'
+        f'<div style="max-width:680px;margin:0 auto;padding:3.5rem 1.5rem 5rem;">'
+        f'{sent_banner}'
+        f'<div style="font-size:.65rem;font-weight:700;letter-spacing:.12em;'
+        f'text-transform:uppercase;color:var(--gold);margin-bottom:.65rem;">'
+        f'Strategic Intelligence</div>'
+        f'<h1 style="font-size:2.25rem;font-weight:900;color:var(--text);'
+        f'letter-spacing:-.02em;line-height:1.2;margin-bottom:.75rem;">Keystone</h1>'
+        f'<p style="font-size:1.05rem;font-weight:600;color:var(--text);margin-bottom:1rem;">'
+        f'Every signal. One decision agenda.</p>'
+        f'<p style="font-size:.93rem;color:var(--muted);line-height:1.75;margin-bottom:1.75rem;">'
+        f'Keystone synthesises cross-market signals, pattern detection, and strategic'
+        f' intelligence into a single decision-ready briefing for leadership teams.'
+        f' Where Groundwork tells you which tenders to pursue, Keystone tells you'
+        f' which markets to enter, which relationships to build, and what is'
+        f' coming before it becomes visible in the data.</p>'
+        f'<div style="background:var(--surf);border:1px solid var(--border);border-radius:10px;'
+        f'padding:1.5rem 1.75rem;margin-bottom:2.5rem;">'
+        f'<div style="font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;'
+        f'color:var(--gold);margin-bottom:1rem;">What you get</div>'
+        f'<ul style="list-style:none;margin:0;padding:0;">'
+        f'<li style="font-size:.87rem;color:var(--muted);padding:.4rem 0;'
+        f'border-top:1px solid var(--border);display:flex;gap:.6rem;">'
+        f'<span style="color:var(--gold);flex-shrink:0;">&#10003;</span>'
+        f'Weekly decision agenda — prioritised signals across your target markets</li>'
+        f'<li style="font-size:.87rem;color:var(--muted);padding:.4rem 0;'
+        f'border-top:1px solid var(--border);display:flex;gap:.6rem;">'
+        f'<span style="color:var(--gold);flex-shrink:0;">&#10003;</span>'
+        f'Cross-sector pattern detection: surges, contractions, and opportunity windows</li>'
+        f'<li style="font-size:.87rem;color:var(--muted);padding:.4rem 0;'
+        f'border-top:1px solid var(--border);display:flex;gap:.6rem;">'
+        f'<span style="color:var(--gold);flex-shrink:0;">&#10003;</span>'
+        f'Competitor and partner landscape — who is moving and in which direction</li>'
+        f'<li style="font-size:.87rem;color:var(--muted);padding:.4rem 0;'
+        f'border-top:1px solid var(--border);display:flex;gap:.6rem;">'
+        f'<span style="color:var(--gold);flex-shrink:0;">&#10003;</span>'
+        f'Direct access to the BidEdge team for strategic interpretation and briefings</li>'
+        f'</ul></div>'
+        f'<h2 style="font-size:1.1rem;font-weight:800;color:var(--text);margin-bottom:.75rem;">'
+        f'Talk to us about Keystone</h2>'
+        f'<p style="font-size:.87rem;color:var(--muted);margin-bottom:1.5rem;">'
+        f'Tell us about your organisation and we\'ll tailor a strategic intelligence solution.</p>'
+        f'{form_html}'
+        f'</div>'
+        f'<div class="pub-footer">&copy; BidEdge Ltd &middot; '
+        f'<a href="{url_for("homepage")}">Suite</a> &middot; '
+        f'<a href="{url_for("login")}">Client Login</a></div>'
+    )
+    return _page("Keystone by BidEdge", body, public=True, sidebar=False)
+
+
+@app.route("/pricing")
+def pricing_redirect():
+    return redirect(url_for("groundwork_landing") + "#pricing", 301)
+
+
+@app.route("/groundwork")
+def groundwork_landing():
     sent = ('<div class="al al-ok" style="max-width:540px;margin:0 auto 1.5rem;">'
             'Request sent — we will be in touch.</div>') if request.args.get("sent") else ""
 
@@ -1025,7 +1369,8 @@ function toggleBilling(cb) {{
         f'}}'
         f'</style>'
         f'<nav class="pub-nav">'
-        f'<div class="pub-brand" style="flex-shrink:0;">Groundwork <span>by BidEdge</span></div>'
+        f'<a href="/" class="pub-brand" style="flex-shrink:0;text-decoration:none;color:#fff;">'
+        f'Groundwork <span>by BidEdge</span></a>'
         f'<a href="#how-it-works" class="pub-nav-link">How it works</a>'
         f'<a href="#pricing" class="pub-nav-link">Pricing</a>'
         f'<a href="{url_for("demo")}" class="pub-nav-link">Demo</a>'
@@ -1033,6 +1378,12 @@ function toggleBilling(cb) {{
         f'<a href="{url_for("login")}" class="btn bg-out pub-nav-login">Client Login</a>'
         f'</nav>'
         f'<div class="hero">{sent}'
+        f'<div style="margin-bottom:1.35rem;">'
+        f'<a href="/" style="font-size:.74rem;color:var(--muted);text-decoration:none;'
+        f'border:1px solid var(--border);border-radius:999px;padding:.25rem .75rem;'
+        f'transition:color .12s;" onmouseover="this.style.color=\'var(--text)\'"'
+        f' onmouseout="this.style.color=\'var(--muted)\'">&#8592; BidEdge suite</a>'
+        f'</div>'
         f'<h1>Know before you bid.<br><span>Win when you do.</span></h1>'
         f'<p class="hero-sub">Before your competitors know the tender exists, you know '
         f'the field, the incumbents, and whether it\'s worth your team\'s time.</p>'
@@ -1164,7 +1515,7 @@ function toggleBilling(cb) {{
         f'<a href="{url_for("about")}">About</a> &middot; '
         f'<a href="{url_for("login")}">Client Login</a></div>'
     )
-    return _page("BidEdge — Groundwork Procurement Intelligence", body, public=True, sidebar=False)
+    return _page("Groundwork by BidEdge", body, public=True, sidebar=False)
 
 
 @app.route("/request-access", methods=["POST"])
@@ -1289,11 +1640,11 @@ def signup():
             f'In the meantime, explore what Groundwork looks like in practice.</p>'
             f'<a href="{url_for("demo")}" class="btn bg-gold" style="margin-right:.75rem;font-size:.9rem;">'
             f'Explore the demo &rarr;</a>'
-            f'<a href="{url_for("homepage")}" class="btn bg-out" style="font-size:.9rem;">← Back to home</a>'
+            f'<a href="{url_for("groundwork_landing")}" class="btn bg-out" style="font-size:.9rem;">← Back to home</a>'
             f'</div>'
         )
         body = (f'<nav class="pub-nav">'
-                f'<div class="pub-brand">Groundwork <span>by BidEdge</span></div>'
+                f'<a href="/" class="pub-brand" style="text-decoration:none;color:#fff;">Groundwork <span>by BidEdge</span></a>'
                 f'<a href="{url_for("login")}" class="btn bg-out" style="margin-left:auto;font-size:.82rem;">Client Login</a>'
                 f'</nav>'
                 f'<div style="max-width:600px;margin:0 auto;">{confirm_body}</div>'
@@ -1382,13 +1733,14 @@ def signup():
         f'{submit_section}'
         f'</form></div>'
         f'<div style="text-align:center;margin-top:1.5rem;">'
-        f'<a href="{url_for("homepage")}#pricing" '
+        f'<a href="{url_for("groundwork_landing")}#pricing" '
         f'style="font-size:.8rem;color:var(--muted);">← Back to pricing</a>'
         f'</div></div>'
     )
 
     body = (f'<nav class="pub-nav">'
-            f'<div class="pub-brand">Groundwork <span>by BidEdge</span></div>'
+            f'<a href="/" class="pub-brand" style="text-decoration:none;color:#fff;">Groundwork <span>by BidEdge</span></a>'
+            f'<a href="{url_for("groundwork_landing")}" class="pub-nav-link" style="font-size:.82rem;">Groundwork</a>'
             f'<a href="{url_for("login")}" class="btn bg-out" style="margin-left:auto;font-size:.82rem;">Client Login</a>'
             f'</nav>'
             f'{form_html}'
@@ -1578,8 +1930,8 @@ def demo():
     body = (
         f'{sector_card_css}'
         f'<nav class="pub-nav">'
-        f'<div class="pub-brand">Groundwork <span>by BidEdge</span></div>'
-        f'<a href="{url_for("homepage")}#pricing" style="font-size:.82rem;color:var(--muted);padding:.3rem .5rem;text-decoration:none;">Pricing</a>'
+        f'<a href="/" class="pub-brand" style="flex-shrink:0;text-decoration:none;color:#fff;">Groundwork <span>by BidEdge</span></a>'
+        f'<a href="{url_for("groundwork_landing")}#pricing" style="font-size:.82rem;color:var(--muted);padding:.3rem .5rem;text-decoration:none;">Pricing</a>'
         f'<a href="{url_for("login")}" class="btn bg-out" style="margin-left:auto;font-size:.82rem;">Client Login</a>'
         f'</nav>'
         f'<div style="max-width:900px;margin:0 auto;padding:2.5rem 1.5rem 4rem;">'
@@ -1598,13 +1950,13 @@ def demo():
         f'pursuit packages tailored to your firm.</p>'
         f'<a href="{url_for("signup")}?plan=pursue" class="btn bg-gold" '
         f'style="font-size:.88rem;padding:.6rem 1.5rem;">Get started &rarr;</a>'
-        f'&nbsp;<a href="{url_for("homepage")}#pricing" class="btn bg-out" '
+        f'&nbsp;<a href="{url_for("groundwork_landing")}#pricing" class="btn bg-out" '
         f'style="font-size:.88rem;padding:.6rem 1.25rem;">See pricing</a>'
         f'</div></div>'
         f'</div>'
         f'<div class="pub-footer">&copy; BidEdge Ltd &middot; '
         f'<a href="{url_for("homepage")}">Home</a> &middot; '
-        f'<a href="{url_for("homepage")}#pricing">Pricing</a> &middot; '
+        f'<a href="{url_for("groundwork_landing")}#pricing">Pricing</a> &middot; '
         f'<a href="{url_for("login")}">Client Login</a></div>'
     )
     return _page("Groundwork Demo — BidEdge", body, public=True, sidebar=False)
@@ -1664,7 +2016,7 @@ def demo_file(filepath: str):
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for("gw_home"))
+        return redirect(url_for("gw_dashboard"))
     error = ""
     if request.method == "POST":
         user = _check_password(request.form.get("username","").strip(),
@@ -1676,7 +2028,7 @@ def login():
             next_url = request.args.get("next")
             if not next_url:
                 from preferences import has_preferences
-                next_url = url_for("gw_home") if has_preferences(user.id) else url_for("onboarding")
+                next_url = url_for("gw_dashboard") if has_preferences(user.id) else url_for("onboarding")
             return redirect(next_url)
         error = "Invalid username or password."
     err_html = f'<div class="al al-er">{error}</div>' if error else ""
@@ -1758,7 +2110,7 @@ def onboarding():
                 min_value_nzd=min_val,
             )
             _flash(f"Preferences saved — showing {', '.join(selected)} opportunities.", "success")
-            return redirect(url_for("gw_home"))
+            return redirect(url_for("gw_dashboard"))
 
     err_html = f'<div class="al al-er">{error}</div>' if error else ""
 
@@ -1818,7 +2170,7 @@ def onboarding():
         f'style="width:100%;justify-content:center;padding:.65rem;">'
         f'Save preferences &rarr;</button>'
         f'<div style="text-align:center;margin-top:1rem;">'
-        f'<a href="{url_for("gw_home")}" '
+        f'<a href="{url_for("gw_dashboard")}" '
         f'style="font-size:.78rem;color:var(--muted);">Skip for now</a>'
         f'</div>'
         f'</form></div></div></div></div>'
@@ -2000,7 +2352,7 @@ def account_change_password():
                 _save_cfg(cfg)
                 _flash("Password changed successfully.", "success")
                 from preferences import has_preferences
-                return redirect(url_for("gw_home") if has_preferences(current_user.id) else url_for("onboarding"))
+                return redirect(url_for("gw_dashboard") if has_preferences(current_user.id) else url_for("onboarding"))
 
     is_temp = getattr(current_user, "temp_password", False)
     temp_banner = (
@@ -2082,9 +2434,9 @@ def create_share():
 
 # ── Client: /groundwork ───────────────────────────────────────────────────────
 
-@app.route("/groundwork")
+@app.route("/groundwork/home")
 @login_required
-def gw_home():
+def gw_dashboard():
     # DB is source of truth for preferred sectors; JSON value is fallback only
     data     = _watchlist_summary(
         preferred_sectors=current_user.preferred_sectors,  # fallback if no DB row
