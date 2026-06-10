@@ -47,7 +47,16 @@ def _require_auth():
 
 # ── Templates ─────────────────────────────────────────────────────────────────
 
-_BASE_STYLE = """
+_BASE_STYLE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BidEdge</title>
+<link rel="icon" type="image/svg+xml"
+      href="{{ url_for('static', filename='img/bidedge-mark.svg') }}">
+<link rel="alternate icon"
+      href="{{ url_for('static', filename='img/bidedge-mark.svg') }}">
 <style>
 :root{--bg:#0d1117;--surface:#161b22;--surf2:#1c2230;--border:#2a3344;
       --text:#e6edf3;--muted:#7d8fa8;--accent:#4f9cf9;
@@ -59,7 +68,6 @@ a{color:var(--accent);text-decoration:none;}
 a:hover{text-decoration:underline;}
 .nav{background:var(--surface);border-bottom:1px solid var(--border);
      padding:.75rem 2rem;display:flex;align-items:center;gap:2rem;}
-.nav-brand{font-size:.85rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);}
 .nav-link{font-size:.8rem;color:var(--muted);}
 .nav-link:hover{color:var(--text);}
 .nav-right{margin-left:auto;font-size:.75rem;color:var(--muted);}
@@ -99,14 +107,18 @@ input:focus,select:focus{outline:none;border-color:var(--accent);}
 .alert-error{background:#ef444418;border:1px solid #ef444440;color:var(--red);}
 .alert-success{background:#22c55e18;border:1px solid #22c55e40;color:var(--green);}
 </style>
+</head>
+<body>
 """
 
 _LOGIN_HTML = _BASE_STYLE + """
 <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;">
   <div style="width:360px;">
     <div style="text-align:center;margin-bottom:2rem;">
-      <div style="font-size:.75rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
-                  color:var(--accent);margin-bottom:.5rem;">Procurement Intelligence</div>
+      <img src="{{ url_for('static', filename='img/bidedge-dark.svg') }}"
+           alt="BidEdge"
+           height="56"
+           style="display:block;margin:0 auto 1rem;">
       <div style="font-size:1.2rem;font-weight:800;color:var(--text);">Client Portal</div>
     </div>
     <div class="card">
@@ -121,11 +133,17 @@ _LOGIN_HTML = _BASE_STYLE + """
     </div>
   </div>
 </div>
+</body></html>
 """
 
 _DASHBOARD_HTML = _BASE_STYLE + """
 <div class="nav">
-  <span class="nav-brand">Procurement Intelligence</span>
+  <a href="{{ url_for('login') }}" style="display:flex;align-items:center;text-decoration:none;">
+    <img src="{{ url_for('static', filename='img/bidedge-nav.svg') }}"
+         alt="BidEdge"
+         height="40"
+         style="display:block;">
+  </a>
   <a class="nav-link" href="{{ url_for('dashboard') }}">Watchlist</a>
   <a class="nav-link" href="{{ url_for('packages_page') }}">Pursuit Packages</a>
   <a class="nav-link" href="{{ url_for('competitors_page') }}">Competitors</a>
@@ -192,11 +210,17 @@ _DASHBOARD_HTML = _BASE_STYLE + """
   </div>
   {% endif %}
 </div>
+</body></html>
 """
 
 _PACKAGES_HTML = _BASE_STYLE + """
 <div class="nav">
-  <span class="nav-brand">Procurement Intelligence</span>
+  <a href="{{ url_for('login') }}" style="display:flex;align-items:center;text-decoration:none;">
+    <img src="{{ url_for('static', filename='img/bidedge-nav.svg') }}"
+         alt="BidEdge"
+         height="40"
+         style="display:block;">
+  </a>
   <a class="nav-link" href="{{ url_for('dashboard') }}">Watchlist</a>
   <a class="nav-link" href="{{ url_for('packages_page') }}">Pursuit Packages</a>
   <a class="nav-link" href="{{ url_for('competitors_page') }}">Competitors</a>
@@ -224,11 +248,17 @@ _PACKAGES_HTML = _BASE_STYLE + """
   </div>
   {% endif %}
 </div>
+</body></html>
 """
 
 _COMPETITORS_HTML = _BASE_STYLE + """
 <div class="nav">
-  <span class="nav-brand">Procurement Intelligence</span>
+  <a href="{{ url_for('login') }}" style="display:flex;align-items:center;text-decoration:none;">
+    <img src="{{ url_for('static', filename='img/bidedge-nav.svg') }}"
+         alt="BidEdge"
+         height="40"
+         style="display:block;">
+  </a>
   <a class="nav-link" href="{{ url_for('dashboard') }}">Watchlist</a>
   <a class="nav-link" href="{{ url_for('packages_page') }}">Pursuit Packages</a>
   <a class="nav-link" href="{{ url_for('competitors_page') }}">Competitors</a>
@@ -267,6 +297,7 @@ _COMPETITORS_HTML = _BASE_STYLE + """
     {% endfor %}
   {% endif %}
 </div>
+</body></html>
 """
 
 
