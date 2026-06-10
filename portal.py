@@ -1975,6 +1975,23 @@ def demo():
     return _page("Groundwork Demo — BidEdge", body, public=True, sidebar=False)
 
 
+@app.route("/demo/manifest.json")
+def demo_manifest_json():
+    """Serve the demo manifest publicly so external tools can discover artefact paths."""
+    from pathlib import Path as _Path
+    import json as _json
+    mp = _Path(__file__).parent / "output" / "artefacts" / "demo" / "manifest.json"
+    if not mp.exists():
+        return app.response_class(
+            response=_json.dumps({"error": "manifest not found"}),
+            status=404, mimetype="application/json"
+        )
+    return app.response_class(
+        response=mp.read_text(encoding="utf-8"),
+        status=200, mimetype="application/json"
+    )
+
+
 @app.route("/demo/file/<path:filepath>")
 def demo_file(filepath: str):
     """Serve a demo artefact HTML file publicly (read-only)."""
