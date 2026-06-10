@@ -79,6 +79,31 @@ def upload_file(
         return None
 
 
+def upload_bytes(
+    data: bytes,
+    storage_path: str,
+    content_type: str = "application/octet-stream",
+) -> Optional[str]:
+    """
+    Upload raw bytes to Supabase Storage without a local file.
+    Returns the storage path on success, None on failure.
+    """
+    client = _get_client()
+    if client is None:
+        return None
+    try:
+        client.storage.from_(config.STORAGE_BUCKET).upload(
+            path=storage_path,
+            file=data,
+            file_options={"content-type": content_type, "upsert": "true"},
+        )
+        logger.info("Uploaded bytes to Storage: %s (%d bytes)", storage_path, len(data))
+        return storage_path
+    except Exception as exc:
+        logger.error("Storage upload_bytes failed for %s: %s", storage_path, exc)
+        return None
+
+
 def download_file(storage_path: str) -> Optional[bytes]:
     """
     Download a file from Supabase Storage.

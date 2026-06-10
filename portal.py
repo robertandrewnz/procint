@@ -4332,13 +4332,16 @@ def gw_request():
     ok_msg = ""
 
     if request.method == "POST":
-        rtype   = request.form.get("type", "pursuit")
-        details = request.form.get("details", "")
-        notice  = request.form.get("notice_id", "").strip()
-        prio    = request.form.get("priority", "normal")
+        rtype      = request.form.get("type", "pursuit")
+        details    = request.form.get("details", "")
+        notice     = request.form.get("notice_id", "").strip()
+        prio       = request.form.get("priority", "normal")
+        client_org = request.form.get("client_org", "").strip()
 
         # ── Pursuit package: automated generation ─────────────────────────────
-        if rtype == "pursuit" and notice:
+        if rtype == "pursuit" and notice and not client_org:
+            ok_msg = '<div class="al al-er">Please enter your organisation name — this is required to generate the analysis.</div>'
+        elif rtype == "pursuit" and notice:
             try:
                 import pursuit_worker
                 import mailer as _mailer
@@ -4393,7 +4396,7 @@ def gw_request():
                 pursuit_worker.dispatch(
                     req_id=req_id,
                     client_id=current_user.id,
-                    client_name=current_user.name,
+                    client_name=client_org,
                     client_email=current_user.email or "",
                     notice_id=notice,
                     preferred_sectors=list(current_user.preferred_sectors or []),
@@ -4434,10 +4437,13 @@ def gw_request():
 
         elif rtype == "competitor":
             # ── Competitor profile: automated generation ──────────────────────
-            firm_name = request.form.get("firm_name", "").strip()
-            comp_context = request.form.get("comp_context", "").strip()
+            firm_name      = request.form.get("firm_name", "").strip()
+            comp_context   = request.form.get("comp_context", "").strip()
             sector_context = request.form.get("sector_context", "").strip()
-            if firm_name and not sector_context:
+            client_org_comp = request.form.get("client_org", "").strip()
+            if firm_name and not client_org_comp:
+                ok_msg = '<div class="al al-er">Please enter your organisation name — this is required for the competitive analysis.</div>'
+            elif firm_name and not sector_context:
                 ok_msg = (
                     '<div class="al al-er">Please specify the procurement sector — '
                     'this is required to frame the competitive analysis.</div>'
@@ -4521,7 +4527,7 @@ def gw_request():
                     _thr.Thread(
                         target=_generate_competitor,
                         args=(comp_req_id, firm_name, comp_context, sector_context,
-                              current_user.id, current_user.name, current_user.email,
+                              current_user.id, client_org_comp, current_user.email,
                               current_user.slug, comp_portal_url),
                         daemon=True, name=f"comp-{firm_name[:20]}",
                     ).start()
@@ -4592,6 +4598,9 @@ def gw_request():
         f'<form method="POST">'
         f'<input type="hidden" name="type" value="pursuit">'
         f'{notice_id_field}'
+        f'<div class="fg"><label class="fl">Your organisation *</label>'
+        f'<input name="client_org" class="fc2" placeholder="Your firm or organisation name" required>'
+        f'<div class="fh">Used throughout the analysis — enter your trading name as you would in a bid.</div></div>'
         f'<div class="fg"><label class="fl">Additional context <span style="color:var(--muted);font-weight:400;">(optional)</span></label>'
         f'<textarea name="details" class="fc2" rows="3" '
         f'placeholder="Any specific aspects to focus on, evaluation criteria, known incumbents..."></textarea></div>'
@@ -4610,8 +4619,8 @@ def gw_request():
         f'<input type="hidden" name="type" value="competitor">'
         f'<div class="fg"><label class="fl">Competitor firm name *</label>'
         f'<input name="firm_name" class="fc2" placeholder="e.g. Bastion, Kordia, Datacom" required></div>'
-        f'<div class="fg"><label class="fl">Your organisation <span style="color:var(--muted);font-weight:400;">(pre-filled)</span></label>'
-        f'<input name="client_org" class="fc2" value="{org_val}" placeholder="Your firm name"></div>'
+        f'<div class="fg"><label class="fl">Your organisation *</label>'
+        f'<input name="client_org" class="fc2" value="{org_val}" placeholder="Your firm name" required></div>'
         f'<div class="fg"><label class="fl">Procurement sector *</label>'
         f'<input name="sector_context" class="fc2" '
         f'placeholder="e.g. government cybersecurity and SOC services, ICT infrastructure, facilities management" required>'
@@ -4638,6 +4647,216 @@ def gw_request():
         f'</div></div>'
     )
     return _page("Request — Groundwork", body, "request")
+
+
+# ── Pursuit upgrade (Full Analysis) ──────────────────────────────────────────
+
+@app.route("/groundwork/pursuits/upgrade", methods=["GET", "POST"])
+@login_required
+def gw_pursuit_upgrade():
+    """
+    Upload authenticated tender documents from GETS to trigger a Full Analysis
+    regeneration of a public pursuit package.
+    """
+    notice_id   = request.args.get("notice_id", "").strip()
+    client_slug = request.args.get("client", "").strip() or current_user.slug
+
+    if not notice_id:
+        return redirect(url_for("gw_pursuits"))
+
+    # Fetch notice title for display
+    nrow = db.fetchone("SELECT title, agency FROM raw_notices WHERE notice_id = %s", (notice_id,))
+    notice_title  = (nrow or {}).get("title") or notice_id
+    notice_agency = (nrow or {}).get("agency") or ""
+
+    msg = ""
+    if request.method == "POST":
+        uploaded_files = request.files.getlist("docs")
+        if not uploaded_files or all(f.filename == "" for f in uploaded_files):
+            msg = '<div class="al al-er">Please select at least one file to upload.</div>'
+        else:
+            import storage as _storage
+            import threading as _thr
+
+            saved_docs = []   # list of dicts: {file_name, file_path, text}
+            errors = []
+
+            for uf in uploaded_files:
+                if not uf or uf.filename == "":
+                    continue
+                fname = uf.filename
+                fdata = uf.read()
+                fsize = len(fdata)
+
+                if fsize == 0:
+                    errors.append(f"{fname}: empty file")
+                    continue
+
+                # Store in Supabase Storage
+                storage_path = f"uploads/{client_slug}/{notice_id}/{fname}"
+                _storage.upload_bytes(fdata, storage_path, uf.content_type or "application/octet-stream")
+
+                # Save metadata to DB
+                try:
+                    db.execute(
+                        "INSERT INTO package_documents "
+                        "(notice_id, client_slug, file_path, file_name, file_size) "
+                        "VALUES (%s, %s, %s, %s, %s)",
+                        (notice_id, client_slug, storage_path, fname, fsize),
+                    )
+                except Exception as _de:
+                    logger.warning("package_documents insert failed: %s", _de)
+
+                # Extract text
+                text = ""
+                try:
+                    import io
+                    ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+                    if ext == "pdf":
+                        import pdfplumber
+                        with pdfplumber.open(io.BytesIO(fdata)) as pdf:
+                            text = "\n\n".join(
+                                p.extract_text() or "" for p in pdf.pages
+                            ).strip()
+                    elif ext in ("docx", "doc"):
+                        import docx as _docx
+                        doc = _docx.Document(io.BytesIO(fdata))
+                        text = "\n\n".join(p.text for p in doc.paragraphs if p.text.strip())
+                    else:
+                        try:
+                            text = fdata.decode("utf-8", errors="replace")
+                        except Exception:
+                            pass
+                except Exception as _te:
+                    logger.warning("Text extraction failed for %s: %s", fname, _te)
+
+                saved_docs.append({"file_name": fname, "text": text, "file_path": storage_path})
+
+            if not saved_docs and errors:
+                msg = '<div class="al al-er">Upload failed: ' + "; ".join(errors) + '</div>'
+            elif saved_docs:
+                # Dispatch full analysis generation in background thread
+                client_org = request.form.get("client_org", "").strip() or notice_id
+
+                def _gen_full(docs, org, nid, c_email, c_slug, p_url):
+                    try:
+                        from pursuit_package import generate_pursuit_package, _artefact_dir
+                        import config as _cfg
+                        out_dir = _artefact_dir(org)
+                        generate_pursuit_package(
+                            notice_id=nid,
+                            client_name=org,
+                            output_dir=out_dir,
+                            preferred_sectors=[],
+                            extra_docs=docs,
+                            analysis_type="full",
+                        )
+                        if c_email:
+                            import mailer as _m
+                            row = db.fetchone("SELECT title FROM raw_notices WHERE notice_id=%s", (nid,))
+                            ntitle = (row or {}).get("title") or nid
+                            _m.send_pursuit_ready(
+                                client_name=org,
+                                client_email=c_email,
+                                notice_title=f"Full Analysis: {ntitle}",
+                                notice_id=nid,
+                                portal_url=p_url,
+                            )
+                    except Exception as exc:
+                        logger.exception("Full analysis generation failed notice=%s: %s", nid, exc)
+
+                portal_url = request.host_url.rstrip("/") + url_for("gw_pursuits")
+                _thr.Thread(
+                    target=_gen_full,
+                    args=(saved_docs, client_org, notice_id,
+                          current_user.email, client_slug, portal_url),
+                    daemon=True, name=f"full-{notice_id[:12]}",
+                ).start()
+
+                doc_names = ", ".join(d["file_name"] for d in saved_docs)
+                msg = (
+                    f'<div class="al al-ok">'
+                    f'<strong>{len(saved_docs)} document{"s" if len(saved_docs) != 1 else ""} uploaded</strong> '
+                    f'({doc_names}). Your Full Analysis is being generated — '
+                    f'you\'ll receive an email when it\'s ready. It will appear in your '
+                    f'<a href="{url_for("gw_pursuits")}" style="color:inherit;font-weight:700;">Pursuits library</a>.'
+                    f'</div>'
+                )
+
+    # Build upload page
+    gets_checklist = (
+        f'<ul style="margin:.75rem 0;padding-left:1.25rem;font-size:.83rem;line-height:1.8;">'
+        f'<li>Main RFP or RFT document (the primary procurement document)</li>'
+        f'<li>Any addenda or amendments issued after the original notice</li>'
+        f'<li>Supplier briefing presentation <span style="color:var(--muted);">(if applicable)</span></li>'
+        f'<li>Q&amp;A document or question log <span style="color:var(--muted);">(if available)</span></li>'
+        f'<li>Response form appendices or pricing schedules <span style="color:var(--muted);">(if published)</span></li>'
+        f'</ul>'
+    )
+
+    body = (
+        f'<div class="ptitle">Upgrade to Full Analysis</div>'
+        f'<div class="psub">'
+        f'Upload authenticated tender documents from GETS to generate a Full Analysis '
+        f'that incorporates the actual RFP scope, evaluation criteria, and requirements.'
+        f'</div>'
+        f'{msg}'
+        f'<div class="card" style="max-width:640px;">'
+        f'<div class="ch"><span class="ct">Upload Documents — {_safe(notice_title)}</span></div>'
+        f'<div class="cb">'
+        f'<div style="background:rgba(100,120,180,.1);border:1px solid rgba(100,120,180,.25);'
+        f'border-radius:6px;padding:.85rem 1rem;margin-bottom:1.25rem;font-size:.82rem;">'
+        f'<strong style="color:#8ab4f8;">What to retrieve from GETS:</strong>'
+        f'{gets_checklist}'
+        f'Go to <a href="https://www.gets.govt.nz" target="_blank" '
+        f'style="color:var(--gold);">gets.govt.nz</a>, find notice {_safe(notice_id)}, '
+        f'and download documents from the tender\'s Documents tab.'
+        f'</div>'
+        f'<form method="POST" enctype="multipart/form-data" id="upgrade-form">'
+        f'<input type="hidden" name="client_org" value="{_safe(current_user.name)}">'
+        f'<div class="fg">'
+        f'<label class="fl">Select documents to upload *</label>'
+        f'<div id="drop-zone" style="border:2px dashed var(--border);border-radius:8px;'
+        f'padding:2rem;text-align:center;cursor:pointer;transition:border-color .2s;'
+        f'background:var(--surf2);" '
+        f'onclick="document.getElementById(\'doc-input\').click()" '
+        f'ondragover="event.preventDefault();this.style.borderColor=\'#2a9d8f\'" '
+        f'ondragleave="this.style.borderColor=\'\'" '
+        f'ondrop="event.preventDefault();this.style.borderColor=\'\';'
+        f'handleDrop(event.dataTransfer.files)">'
+        f'<div style="font-size:2rem;margin-bottom:.5rem;">&#128196;</div>'
+        f'<div style="font-size:.87rem;color:var(--muted);">Drag and drop PDF or DOCX files here, or click to browse</div>'
+        f'<div id="file-list" style="margin-top:.75rem;font-size:.8rem;color:var(--text);"></div>'
+        f'</div>'
+        f'<input type="file" id="doc-input" name="docs" multiple accept=".pdf,.docx,.doc" '
+        f'style="display:none;" onchange="updateFileList(this.files)">'
+        f'<div class="fh">Accepted formats: PDF, DOCX. Maximum 10 files.</div>'
+        f'</div>'
+        f'<button type="submit" id="submit-btn" class="btn bg-gold" disabled '
+        f'style="opacity:.5;cursor:not-allowed;">'
+        f'Generate Full Analysis &rarr;</button>'
+        f'</form>'
+        f'</div></div>'
+        f'<script>'
+        f'function updateFileList(files){{'
+        f'  var list=document.getElementById("file-list");'
+        f'  var btn=document.getElementById("submit-btn");'
+        f'  if(!files||files.length===0){{list.textContent="";btn.disabled=true;btn.style.opacity=".5";btn.style.cursor="not-allowed";return;}}'
+        f'  var names=Array.from(files).map(function(f){{return f.name;}}).join(", ");'
+        f'  list.textContent=files.length+" file(s) selected: "+names;'
+        f'  btn.disabled=false;btn.style.opacity="1";btn.style.cursor="pointer";'
+        f'}}'
+        f'function handleDrop(files){{'
+        f'  var input=document.getElementById("doc-input");'
+        f'  var dt=new DataTransfer();'
+        f'  Array.from(files).forEach(function(f){{dt.items.add(f);}});'
+        f'  input.files=dt.files;'
+        f'  updateFileList(input.files);'
+        f'}}'
+        f'document.getElementById("doc-input").addEventListener("change",function(){{updateFileList(this.files);}});'
+        f'</script>'
+    )
+    return _page("Upgrade to Full Analysis — Groundwork", body, "pursuits")
 
 
 # ── Admin ─────────────────────────────────────────────────────────────────────

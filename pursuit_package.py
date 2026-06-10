@@ -405,6 +405,8 @@ DATA COMPLETENESS RULE: Where overview_text or other notice fields are absent or
 
 COMPETITIVE NARRATIVE RULE: Generate competitive_narrative first as a full analytical narrative. Then generate ach_table as a structured formalisation of the hypotheses you identified in the narrative. Every hypothesis in the ACH table must trace back to something mentioned in the narrative. Do not introduce new hypotheses in the table that weren't flagged in the narrative. The ACH table must be internally consistent with the narrative.
 
+AUTHENTICATED DOCUMENTS RULE: When an "=== AUTHENTICATED TENDER DOCUMENTS ===" section is present, treat it as the primary source of truth about the tender scope, evaluation criteria, timeline, and requirements. It supersedes any inferences from the public notice overview. Prioritise and synthesise the document content throughout your analysis — especially in the executive summary, evaluation cone, and recommended actions. Reference specific document content where it strengthens or changes the assessment. If the documents reveal information not present in the public notice (e.g. detailed evaluation weighting, mandatory site visits, specific technical requirements), highlight this in the analysis.
+
 Respond ONLY with a valid JSON object, no preamble, no markdown fences."""
 
 _PURSUIT_PROMPT = """Prepare a pursuit intelligence package for:
@@ -464,7 +466,7 @@ Most frequent supplier to {agency} in {sector}: {most_frequent_agency_supplier}
 
 === PATTERN FLAGS ===
 {flags_text}
-{agency_plan_intel}
+{agency_plan_intel}{authenticated_docs}
 Be specific — use the actual data provided above. Do not be generic. Tone: direct and analytical, written for a senior BD professional.
 
 Return a JSON object with EXACTLY these keys:
@@ -647,6 +649,25 @@ def _call_claude(context: dict) -> Optional[dict]:
             )
     e = context.get("enrichment", {})
 
+    # Authenticated tender documents block
+    extra_docs = context.get("extra_docs") or []
+    if extra_docs:
+        doc_parts = []
+        for doc in extra_docs:
+            doc_parts.append(
+                f"--- Document: {doc.get('file_name', 'Uploaded document')} ---\n"
+                f"{doc.get('text', '').strip()}"
+            )
+        authenticated_docs_block = (
+            "\n\n=== AUTHENTICATED TENDER DOCUMENTS ===\n"
+            "The following documents were uploaded directly from GETS by the client. "
+            "Treat this content as the primary source of truth about the tender.\n\n"
+            + "\n\n".join(doc_parts)
+            + "\n=== END AUTHENTICATED DOCUMENTS ===\n"
+        )
+    else:
+        authenticated_docs_block = ""
+
     prompt = _PURSUIT_PROMPT.format(
         client_name=context["client_name"],
         firm_profile_section=firm_profile_section,
@@ -690,6 +711,7 @@ def _call_claude(context: dict) -> Optional[dict]:
         national_avg_value=_fmt_value(nm.get("avg_value", 0)),
         national_top3_text=national_top3_text,
         most_frequent_agency_supplier=most_frequent_agency_supplier,
+        authenticated_docs=authenticated_docs_block,
     )
 
     try:
@@ -919,6 +941,8 @@ def _render_html(
     is_demo: bool = False,
     demo_watermark: str = "",
     win_pos: Optional[dict] = None,
+    analysis_type: str = "public",
+    extra_docs_names: Optional[list] = None,
 ) -> str:
     n = notice
     a = analysis
@@ -1018,6 +1042,57 @@ def _render_html(
             f'<strong>SAMPLE DOCUMENT</strong> — {_safe(demo_watermark)}'
             f'</div>'
         )
+
+    notice_id_for_upgrade = _safe(notice.get("notice_id", ""))
+    client_slug_for_upgrade = _slug(client_name)
+    if analysis_type == "full":
+        docs_list = ""
+        if extra_docs_names:
+            docs_list = "<ul style='margin:.5rem 0 0;padding-left:1.25rem;'>" + "".join(
+                f"<li style='font-size:.8rem;margin-bottom:.2rem;'>{_safe(d)}</li>"
+                for d in extra_docs_names
+            ) + "</ul>"
+        analysis_banner = (
+            f'<div style="background:rgba(42,157,143,.12);border:2px solid #2a9d8f;'
+            f'border-radius:8px;padding:1rem 1.5rem;margin-bottom:2rem;">'
+            f'<div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;">'
+            f'<span style="background:#2a9d8f;color:#fff;font-size:.65rem;font-weight:800;'
+            f'letter-spacing:.1em;text-transform:uppercase;padding:.25rem .65rem;border-radius:4px;">'
+            f'FULL ANALYSIS</span>'
+            f'<span style="font-size:.82rem;color:var(--text);">'
+            f'This analysis incorporates authenticated tender documents uploaded from GETS.</span>'
+            f'</div>'
+            f'{docs_list}'
+            f'</div>'
+        )
+    elif not is_demo:
+        upgrade_url = (
+            f'/groundwork/pursuits/upgrade?notice_id={notice_id_for_upgrade}'
+            f'&amp;client={client_slug_for_upgrade}'
+        )
+        analysis_banner = (
+            f'<div style="background:rgba(30,45,64,.5);border:1px solid var(--border);'
+            f'border-radius:8px;padding:1rem 1.5rem;margin-bottom:2rem;">'
+            f'<div style="display:flex;align-items:center;justify-content:space-between;'
+            f'flex-wrap:wrap;gap:1rem;">'
+            f'<div>'
+            f'<span style="background:rgba(100,120,180,.25);color:#8ab4f8;font-size:.65rem;'
+            f'font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:.25rem .65rem;'
+            f'border-radius:4px;margin-right:.6rem;">PUBLIC INTELLIGENCE ANALYSIS</span>'
+            f'<span style="font-size:.82rem;color:var(--muted);">'
+            f'Based on public notice data and historical award records. '
+            f'Authenticated tender documents (RFP, addenda, Q&amp;A, briefing materials) are not included.'
+            f'</span>'
+            f'</div>'
+            f'<a href="{upgrade_url}" style="display:inline-flex;align-items:center;gap:.4rem;'
+            f'background:#2a9d8f;color:#fff;font-size:.8rem;font-weight:700;padding:.5rem 1.1rem;'
+            f'border-radius:5px;text-decoration:none;white-space:nowrap;">'
+            f'Upgrade to Full Analysis &#8599;</a>'
+            f'</div>'
+            f'</div>'
+        )
+    else:
+        analysis_banner = ""
 
     ch = context.get("client_history", {})
     ag = context.get("agency_stats", {})
@@ -1184,6 +1259,7 @@ def _render_html(
   </div>
 
   {demo_banner}
+  {analysis_banner}
 
   <!-- Cover -->
   <div class="cover">
@@ -1388,6 +1464,8 @@ def generate_pursuit_package(
     demo_watermark: str = "",
     preferred_sectors: Optional[list[str]] = None,
     firm_profile: Optional[dict] = None,
+    extra_docs: Optional[list[dict]] = None,
+    analysis_type: str = "public",
 ) -> Path:
     """
     Generate a pursuit intelligence package for a given notice and client.
@@ -1395,6 +1473,9 @@ def generate_pursuit_package(
     firm_profile: dict with keys name/description/staff/location/strengths/years_operating/
                   key_clients/sector_focus. Used to give Claude accurate context about the
                   client so narrative reflects actual capabilities, not blank-slate assumptions.
+    extra_docs: list of dicts with 'file_name' and 'text' keys — authenticated tender documents
+                uploaded from GETS. When provided, analysis_type should be 'full'.
+    analysis_type: 'public' (default) or 'full' (when extra_docs are provided).
     Returns path to the generated HTML file.
     """
     logger.info("Generating pursuit package: notice=%s client=%s", notice_id, client_name)
@@ -1460,6 +1541,7 @@ def generate_pursuit_package(
         "mbie_citation": citation,
         "national_market": national_market,
         "agency_plan_signals": agency_plan_signals,
+        "extra_docs": extra_docs or [],
     }
 
     # 2. Call Claude
@@ -1515,16 +1597,19 @@ def generate_pursuit_package(
         _go_nogo_overridden = True
 
     # 3. Render HTML
+    extra_docs_names = [d.get("file_name", "") for d in (extra_docs or [])]
     html = _render_html(notice, analysis, context, client_name,
                         is_demo=is_demo, demo_watermark=demo_watermark,
-                        win_pos=win_pos)
+                        win_pos=win_pos, analysis_type=analysis_type,
+                        extra_docs_names=extra_docs_names)
 
     # 4. Save
     if output_dir is None:
         output_dir = _artefact_dir(client_name)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    filename = f"{notice_id}_pursuit_package.html"
+    suffix = "_full_analysis" if analysis_type == "full" else "_pursuit_package"
+    filename = f"{notice_id}{suffix}.html"
     out_path = output_dir / filename
     out_path.write_text(html, encoding="utf-8")
     logger.info("Pursuit package written to %s", out_path)
@@ -1535,8 +1620,9 @@ def generate_pursuit_package(
     storage_path = f"pursuits/{client_slug_val}/{filename}"
     if not _storage.upload_file(str(out_path), storage_path, "text/html"):
         logger.warning("Storage upload failed for %s", filename)
+    output_type = "pursuit_package_full" if analysis_type == "full" else "pursuit_package"
     _db.save_output(
-        "pursuit_package", date.today(), filename,
+        output_type, date.today(), filename,
         content=html, storage_path=storage_path,
         client_slug=client_slug_val, notice_id=notice_id,
     )
