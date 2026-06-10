@@ -20,7 +20,10 @@ Or directly if DATABASE_URL is in your shell:
 import json
 import re
 import sys
+import os
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(__file__))
 
 try:
     from bs4 import BeautifulSoup
@@ -29,6 +32,51 @@ except ImportError:
 
 ROOT = Path(__file__).parent
 MANIFEST_PATH = ROOT / "output" / "artefacts" / "demo" / "manifest.json"
+
+
+def _storage_download(storage_path: str) -> bytes | None:
+    """Download from Supabase Storage; returns None if unavailable."""
+    try:
+        import storage as _st
+        return _st.download_file(storage_path)
+    except Exception:
+        return None
+
+
+def _ensure_manifest() -> None:
+    """Download manifest.json from Storage if the local copy is missing."""
+    if MANIFEST_PATH.exists():
+        return
+    print("Local manifest not found — trying Supabase Storage...")
+    data = _storage_download("demo/manifest.json")
+    if data:
+        MANIFEST_PATH.parent.mkdir(parents=True, exist_ok=True)
+        MANIFEST_PATH.write_bytes(data)
+        print(f"  Downloaded manifest ({len(data)} bytes)")
+    else:
+        print("  Storage download also failed — no credentials or bucket empty")
+
+
+def _ensure_html(html_rel: str) -> Path | None:
+    """Return local path for an artefact, downloading from Storage if needed."""
+    local = ROOT / html_rel
+    if local.exists():
+        return local
+    # Storage path mirrors html_rel but rooted at demo/
+    # html_rel looks like:  output/artefacts/demo/<sector>/<file>.html
+    # Storage path:         demo/<sector>/<file>.html
+    try:
+        parts = Path(html_rel).parts
+        demo_idx = next(i for i, p in enumerate(parts) if p == "demo")
+        storage_path = "/".join(parts[demo_idx:])
+    except (StopIteration, ValueError):
+        return None
+    data = _storage_download(storage_path)
+    if data:
+        local.parent.mkdir(parents=True, exist_ok=True)
+        local.write_bytes(data)
+        return local
+    return None
 
 # Firm name → home sector. Used for cross-contamination checks.
 FIRM_SECTOR = {
@@ -256,6 +304,8 @@ def review_watch_brief(path: Path, sector: str) -> None:
 
 
 def main() -> None:
+    _ensure_manifest()
+
     if not MANIFEST_PATH.exists():
         sys.exit(f"ERROR: manifest not found at {MANIFEST_PATH}\n"
                  "Run generate_demo_content.py first, or check ARTEFACTS_DIR.")
@@ -286,7 +336,7 @@ def main() -> None:
         for item in items:
             item_type = item.get("type", "unknown")
             html_rel  = item.get("html_path", "")
-            html_path = ROOT / html_rel if html_rel else None
+            html_path = _ensure_html(html_rel) if html_rel else None
 
             if not html_path or not html_path.exists():
                 print(f"\n  ⚠ FILE MISSING: {html_rel or '(no path in manifest)'}")
