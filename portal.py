@@ -592,10 +592,9 @@ def _topnav(active: str = "", has_sidebar: bool = True) -> str:
     show_ham = current_user.is_authenticated and has_sidebar
     return (f'<nav class="nav">'
             f'{ham_btn if show_ham else ""}'
-            f'<div class="nav-brand">'
-            f'<div class="nav-brand-name">Groundwork <span class="by">by BidEdge</span></div>'
-            f'<div class="nav-brand-sub">Procurement Intelligence</div>'
-            f'</div>{user_html}</nav>')
+            f'<a href="/" style="display:flex;align-items:center;text-decoration:none;">'
+            f'<img src="/static/img/bidedge-nav.svg" alt="BidEdge" height="40" style="display:block;">'
+            f'</a>{user_html}</nav>')
 
 
 def _sidebar(active: str = "") -> str:
@@ -659,6 +658,8 @@ def _page(title: str, body: str, active: str = "",
             f'<meta charset="UTF-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1">'
             f'<title>{title} — Groundwork by BidEdge</title>'
+            f'<link rel="icon" type="image/svg+xml" href="/static/img/bidedge-mark.svg">'
+            f'<link rel="alternate icon" href="/static/img/bidedge-mark.svg">'
             f'{CSS}</head><body>'
             f'{ham}{nav}{wrap_open}{overlay}{side}{cont_open}{flashes}{body}'
             f'{cont_close}{wrap_close}</body></html>')

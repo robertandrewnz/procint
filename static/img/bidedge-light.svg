@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="180" viewBox="0 0 600 180">
+  <rect width="600" height="180" fill="#FFFFFF"/>
+  <path d="M40 58 Q60 50 80 54 Q100 58 120 52 L128 64 Q108 70 88 66 Q68 62 48 68 Z" fill="#1E2D40"/>
+  <path d="M44 78 Q64 70 84 74 Q104 78 124 72 L132 84 Q112 90 92 86 Q72 82 52 88 Z" fill="#2A9D8F"/>
+  <path d="M48 98 Q68 90 88 94 Q108 98 128 92 L136 104 Q116 110 96 106 Q76 102 56 108 Z" fill="#2A9D8F" opacity="0.5"/>
+  <text x="170" y="122" font-family="Inter,'Helvetica Neue',Arial,sans-serif" font-size="72" font-weight="700" letter-spacing="-1">
+    <tspan fill="#1E2D40">Bid</tspan><tspan fill="#2A9D8F">Edge</tspan>
+  </text>
+</svg>
