@@ -783,7 +783,16 @@ def about():
 .about-footer a:hover{{color:var(--text);}}
 </style>
 <div class="about-nav">
-  <a href="/" class="pub-brand" style="text-decoration:none;color:#fff;">BidEdge</a>
+  <a href="/" style="display:flex;align-items:center;text-decoration:none;">
+    <svg xmlns="http://www.w3.org/2000/svg" width="180" height="40" viewBox="0 0 220 48" style="display:block;">
+      <path d="M4 8 Q16 3 28 6 Q38 9 48 4 L48 13 Q38 18 28 15 Q16 12 4 17 Z" fill="#FFFFFF"/>
+      <path d="M4 22 Q16 17 28 20 Q38 23 48 18 L48 27 Q38 32 28 29 Q16 26 4 31 Z" fill="#2A9D8F"/>
+      <path d="M4 36 Q16 31 28 34 Q38 37 48 32 L48 41 Q38 46 28 43 Q16 40 4 45 Z" fill="#2A9D8F" opacity="0.5"/>
+      <text x="60" y="32" font-family="Inter,'Helvetica Neue',Arial,sans-serif" font-size="26" font-weight="700" letter-spacing="-0.4">
+        <tspan fill="#FFFFFF">Bid</tspan><tspan fill="#2A9D8F">Edge</tspan>
+      </text>
+    </svg>
+  </a>
   <a href="{url_for('groundwork_landing')}" style="font-size:.82rem;color:var(--muted);
      text-decoration:none;transition:color .12s;"
      onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">Groundwork</a>
@@ -884,7 +893,15 @@ def homepage():
         '}'
         '</style>'
         f'<nav class="pub-nav">'
-        f'<a href="/" class="pub-brand" style="flex-shrink:0;text-decoration:none;color:#fff;">BidEdge</a>'
+        '<a href="/" style="display:flex;align-items:center;text-decoration:none;flex-shrink:0;">'
+        '<svg xmlns="http://www.w3.org/2000/svg" width="180" height="40" viewBox="0 0 220 48" style="display:block;">'
+        '<path d="M4 8 Q16 3 28 6 Q38 9 48 4 L48 13 Q38 18 28 15 Q16 12 4 17 Z" fill="#FFFFFF"/>'
+        '<path d="M4 22 Q16 17 28 20 Q38 23 48 18 L48 27 Q38 32 28 29 Q16 26 4 31 Z" fill="#2A9D8F"/>'
+        '<path d="M4 36 Q16 31 28 34 Q38 37 48 32 L48 41 Q38 46 28 43 Q16 40 4 45 Z" fill="#2A9D8F" opacity="0.5"/>'
+        '<text x="60" y="32" font-family="Inter,\'Helvetica Neue\',Arial,sans-serif" font-size="26" font-weight="700" letter-spacing="-0.4">'
+        '<tspan fill="#FFFFFF">Bid</tspan><tspan fill="#2A9D8F">Edge</tspan>'
+        '</text></svg>'
+        '</a>'
         f'<a href="{url_for("groundwork_landing")}" class="pub-nav-link">Groundwork</a>'
         f'<a href="{url_for("demo")}" class="pub-nav-link">Demo</a>'
         f'<a href="{url_for("about")}" class="pub-nav-link">About</a>'
