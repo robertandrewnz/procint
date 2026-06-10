@@ -1971,13 +1971,16 @@ def demo():
   .demo-sc{padding:1.1rem 1rem;}.demo-sc-icon{font-size:1.5rem;}}
 </style>
 """
+    # Reverse map: sector key → clean slug (e.g. "FM" → "fm", "ICT" → "ict")
+    _key_to_slug = {v: k for k, v in _DEMO_SLUG_MAP.items()}
+
     sector_grid = ""
     for sk, meta in _DEMO_SECTOR_META.items():
         has_content = bool(sectors_data.get(sk, {}).get("items"))
         ready_badge = "" if has_content else (
             ' <span style="font-size:.65rem;color:var(--muted);font-weight:400;">(coming soon)</span>'
         )
-        sector_url = url_for("demo") + f"?sector={sk}"
+        sector_url = url_for("demo_sector", sector_slug=_key_to_slug.get(sk, sk.lower()))
         sector_grid += (
             f'<a href="{sector_url}" class="demo-sc">'
             f'<div class="demo-sc-icon">{meta["icon"]}</div>'
@@ -2139,6 +2142,27 @@ def demo_file(filepath: str):
         html = _re.sub(r"(<body[^>]*>)", r"\1" + banner, html, count=1)
 
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+# Sector slug → canonical sector key (for clean /demo/<slug> URLs)
+_DEMO_SLUG_MAP = {
+    "fm":             "FM",
+    "cybersecurity":  "cybersecurity",
+    "construction":   "construction",
+    "defence":        "defence",
+    "ict":            "ICT",
+    "infrastructure": "infrastructure",
+    "health":         "health",
+}
+
+
+@app.route("/demo/<sector_slug>")
+def demo_sector(sector_slug: str):
+    """Clean sector URLs: /demo/fm, /demo/ict, /demo/cybersecurity, etc."""
+    key = _DEMO_SLUG_MAP.get(sector_slug.lower())
+    if not key:
+        abort(404)
+    return redirect(url_for("demo") + f"?sector={key}", 302)
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -4673,11 +4697,11 @@ def admin_pipeline():
         f'{_trigger_btn("watch_brief", "📬 Generate Watch Briefs now", "bg-out")}'
         f'<form method="POST" style="display:inline;">'
         f'<input type="hidden" name="stage" value="demo_content">'
-        f'<input type="hidden" name="force" value="0">'
+        f'<input type="hidden" name="force" value="1">'
         f'<button class="btn bg-out" type="submit" '
-        f'onclick="if(!confirm(\'Generate demo content for all 7 sectors? Takes 5–10 mins.\')){{return false;}}'
+        f'onclick="if(!confirm(\'Regenerate ALL demo content for all 7 sectors? Overwrites existing artefacts. Takes 5–10 mins.\')){{return false;}}'
         f'this.textContent=\'Starting…\';this.disabled=true;">'
-        f'🎬 Generate Demo Content</button></form>'
+        f'🎬 Regenerate Demo Content</button></form>'
         f'</div>'
         f'<div style="padding:.75rem 1.25rem 1rem;font-size:.78rem;color:var(--muted);'
         f'line-height:1.6;">'
