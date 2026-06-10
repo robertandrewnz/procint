@@ -5675,12 +5675,12 @@ def admin_demo_review():
                 f'<td style="font-size:.78rem;color:{colour};padding:.3rem .6rem;line-height:1.55;">{value or "<em style=color:var(--muted)>—</em>"}</td>'
                 f'</tr>')
 
-    if not MANIFEST_PATH.exists():
+    manifest = _load_demo_manifest()
+    if not manifest:
         body = ('<div class="ptitle">Demo Review</div>'
                 '<div class="al al-er">Manifest not found — run Generate Demo Content first.</div>')
         return _page("Admin — Demo Review", body, "admin")
 
-    manifest = _json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     sectors  = manifest.get("sectors", {})
     generated = manifest.get("generated", "?")
 
@@ -5716,6 +5716,21 @@ def admin_demo_review():
             itype    = item.get("type", "?")
             html_rel = item.get("html_path", "")
             html_path = (ROOT / html_rel) if html_rel else None
+
+            if html_path and not html_path.exists():
+                # Try Supabase Storage fallback
+                try:
+                    import storage as _storage
+                    _parts = _Path(html_rel).parts
+                    _didx = next((i for i, p in enumerate(_parts) if p == "demo"), None)
+                    if _didx is not None:
+                        _sp = "/".join(_parts[_didx:])
+                        _data = _storage.download_file(_sp)
+                        if _data:
+                            html_path.parent.mkdir(parents=True, exist_ok=True)
+                            html_path.write_bytes(_data)
+                except Exception:
+                    pass
 
             if not html_path or not html_path.exists():
                 cards += f'<div class="al al-er">⚠ File missing: {html_rel or "(no path)"}</div>'
