@@ -479,6 +479,7 @@ def generate_sector_set(
 
         if html_dest.exists():
             _upload_to_storage(html_dest, f"demo/{sector_key}/{html_dest.name}")
+            _save_to_db(f"{sector_key}/{html_dest.name}", html_dest.read_text(encoding="utf-8"))
             items.append({
                 "type":       "pursuit_package",
                 "notice_id":  nid,
@@ -519,6 +520,7 @@ def generate_sector_set(
 
         if comp_dest.exists():
             _upload_to_storage(comp_dest, f"demo/{sector_key}/{comp_dest.name}")
+            _save_to_db(f"{sector_key}/{comp_dest.name}", comp_dest.read_text(encoding="utf-8"))
             items.append({
                 "type":            "competitor_profile",
                 "competitor_name": comp_name,
@@ -555,6 +557,7 @@ def generate_sector_set(
 
     if brief_dest.exists():
         _upload_to_storage(brief_dest, f"demo/{sector_key}/{brief_dest.name}")
+        _save_to_db(f"{sector_key}/{brief_dest.name}", brief_dest.read_text(encoding="utf-8"))
         items.append({
             "type":        "watch_brief",
             "sectors":     sector_key,
@@ -592,13 +595,30 @@ def _upload_to_storage(local_path: Path, storage_path: str, content_type: str = 
         logger.warning("Storage upload error for %s: %s", storage_path, exc)
 
 
+def _save_to_db(db_filename: str, content: str, output_type: str = "demo_html") -> None:
+    """Persist artefact content to pipeline_outputs (best-effort, silent on failure)."""
+    try:
+        db.execute(
+            """
+            INSERT INTO pipeline_outputs (output_type, run_date, filename, content)
+            VALUES (%s, CURRENT_DATE, %s, %s)
+            ON CONFLICT (output_type, run_date, filename)
+            DO UPDATE SET content = EXCLUDED.content, created_at = NOW()
+            """,
+            (output_type, db_filename, content),
+        )
+        logger.info("Saved to DB pipeline_outputs: %s / %s", output_type, db_filename)
+    except Exception as exc:
+        logger.warning("DB save failed for %s/%s: %s", output_type, db_filename, exc)
+
+
 def _write_manifest(manifest: dict) -> None:
     DEMO_DIR.mkdir(parents=True, exist_ok=True)
-    MANIFEST_PATH.write_text(
-        json.dumps(manifest, indent=2, default=str), encoding="utf-8"
-    )
+    text = json.dumps(manifest, indent=2, default=str)
+    MANIFEST_PATH.write_text(text, encoding="utf-8")
     logger.info("Manifest written: %s", MANIFEST_PATH)
     _upload_to_storage(MANIFEST_PATH, "demo/manifest.json", content_type="application/json")
+    _save_to_db("manifest.json", text, output_type="demo_manifest")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

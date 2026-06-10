@@ -1771,7 +1771,7 @@ def signup():
 
 
 def _load_demo_manifest() -> dict:
-    """Load the sector demo manifest; falls back to Supabase Storage if local file is absent."""
+    """Load the sector demo manifest; falls back to Storage then DB if local file is absent."""
     import json as _json
     from pathlib import Path as _Path
     mp = _Path(__file__).parent / "output" / "artefacts" / "demo" / "manifest.json"
@@ -1780,15 +1780,26 @@ def _load_demo_manifest() -> dict:
             return _json.loads(mp.read_text(encoding="utf-8"))
         except Exception:
             pass
-    # Local file absent (ephemeral container) — try Supabase Storage
+    # Try Supabase Storage
     try:
         import storage as _storage
         data = _storage.download_file("demo/manifest.json")
         if data:
-            # Cache locally so subsequent calls don't hit Storage
             mp.parent.mkdir(parents=True, exist_ok=True)
             mp.write_bytes(data)
             return _json.loads(data.decode("utf-8"))
+    except Exception:
+        pass
+    # Try database pipeline_outputs
+    try:
+        row = db.fetchone(
+            "SELECT content FROM pipeline_outputs WHERE output_type = 'demo_manifest' "
+            "ORDER BY run_date DESC, created_at DESC LIMIT 1"
+        )
+        if row and row.get("content"):
+            mp.parent.mkdir(parents=True, exist_ok=True)
+            mp.write_text(row["content"], encoding="utf-8")
+            return _json.loads(row["content"])
     except Exception:
         pass
     return {}
@@ -2004,7 +2015,7 @@ def demo_manifest_json():
             response=mp.read_text(encoding="utf-8"),
             status=200, mimetype="application/json"
         )
-    # Fallback to Supabase Storage
+    # Fallback 1: Supabase Storage
     try:
         import storage as _storage
         data = _storage.download_file("demo/manifest.json")
@@ -2013,6 +2024,19 @@ def demo_manifest_json():
             mp.write_bytes(data)
             return app.response_class(
                 response=data.decode("utf-8"),
+                status=200, mimetype="application/json"
+            )
+    except Exception:
+        pass
+    # Fallback 2: database pipeline_outputs
+    try:
+        row = db.fetchone(
+            "SELECT content FROM pipeline_outputs WHERE output_type = 'demo_manifest' "
+            "ORDER BY run_date DESC, created_at DESC LIMIT 1"
+        )
+        if row and row.get("content"):
+            return app.response_class(
+                response=row["content"],
                 status=200, mimetype="application/json"
             )
     except Exception:
@@ -2034,16 +2058,32 @@ def demo_file(filepath: str):
     except ValueError:
         abort(403)
     if not full.exists():
-        # Fallback to Supabase Storage
+        # Fallback 1: Supabase Storage
+        _loaded = False
         try:
             import storage as _storage
             data = _storage.download_file(f"demo/{filepath}")
             if data:
                 full.parent.mkdir(parents=True, exist_ok=True)
                 full.write_bytes(data)
-            else:
-                abort(404)
+                _loaded = True
         except Exception:
+            pass
+        # Fallback 2: database pipeline_outputs
+        if not _loaded:
+            try:
+                row = db.fetchone(
+                    "SELECT content FROM pipeline_outputs WHERE output_type = 'demo_html' "
+                    "AND filename = %s ORDER BY run_date DESC, created_at DESC LIMIT 1",
+                    (filepath,),
+                )
+                if row and row.get("content"):
+                    full.parent.mkdir(parents=True, exist_ok=True)
+                    full.write_text(row["content"], encoding="utf-8")
+                    _loaded = True
+            except Exception:
+                pass
+        if not _loaded:
             abort(404)
 
     # Read the HTML and inject the gold demo banner at the top of <body>
@@ -5724,7 +5764,8 @@ def admin_demo_review():
             html_path = (ROOT / html_rel) if html_rel else None
 
             if html_path and not html_path.exists():
-                # Try Supabase Storage fallback
+                # Fallback 1: Supabase Storage
+                _loaded = False
                 try:
                     import storage as _storage
                     _parts = _Path(html_rel).parts
@@ -5735,8 +5776,27 @@ def admin_demo_review():
                         if _data:
                             html_path.parent.mkdir(parents=True, exist_ok=True)
                             html_path.write_bytes(_data)
+                            _loaded = True
                 except Exception:
                     pass
+                # Fallback 2: database pipeline_outputs
+                if not _loaded:
+                    try:
+                        _parts2 = _Path(html_rel).parts
+                        _didx2 = next((i for i, p in enumerate(_parts2) if p == "demo"), None)
+                        if _didx2 is not None:
+                            _db_fn = "/".join(_parts2[_didx2 + 1:])
+                            _row = db.fetchone(
+                                "SELECT content FROM pipeline_outputs "
+                                "WHERE output_type = 'demo_html' AND filename = %s "
+                                "ORDER BY run_date DESC, created_at DESC LIMIT 1",
+                                (_db_fn,),
+                            )
+                            if _row and _row.get("content"):
+                                html_path.parent.mkdir(parents=True, exist_ok=True)
+                                html_path.write_text(_row["content"], encoding="utf-8")
+                    except Exception:
+                        pass
 
             if not html_path or not html_path.exists():
                 cards += f'<div class="al al-er">⚠ File missing: {html_rel or "(no path)"}</div>'
