@@ -4426,7 +4426,8 @@ def admin_pipeline():
     msg = ""
     if request.method == "POST":
         stage = request.form.get("stage", "")
-        if stage in ("layer1", "layer2", "watch_brief"):
+        _demo_force = request.form.get("force") == "1"
+        if stage in ("layer1", "layer2", "watch_brief", "demo_content"):
             import threading as _thr
 
             def _run_stage(s):
@@ -4441,31 +4442,37 @@ def admin_pipeline():
                 except Exception as _e:
                     logger.warning("pipeline_runs INSERT failed: %s", _e)
                 try:
-                    from scheduler_railway import _run_layer1, _run_layer2, _run_watch_brief
-                    result = {"layer1": _run_layer1, "layer2": _run_layer2,
-                              "watch_brief": _run_watch_brief}[s]()
-                    # For watch_brief, result is a stats dict — build a meaningful summary
-                    if s == "watch_brief" and isinstance(result, dict):
-                        if result.get("error"):
-                            summary = f"Error: {result['error'][:300]}"
-                            status = "failed"
-                        else:
-                            gen = result.get("generated", 0)
-                            sent = result.get("sent", 0)
-                            failed = result.get("failed", 0)
-                            skipped = result.get("skipped", 0)
-                            errs = result.get("errors", [])
-                            summary = (f"generated={gen} sent={sent} failed={failed} "
-                                       f"skipped={skipped}")
-                            if errs:
-                                summary += f" | {'; '.join(errs[:3])}"
-                            # Mark as failed if emails were attempted but all failed
-                            status = "complete" if sent > 0 else (
-                                "failed" if failed > 0 else "complete"
-                            )
-                    else:
-                        summary = f"{s} completed successfully"
+                    if s == "demo_content":
+                        from generate_demo_content import main as _gen_demo
+                        _gen_demo(force=_demo_force)
+                        summary = "demo content generated for all sectors"
                         status = "complete"
+                    else:
+                        from scheduler_railway import _run_layer1, _run_layer2, _run_watch_brief
+                        result = {"layer1": _run_layer1, "layer2": _run_layer2,
+                                  "watch_brief": _run_watch_brief}[s]()
+                        # For watch_brief, result is a stats dict — build a meaningful summary
+                        if s == "watch_brief" and isinstance(result, dict):
+                            if result.get("error"):
+                                summary = f"Error: {result['error'][:300]}"
+                                status = "failed"
+                            else:
+                                gen = result.get("generated", 0)
+                                sent = result.get("sent", 0)
+                                failed = result.get("failed", 0)
+                                skipped = result.get("skipped", 0)
+                                errs = result.get("errors", [])
+                                summary = (f"generated={gen} sent={sent} failed={failed} "
+                                           f"skipped={skipped}")
+                                if errs:
+                                    summary += f" | {'; '.join(errs[:3])}"
+                                # Mark as failed if emails were attempted but all failed
+                                status = "complete" if sent > 0 else (
+                                    "failed" if failed > 0 else "complete"
+                                )
+                        else:
+                            summary = f"{s} completed successfully"
+                            status = "complete"
                 except Exception as exc:
                     summary = str(exc)[:500]
                     status = "failed"
@@ -4482,7 +4489,8 @@ def admin_pipeline():
 
             t = _thr.Thread(target=_run_stage, args=(stage,), daemon=True)
             t.start()
-            labels = {"layer1": "Layer 1", "layer2": "Layer 2", "watch_brief": "Watch Briefs"}
+            labels = {"layer1": "Layer 1", "layer2": "Layer 2", "watch_brief": "Watch Briefs",
+                      "demo_content": "Demo Content"}
             msg = (f'<div class="al al-ok">{labels[stage]} started in background — '
                    f'check Railway logs or refresh this page in a minute.</div>')
 
@@ -4548,12 +4556,20 @@ def admin_pipeline():
         f'{_trigger_btn("layer1", "⚙ Run Layer 1 now")}'
         f'{_trigger_btn("layer2", "🛰 Run Layer 2 now", "bg-out")}'
         f'{_trigger_btn("watch_brief", "📬 Generate Watch Briefs now", "bg-out")}'
+        f'<form method="POST" style="display:inline;">'
+        f'<input type="hidden" name="stage" value="demo_content">'
+        f'<input type="hidden" name="force" value="0">'
+        f'<button class="btn bg-out" type="submit" '
+        f'onclick="if(!confirm(\'Generate demo content for all 7 sectors? Takes 5–10 mins.\')){{return false;}}'
+        f'this.textContent=\'Starting…\';this.disabled=true;">'
+        f'🎬 Generate Demo Content</button></form>'
         f'</div>'
         f'<div style="padding:.75rem 1.25rem 1rem;font-size:.78rem;color:var(--muted);'
         f'line-height:1.6;">'
         f'<strong>Layer 1</strong> — GETS ingest → parse → score → enrich → bidders → output<br>'
         f'<strong>Layer 2</strong> — Awards ingestion → org profiles → pattern detection → MI<br>'
-        f'<strong>Watch Briefs</strong> — Generate and email brief to all active clients'
+        f'<strong>Watch Briefs</strong> — Generate and email brief to all active clients<br>'
+        f'<strong>Demo Content</strong> — Generate 3 artefacts × 7 sectors for the public /demo page'
         f'</div></div>'
         f'<div class="card">'
         f'<div class="ch"><span class="ct">Recent Runs</span></div>'
