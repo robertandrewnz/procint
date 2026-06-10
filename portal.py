@@ -60,6 +60,53 @@ try:
 except Exception as _sched_err:
     logging.getLogger("portal").warning("Scheduler failed to start: %s", _sched_err)
 
+
+def _bootstrap_demos() -> None:
+    """
+    Generate demo artefacts on startup if none exist in the DB.
+    Runs once per process in a background thread so it never delays app startup.
+    Skipped if DISABLE_DEMO_BOOTSTRAP=1 is set.
+    """
+    import os as _os
+    if _os.getenv("DISABLE_DEMO_BOOTSTRAP", "").strip() == "1":
+        return
+    _log = logging.getLogger("portal.demo_bootstrap")
+    try:
+        row = db.fetchone(
+            "SELECT 1 FROM pipeline_outputs WHERE output_type = 'demo_manifest' LIMIT 1"
+        )
+        if row:
+            _log.info("Demo manifest already in DB — skipping bootstrap generation")
+            return
+    except Exception as _e:
+        _log.warning("Demo bootstrap DB check failed: %s — skipping", _e)
+        return
+
+    _log.info("No demo content found in DB — starting background demo generation")
+
+    import threading as _thr
+
+    def _run():
+        try:
+            from generate_demo_content import main as _gen_demo
+            stats = _gen_demo(force=False)
+            _log.info(
+                "Bootstrap demo generation complete: %d artefacts across %d sectors",
+                stats.get("total", 0), stats.get("sectors", 0),
+            )
+            if stats.get("total", 0) == 0:
+                _log.error(
+                    "Bootstrap produced 0 artefacts — check Railway logs for per-sector errors"
+                )
+        except Exception as _exc:
+            _log.exception("Bootstrap demo generation failed: %s", _exc)
+
+    t = _thr.Thread(target=_run, daemon=True, name="demo-bootstrap")
+    t.start()
+
+
+_bootstrap_demos()
+
 CONFIG_FILE = Path("portal_config.json")
 TOKENS_FILE = Path("data/share_tokens.json")
 ARTEFACTS   = Path(config.ARTEFACTS_DIR)
