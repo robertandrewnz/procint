@@ -4590,9 +4590,18 @@ def admin_pipeline():
                 try:
                     if s == "demo_content":
                         from generate_demo_content import main as _gen_demo
-                        _gen_demo(force=_demo_force)
-                        summary = "demo content generated for all sectors"
-                        status = "complete"
+                        stats = _gen_demo(force=_demo_force)
+                        total = stats.get("total", 0)
+                        by_sec = stats.get("by_sector", {})
+                        detail = " | ".join(
+                            f"{k}:{v}" for k, v in by_sec.items()
+                        )
+                        summary = f"{total} artefacts across {stats.get('sectors',0)} sectors — {detail}"
+                        status = "complete" if total > 0 else "failed"
+                        if total == 0:
+                            logger.error(
+                                "demo_content run produced 0 artefacts — check individual sector logs above"
+                            )
                     else:
                         from scheduler_railway import _run_layer1, _run_layer2, _run_watch_brief
                         result = {"layer1": _run_layer1, "layer2": _run_layer2,
@@ -4672,6 +4681,33 @@ def admin_pipeline():
             f'</tr>'
         )
 
+    # Demo DB diagnostic
+    try:
+        _demo_html_count = db.fetchone(
+            "SELECT COUNT(*) AS cnt FROM pipeline_outputs WHERE output_type = 'demo_html'"
+        ) or {}
+        _demo_manifest_row = db.fetchone(
+            "SELECT run_date, created_at FROM pipeline_outputs "
+            "WHERE output_type = 'demo_manifest' ORDER BY run_date DESC, created_at DESC LIMIT 1"
+        )
+    except Exception:
+        _demo_html_count = {}
+        _demo_manifest_row = None
+
+    _demo_html_n = _demo_html_count.get("cnt", "?")
+    if _demo_manifest_row:
+        _mdate = str(_demo_manifest_row.get("run_date", ""))
+        _mts   = str(_demo_manifest_row.get("created_at", ""))[:16]
+        _demo_db_info = (
+            f'<span style="color:#4ade80;">&#10003;</span> Manifest in DB (run_date={_mdate}, saved {_mts} UTC) — '
+            f'{_demo_html_n} demo_html artefacts stored'
+        )
+    else:
+        _demo_db_info = (
+            f'<span style="color:#f87171;">&#10007;</span> No manifest found in DB — '
+            f'generation has not yet completed successfully'
+        )
+
     import os as _os
     _resend_ok = bool(_os.getenv("RESEND_API_KEY", "").strip())
     _resend_warn = (
@@ -4716,6 +4752,11 @@ def admin_pipeline():
         f'<strong>Layer 2</strong> — Awards ingestion → org profiles → pattern detection → MI<br>'
         f'<strong>Watch Briefs</strong> — Generate and email brief to all active clients<br>'
         f'<strong>Demo Content</strong> — Generate 3 artefacts × 7 sectors for the public /demo page'
+        f'</div></div>'
+        f'<div class="card" style="margin-bottom:1.5rem;">'
+        f'<div class="ch"><span class="ct">Demo Content DB Status</span></div>'
+        f'<div class="cb" style="font-size:.82rem;padding:.85rem 1.25rem;">'
+        f'{_demo_db_info}'
         f'</div></div>'
         f'<div class="card">'
         f'<div class="ch"><span class="ct">Recent Runs</span></div>'

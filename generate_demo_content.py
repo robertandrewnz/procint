@@ -473,7 +473,7 @@ def generate_sector_set(
                     html_dest = result["html"]
                 logger.info("[%s] Pursuit package written: %s", sector_key, html_dest)
             except Exception as exc:
-                logger.error("[%s] Pursuit package failed: %s", sector_key, exc)
+                logger.error("[%s] Pursuit package failed: %s", sector_key, exc, exc_info=True)
         else:
             logger.info("[%s] Pursuit package already exists: %s", sector_key, html_dest)
 
@@ -514,7 +514,7 @@ def generate_sector_set(
                 comp_dest = comp_path
                 logger.info("[%s] Competitor profile written: %s", sector_key, comp_dest)
             except Exception as exc:
-                logger.error("[%s] Competitor profile failed: %s", sector_key, exc)
+                logger.error("[%s] Competitor profile failed: %s", sector_key, exc, exc_info=True)
         else:
             logger.info("[%s] Competitor profile already exists: %s", sector_key, comp_dest)
 
@@ -551,7 +551,7 @@ def generate_sector_set(
                 brief_dest = brief_path
             logger.info("[%s] Watch brief written: %s", sector_key, brief_dest)
         except Exception as exc:
-            logger.error("[%s] Watch brief failed: %s", sector_key, exc)
+            logger.error("[%s] Watch brief failed: %s", sector_key, exc, exc_info=True)
     else:
         logger.info("[%s] Watch brief already exists: %s", sector_key, brief_dest)
 
@@ -623,7 +623,11 @@ def _write_manifest(manifest: dict) -> None:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-def main(force: bool = False, only_sector: Optional[str] = None) -> None:
+def main(force: bool = False, only_sector: Optional[str] = None) -> dict:
+    """
+    Run demo content generation for all (or one) sector(s).
+    Returns a stats dict: {"total": int, "sectors": int, "by_sector": {key: count}}.
+    """
     DEMO_DIR.mkdir(parents=True, exist_ok=True)
 
     manifest = _load_manifest()
@@ -637,6 +641,7 @@ def main(force: bool = False, only_sector: Optional[str] = None) -> None:
         else DEMO_SECTORS
     )
 
+    by_sector: dict[str, int] = {}
     for sector_key, sector_def in sectors_to_run.items():
         logger.info("=== Sector: %s (%s) ===", sector_key, sector_def["firm"]["name"])
         items = generate_sector_set(sector_key, sector_def, force=force)
@@ -644,12 +649,14 @@ def main(force: bool = False, only_sector: Optional[str] = None) -> None:
             "firm":  sector_def["firm"],
             "items": items,
         }
+        by_sector[sector_key] = len(items)
         logger.info("[%s] %d artefacts generated", sector_key, len(items))
 
     _write_manifest(manifest)
 
-    total = sum(len(v["items"]) for v in manifest["sectors"].values())
-    logger.info("Done. %d total artefacts across %d sectors.", total, len(manifest["sectors"]))
+    total = sum(by_sector.values())
+    logger.info("Done. %d total artefacts across %d sectors.", total, len(sectors_to_run))
+    return {"total": total, "sectors": len(sectors_to_run), "by_sector": by_sector}
 
 
 if __name__ == "__main__":
