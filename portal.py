@@ -5590,6 +5590,211 @@ def _bootstrap():
     print(f"Created {CONFIG_FILE}")
 
 
+@app.route("/admin/demo-review")
+@login_required
+@admin_required
+def admin_demo_review():
+    """Admin: quality report for all generated demo artefacts."""
+    import json as _json
+    import re as _re
+    from pathlib import Path as _Path
+    from bs4 import BeautifulSoup as _BS
+
+    ROOT = _Path(__file__).parent
+    MANIFEST_PATH = ROOT / "output" / "artefacts" / "demo" / "manifest.json"
+
+    FIRM_SECTOR = {
+        "Sentinel Digital": "cybersecurity", "Cityworks NZ": "FM",
+        "Meridian Civil": "construction",    "Apex Engineering": "defence",
+        "Korepath Systems": "ICT",           "Southern Civil Group": "infrastructure",
+        "MedTech Solutions NZ": "health",
+    }
+    PLACEHOLDERS = ["lorem ipsum","placeholder","tbd","n/a","not available",
+                    "enrichment not available","none identified","no data",
+                    "coming soon","todo","[insert"]
+
+    def _t(el):
+        return _re.sub(r"\s+", " ", el.get_text(" ", strip=True)).strip() if el else ""
+
+    def _first(soup, *sels):
+        for s in sels:
+            el = soup.select_one(s)
+            if el:
+                t = _t(el)
+                if t: return t
+        return ""
+
+    def _is_ph(text):
+        low = (text or "").lower().strip()
+        if not low: return True
+        return any(p in low for p in PLACEHOLDERS)
+
+    def _badge(ok, msg):
+        c = "#4ade80" if ok else "#f87171"
+        return f'<span style="background:{c}22;color:{c};border:1px solid {c}55;border-radius:4px;font-size:.72rem;padding:.15rem .55rem;font-weight:700;">{msg}</span>'
+
+    def _row(label, value, warn=False):
+        colour = "var(--text)" if not warn else "#f87171"
+        return (f'<tr>'
+                f'<td style="font-size:.75rem;color:var(--muted);padding:.3rem .6rem;white-space:nowrap;vertical-align:top;">{label}</td>'
+                f'<td style="font-size:.78rem;color:{colour};padding:.3rem .6rem;line-height:1.55;">{value or "<em style=color:var(--muted)>—</em>"}</td>'
+                f'</tr>')
+
+    if not MANIFEST_PATH.exists():
+        body = ('<div class="ptitle">Demo Review</div>'
+                '<div class="al al-er">Manifest not found — run Generate Demo Content first.</div>')
+        return _page("Admin — Demo Review", body, "admin")
+
+    manifest = _json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    sectors  = manifest.get("sectors", {})
+    generated = manifest.get("generated", "?")
+
+    # Global cross-contamination scan
+    demo_dir = ROOT / "output" / "artefacts" / "demo"
+    all_html = list(demo_dir.rglob("*.html"))
+    global_warnings = []
+    for firm, home in FIRM_SECTOR.items():
+        for hf in all_html:
+            try:
+                file_sector = hf.relative_to(demo_dir).parts[0]
+            except Exception:
+                file_sector = "unknown"
+            if file_sector == home:
+                continue
+            if firm.lower() in hf.read_text(encoding="utf-8", errors="ignore").lower():
+                global_warnings.append(f"<strong>{firm}</strong> ({home}) found in <code>{file_sector}/{hf.name}</code>")
+
+    cross_html = ""
+    if global_warnings:
+        cross_html = ('<div class="al al-er" style="margin-bottom:1.5rem;"><strong>⚠ Cross-contamination detected:</strong><ul style="margin:.5rem 0 0 1.2rem;">'
+                      + "".join(f"<li>{w}</li>" for w in global_warnings) + "</ul></div>")
+    else:
+        cross_html = '<div class="al al-ok" style="margin-bottom:1.5rem;">✓ No cross-sector firm name contamination detected across all HTML files.</div>'
+
+    sections_html = ""
+    for sector_key, sdata in sectors.items():
+        firm  = sdata.get("firm", {})
+        items = sdata.get("items", [])
+
+        cards = ""
+        for item in items:
+            itype    = item.get("type", "?")
+            html_rel = item.get("html_path", "")
+            html_path = (ROOT / html_rel) if html_rel else None
+
+            if not html_path or not html_path.exists():
+                cards += f'<div class="al al-er">⚠ File missing: {html_rel or "(no path)"}</div>'
+                continue
+
+            size_kb  = html_path.stat().st_size / 1024
+            html_txt = html_path.read_text(encoding="utf-8")
+            soup     = _BS(html_txt, "lxml")
+            rows     = ""
+
+            size_badge = _badge(size_kb >= 10, f"{size_kb:.0f} KB")
+            if size_kb < 5:
+                rows += _row("⚠ File size", f"{size_kb:.1f} KB — suspiciously small", warn=True)
+
+            # Firm name contamination in this specific file
+            file_warnings = []
+            for other_firm, other_sector in FIRM_SECTOR.items():
+                if other_sector == sector_key:
+                    continue
+                if other_firm.lower() in html_txt.lower():
+                    file_warnings.append(f'⚠ "{other_firm}" ({other_sector}) in this file')
+            for w in file_warnings:
+                rows += _row("⚠ Contamination", w, warn=True)
+
+            type_icon = {"pursuit_package":"🎯","competitor_profile":"📊","watch_brief":"📬"}.get(itype,"📄")
+            card_title = f"{type_icon} {itype.replace('_',' ').title()}"
+
+            if itype == "pursuit_package":
+                title   = _first(soup, ".cover-title")
+                agency  = _first(soup, ".cover-agency")
+                wp      = _first(soup, ".prob-pct")
+                verdict = _first(soup, ".verdict-badge")
+                rat     = _first(soup, ".verdict-text")
+                exec_el = soup.select_one("#exec")
+                exec_t  = _t(exec_el)[:600] if exec_el else ""
+                cog_el  = soup.select_one("#cog")
+                hyps    = [_t(h)[:180] for h in (cog_el.select("td,li,p") if cog_el else []) if len(_t(h)) > 15][:5]
+                bid_el  = soup.select_one("#assessment") or soup.select_one("#competitive")
+                bids    = [_t(b)[:140] for b in (bid_el.select("tr") if bid_el else []) if len(_t(b)) > 5][:6]
+
+                rows += _row("Tender", title, warn=_is_ph(title))
+                rows += _row("Agency", agency, warn=_is_ph(agency))
+                rows += _row("Win position", wp, warn=_is_ph(wp))
+                rows += _row("Go/No-go", verdict, warn=_is_ph(verdict))
+                rows += _row("Rationale", rat[:300], warn=_is_ph(rat))
+                rows += _row("Exec summary", exec_t[:500] or "—", warn=_is_ph(exec_t))
+                rows += _row("ACH hypotheses", ("<ul style='margin:0;padding-left:1.2rem;'>"
+                             + "".join(f"<li>{h}</li>" for h in hyps) + "</ul>") if hyps else "—",
+                             warn=not hyps)
+                rows += _row("Bidders", ("<ul style='margin:0;padding-left:1.2rem;'>"
+                             + "".join(f"<li>{b}</li>" for b in bids) + "</ul>") if bids else "—",
+                             warn=not bids)
+
+            elif itype == "competitor_profile":
+                h1 = _first(soup, "h1",".cover-title",".ptitle",".comp-title")
+                paras = [_t(p) for p in soup.select("p,li") if len(_t(p)) > 60]
+                body_t = " | ".join(paras[:4])
+                tables = soup.select("table")
+                tbl_html = ""
+                for tbl in tables[:2]:
+                    tbl_html += "<table style='border-collapse:collapse;font-size:.74rem;margin-bottom:.5rem;'>"
+                    for tr in tbl.select("tr")[:5]:
+                        tbl_html += "<tr>" + "".join(
+                            f"<td style='border:1px solid var(--border);padding:.2rem .4rem;'>{_t(td)[:80]}</td>"
+                            for td in tr.select("td,th")) + "</tr>"
+                    tbl_html += "</table>"
+
+                rows += _row("Competitor", h1, warn=_is_ph(h1))
+                rows += _row("Body excerpt", body_t[:500] or "—", warn=_is_ph(body_t))
+                rows += _row("Tables", tbl_html or "—")
+
+            elif itype == "watch_brief":
+                t_h1 = _first(soup, "h1",".brief-title",".ptitle")
+                opps = [_t(o)[:120] for o in soup.select("h3,h4,.opp-title,.notice-title") if len(_t(o)) > 10][:6]
+                paras = [_t(p) for p in soup.select("p") if len(_t(p)) > 60]
+                body_t = " | ".join(paras[:3])
+
+                rows += _row("Title", t_h1, warn=_is_ph(t_h1))
+                rows += _row("Opportunities", ("<ul style='margin:0;padding-left:1.2rem;'>"
+                             + "".join(f"<li>{o}</li>" for o in opps) + "</ul>") if opps else "—",
+                             warn=not opps)
+                rows += _row("Body excerpt", body_t[:500] or "—", warn=_is_ph(body_t))
+
+            view_url = url_for("demo_file", filepath=html_rel.replace("output/artefacts/demo/",""))
+            cards += (f'<div class="card" style="margin-bottom:1rem;">'
+                      f'<div class="ch"><span class="ct">{card_title}</span>'
+                      f'{size_badge}'
+                      f'<a href="{view_url}" target="_blank" class="btn bg-out sm" style="margin-left:auto;">View →</a>'
+                      f'</div>'
+                      f'<div style="overflow-x:auto;">'
+                      f'<table style="width:100%;border-collapse:collapse;">{rows}</table>'
+                      f'</div></div>')
+
+        sections_html += (
+            f'<div class="card" style="margin-bottom:2rem;">'
+            f'<div class="ch"><span class="ct">{sector_key.upper()} — {firm.get("name","?")} '
+            f'<span style="font-weight:400;font-size:.8rem;color:var(--muted);">'
+            f'{firm.get("staff","?")} staff · {firm.get("location","?")} · {firm.get("years_operating","?")} yrs</span></span>'
+            f'<span style="font-size:.75rem;color:var(--muted);">{len(items)} artefact(s)</span>'
+            f'</div>'
+            f'<div class="cb">{cards or "<p style=color:var(--muted);>No artefacts generated.</p>"}</div>'
+            f'</div>'
+        )
+
+    body = (
+        f'<div class="ptitle">Demo Artefact Review</div>'
+        f'<div class="psub">Generated: {generated} &nbsp;·&nbsp; {len(sectors)} sectors &nbsp;·&nbsp; '
+        f'{len(all_html)} HTML files</div>'
+        f'{cross_html}'
+        f'{sections_html}'
+    )
+    return _page("Admin — Demo Review", body, "admin")
+
+
 @app.route("/admin/storage-check")
 @login_required
 @admin_required
