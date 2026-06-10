@@ -126,7 +126,19 @@ notice_row = {
 }
 
 _store_notice(notice_row)
-logger.info("Stored notice %s to raw_notices.", TARGET_NOTICE_ID)
+# Force-write overview_text via UPDATE regardless of whether the INSERT or ON CONFLICT
+# path ran — the DELETE may have been blocked by an FK from another table (e.g.
+# bidder_pool), leaving an old NULL row that DO NOTHING won't overwrite.
+db.execute(
+    """
+    UPDATE raw_notices
+       SET overview_text = %s,
+           description   = %s
+     WHERE notice_id = %s
+    """,
+    (overview, overview, TARGET_NOTICE_ID),
+)
+logger.info("Stored/updated notice %s in raw_notices.", TARGET_NOTICE_ID)
 
 stored = db.fetchone(
     "SELECT notice_id, title, (overview_text IS NOT NULL AND overview_text != '') AS has_overview FROM raw_notices WHERE notice_id = %s",
@@ -138,7 +150,9 @@ if not stored:
 logger.info("DB CONFIRMED: notice_id=%s  has_overview=%s  title=%s",
     stored["notice_id"], stored["has_overview"], stored["title"])
 if not stored["has_overview"]:
-    logger.warning("WARN: overview_text is NULL in DB — cannot validate key date extraction")
+    logger.error("FAIL: overview_text is still NULL in DB after explicit UPDATE — check db.execute")
+    logger.info("overview extracted by script (len=%s): %s", len(overview) if overview else 0, repr(overview[:200] if overview else ""))
+    sys.exit(1)
 
 # ── Step 3: Parse the notice ──────────────────────────────────────────────────
 
@@ -174,13 +188,13 @@ if key_dates["briefing_date"] == expected_briefing:
     logger.info("PASS: briefing_date correctly resolved to %s", expected_briefing)
 else:
     logger.warning(
-        "WARN: briefing_date=%s (expected %s) — check regex patterns or overview_text content",
+        "WARN: briefing_date=%s (expected %s)",
         key_dates["briefing_date"], expected_briefing,
     )
     if ov:
-        # Show lines that contain "brief" or a date pattern to help diagnose
-        relevant = [ln for ln in ov.splitlines() if re.search(r"brief|25 may|25/05", ln, re.IGNORECASE)]
-        logger.info("  Relevant lines from overview_text:\n    %s", "\n    ".join(relevant[:10]))
+        logger.info("--- Full overview_text for diagnosis ---\n%s\n---", ov)
+    else:
+        logger.warning("overview_text is empty — briefing date cannot be extracted from no content")
 
 parsed = {
     "notice_id":             TARGET_NOTICE_ID,

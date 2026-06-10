@@ -705,32 +705,63 @@ def _call_claude(context: dict) -> Optional[dict]:
             if raw.startswith("json"):
                 raw = raw[4:]
             raw = raw.strip()
-        # Attempt direct parse first
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError as jerr:
-            # If JSON is truncated (hit max_tokens), attempt to close it
-            logger.warning("JSON parse failed (%s) — attempting truncation recovery", jerr)
-            fixed = raw
-            # Count open braces/brackets and close them
-            opens = fixed.count("{") - fixed.count("}")
-            arr_opens = fixed.count("[") - fixed.count("]")
-            # Walk back to last clean value end (comma or closing char)
-            # Simple heuristic: truncate at last comma + close open structures
-            last_comma = max(fixed.rfind(","), fixed.rfind('"'))
-            if last_comma > 0:
-                fixed = fixed[:last_comma]
-            for _ in range(arr_opens):
-                fixed += "]"
-            for _ in range(opens):
-                fixed += "}"
+
+        def _try_parse(text: str) -> Optional[dict]:
             try:
-                result = json.loads(fixed)
-                logger.info("Truncation recovery succeeded")
-                return result
-            except Exception:
-                logger.error("Claude synthesis failed: original=%s", jerr)
+                return json.loads(text)
+            except json.JSONDecodeError:
                 return None
+
+        result = _try_parse(raw)
+        if result:
+            return result
+
+        # Recovery pass 1: close truncated structures
+        logger.warning("JSON parse failed — attempting recovery")
+        fixed = raw
+        opens = fixed.count("{") - fixed.count("}")
+        arr_opens = fixed.count("[") - fixed.count("]")
+        last_clean = max(fixed.rfind(","), fixed.rfind('"'))
+        if last_clean > 0:
+            fixed = fixed[:last_clean]
+        for _ in range(arr_opens):
+            fixed += "]"
+        for _ in range(opens):
+            fixed += "}"
+        result = _try_parse(fixed)
+        if result:
+            logger.info("Truncation recovery succeeded")
+            return result
+
+        # Recovery pass 2: ask Claude to emit only the JSON
+        logger.warning("Truncation recovery failed — retrying Claude with JSON-only instruction")
+        retry_msg = client.messages.create(
+            model=config.CLAUDE_MODEL_L3,
+            max_tokens=config.CLAUDE_MAX_TOKENS_L3,
+            system=_PURSUIT_SYSTEM,
+            messages=[
+                {"role": "user", "content": prompt},
+                {"role": "assistant", "content": raw},
+                {"role": "user", "content": (
+                    "Your previous response contained invalid JSON. "
+                    "Return ONLY a valid JSON object — no preamble, no markdown, "
+                    "no commentary. Start with { and end with }."
+                )},
+            ],
+        )
+        retry_raw = retry_msg.content[0].text.strip()
+        if retry_raw.startswith("```"):
+            retry_raw = retry_raw.split("```")[1]
+            if retry_raw.startswith("json"):
+                retry_raw = retry_raw[4:]
+            retry_raw = retry_raw.strip()
+        result = _try_parse(retry_raw)
+        if result:
+            logger.info("JSON retry recovery succeeded")
+            return result
+
+        logger.error("Claude synthesis failed after retry — response: %s", raw[:200])
+        return None
     except Exception as exc:
         logger.error("Claude synthesis failed: %s", exc)
         return None
