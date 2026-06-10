@@ -1288,7 +1288,7 @@ def groundwork_landing():
         <span class="amount" id="watch-price">$4,900</span>
         <span class="period" id="watch-period">/yr</span>
       </div>
-      <div class="ptier-price-sub" id="watch-sub">billed annually &mdash; save $996</div>
+      <div class="ptier-price-sub" id="watch-sub">billed annually &mdash; 2 months free</div>
       <div class="ptier-desc">Daily intelligence on active GETS tenders,
         scored and ranked for your sectors.</div>
       <ul>
@@ -1305,13 +1305,13 @@ def groundwork_landing():
     <!-- Pursue (featured) -->
     <div class="ptier pop">
       <div class="ptier-pop-lbl">Most popular</div>
-      <div class="ptier-lbl">Most popular</div>
+      <div class="ptier-lbl">Best value</div>
       <div class="ptier-name">Pursue</div>
       <div class="ptier-price">
         <span class="amount" id="pursue-price">$9,900</span>
         <span class="period" id="pursue-period">/yr</span>
       </div>
-      <div class="ptier-price-sub" id="pursue-sub">billed annually &mdash; save $1,000</div>
+      <div class="ptier-price-sub" id="pursue-sub">billed annually &mdash; 2 months free</div>
       <div class="ptier-desc">Everything in Watch, plus AI-powered pursuit
         intelligence for every opportunity you target.</div>
       <ul>
@@ -1353,12 +1353,12 @@ def groundwork_landing():
 function toggleBilling(cb) {{
   var annual = cb.checked;
   // Prices
-  document.getElementById('watch-price').textContent   = annual ? '$4,900' : '$408';
+  document.getElementById('watch-price').textContent   = annual ? '$4,900' : '$490';
   document.getElementById('watch-period').textContent  = annual ? '/yr'    : '/mo';
-  document.getElementById('watch-sub').innerHTML       = annual ? 'billed annually &mdash; save $996' : 'billed monthly';
-  document.getElementById('pursue-price').textContent  = annual ? '$9,900' : '$825';
+  document.getElementById('watch-sub').innerHTML       = annual ? 'billed annually &mdash; 2 months free' : 'billed monthly';
+  document.getElementById('pursue-price').textContent  = annual ? '$9,900' : '$990';
   document.getElementById('pursue-period').textContent = annual ? '/yr'    : '/mo';
-  document.getElementById('pursue-sub').innerHTML      = annual ? 'billed annually &mdash; save $1,000' : 'billed monthly';
+  document.getElementById('pursue-sub').innerHTML      = annual ? 'billed annually &mdash; 2 months free' : 'billed monthly';
   // Toggle labels
   document.getElementById('lbl-mo').style.color  = annual ? 'var(--muted)' : 'var(--text)';
   document.getElementById('lbl-mo').style.fontWeight = annual ? '400' : '600';
@@ -1693,7 +1693,7 @@ def signup():
             f'font-size:.9rem;padding:.7rem 1.5rem;">Send enquiry &rarr;</button>'
         )
     else:
-        billing_note = "$4,900/yr (or $408/mo)" if plan == "watch" else "$9,900/yr (or $825/mo)"
+        billing_note = "$4,900/yr (or $490/mo)" if plan == "watch" else "$9,900/yr (or $990/mo)"
         form_fields = (
             f'<div class="fg"><label class="fl">Full name *</label>'
             f'<input name="name" type="text" class="fc2" placeholder="Jane Smith" required></div>'
