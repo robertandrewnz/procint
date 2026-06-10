@@ -942,10 +942,11 @@ def terrain_landing():
     error = ""
 
     if request.method == "POST":
-        name  = request.form.get("name", "").strip()
-        org   = request.form.get("org", "").strip()
-        email = request.form.get("email", "").strip()
-        role  = request.form.get("role", "").strip()
+        name    = request.form.get("name", "").strip()
+        org     = request.form.get("org", "").strip()
+        email   = request.form.get("email", "").strip()
+        role    = request.form.get("role", "").strip()
+        context = request.form.get("context", "").strip()
 
         if not (name and email):
             error = "Please provide your name and email address."
@@ -953,9 +954,9 @@ def terrain_landing():
             try:
                 db.execute(
                     """INSERT INTO leads
-                           (name, organisation, role, email, plan, source, status)
-                       VALUES (%s, %s, %s, %s, 'terrain', 'terrain_form', 'enquiry')""",
-                    (name, org, role, email),
+                           (name, organisation, role, email, plan, source, status, notes)
+                       VALUES (%s, %s, %s, %s, 'terrain', 'terrain_form', 'enquiry', %s)""",
+                    (name, org, role, email, context or None),
                 )
                 logger.info("Terrain lead saved: %s <%s>", name, email)
             except Exception as exc:
@@ -968,7 +969,7 @@ def terrain_landing():
                 import time as _time
                 existing.append({"ts": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
                                   "source": "terrain_form", "name": name, "org": org,
-                                  "email": email, "role": role})
+                                  "email": email, "role": role, "context": context})
                 signups_path.write_text(_json.dumps(existing, indent=2))
             return redirect(url_for("terrain_landing") + "?sent=1")
 
@@ -992,6 +993,8 @@ def terrain_landing():
         f'<input name="email" type="email" class="fc2" placeholder="jane@example.com" required></div>'
         f'<div class="fg"><label class="fl">Your role <span style="color:var(--muted);font-weight:400;">(optional)</span></label>'
         f'<input name="role" type="text" class="fc2" placeholder="e.g. Property Manager, Director"></div>'
+        f'<div class="fg"><label class="fl">Tell us about your market focus <span style="color:var(--muted);font-weight:400;">(optional)</span></label>'
+        f'<textarea name="context" class="fc2" rows="3" placeholder="Which sector, segment, or client type are you assessing? What decision is this scan informing?"></textarea></div>'
         f'<button type="submit" class="btn bg-gold" style="width:100%;justify-content:center;'
         f'font-size:.9rem;padding:.7rem 1.5rem;">Request a scan &rarr;</button>'
         f'<p style="font-size:.75rem;color:var(--muted);text-align:center;margin-top:1rem;">'
