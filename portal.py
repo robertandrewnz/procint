@@ -1764,7 +1764,7 @@ def signup():
 
 
 def _load_demo_manifest() -> dict:
-    """Load the sector demo manifest; returns {} on missing/error."""
+    """Load the sector demo manifest; falls back to Supabase Storage if local file is absent."""
     import json as _json
     from pathlib import Path as _Path
     mp = _Path(__file__).parent / "output" / "artefacts" / "demo" / "manifest.json"
@@ -1773,6 +1773,17 @@ def _load_demo_manifest() -> dict:
             return _json.loads(mp.read_text(encoding="utf-8"))
         except Exception:
             pass
+    # Local file absent (ephemeral container) — try Supabase Storage
+    try:
+        import storage as _storage
+        data = _storage.download_file("demo/manifest.json")
+        if data:
+            # Cache locally so subsequent calls don't hit Storage
+            mp.parent.mkdir(parents=True, exist_ok=True)
+            mp.write_bytes(data)
+            return _json.loads(data.decode("utf-8"))
+    except Exception:
+        pass
     return {}
 
 
@@ -1981,14 +1992,27 @@ def demo_manifest_json():
     from pathlib import Path as _Path
     import json as _json
     mp = _Path(__file__).parent / "output" / "artefacts" / "demo" / "manifest.json"
-    if not mp.exists():
+    if mp.exists():
         return app.response_class(
-            response=_json.dumps({"error": "manifest not found"}),
-            status=404, mimetype="application/json"
+            response=mp.read_text(encoding="utf-8"),
+            status=200, mimetype="application/json"
         )
+    # Fallback to Supabase Storage
+    try:
+        import storage as _storage
+        data = _storage.download_file("demo/manifest.json")
+        if data:
+            mp.parent.mkdir(parents=True, exist_ok=True)
+            mp.write_bytes(data)
+            return app.response_class(
+                response=data.decode("utf-8"),
+                status=200, mimetype="application/json"
+            )
+    except Exception:
+        pass
     return app.response_class(
-        response=mp.read_text(encoding="utf-8"),
-        status=200, mimetype="application/json"
+        response=_json.dumps({"error": "manifest not found"}),
+        status=404, mimetype="application/json"
     )
 
 
@@ -2003,7 +2027,17 @@ def demo_file(filepath: str):
     except ValueError:
         abort(403)
     if not full.exists():
-        abort(404)
+        # Fallback to Supabase Storage
+        try:
+            import storage as _storage
+            data = _storage.download_file(f"demo/{filepath}")
+            if data:
+                full.parent.mkdir(parents=True, exist_ok=True)
+                full.write_bytes(data)
+            else:
+                abort(404)
+        except Exception:
+            abort(404)
 
     # Read the HTML and inject the gold demo banner at the top of <body>
     html = full.read_text(encoding="utf-8")

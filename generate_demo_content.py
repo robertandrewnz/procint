@@ -478,6 +478,7 @@ def generate_sector_set(
             logger.info("[%s] Pursuit package already exists: %s", sector_key, html_dest)
 
         if html_dest.exists():
+            _upload_to_storage(html_dest, f"demo/{sector_key}/{html_dest.name}")
             items.append({
                 "type":       "pursuit_package",
                 "notice_id":  nid,
@@ -517,6 +518,7 @@ def generate_sector_set(
             logger.info("[%s] Competitor profile already exists: %s", sector_key, comp_dest)
 
         if comp_dest.exists():
+            _upload_to_storage(comp_dest, f"demo/{sector_key}/{comp_dest.name}")
             items.append({
                 "type":            "competitor_profile",
                 "competitor_name": comp_name,
@@ -552,6 +554,7 @@ def generate_sector_set(
         logger.info("[%s] Watch brief already exists: %s", sector_key, brief_dest)
 
     if brief_dest.exists():
+        _upload_to_storage(brief_dest, f"demo/{sector_key}/{brief_dest.name}")
         items.append({
             "type":        "watch_brief",
             "sectors":     sector_key,
@@ -576,12 +579,26 @@ def _load_manifest() -> dict:
     return {"generated": date.today().isoformat(), "sectors": {}}
 
 
+def _upload_to_storage(local_path: Path, storage_path: str, content_type: str = "text/html") -> None:
+    """Upload a file to Supabase Storage (best-effort, silent on failure)."""
+    try:
+        import storage as _storage
+        result = _storage.upload_file(str(local_path), storage_path, content_type=content_type)
+        if result:
+            logger.info("Uploaded to Storage: %s", storage_path)
+        else:
+            logger.debug("Storage upload skipped/failed for %s (no credentials?)", storage_path)
+    except Exception as exc:
+        logger.warning("Storage upload error for %s: %s", storage_path, exc)
+
+
 def _write_manifest(manifest: dict) -> None:
     DEMO_DIR.mkdir(parents=True, exist_ok=True)
     MANIFEST_PATH.write_text(
         json.dumps(manifest, indent=2, default=str), encoding="utf-8"
     )
     logger.info("Manifest written: %s", MANIFEST_PATH)
+    _upload_to_storage(MANIFEST_PATH, "demo/manifest.json", content_type="application/json")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
