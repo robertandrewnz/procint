@@ -25,7 +25,7 @@ import fcntl
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 logger = logging.getLogger("scheduler_railway")
@@ -127,7 +127,18 @@ def _run_layer1() -> None:
     logger.info("=" * 60)
     notice_count = 0
     pipeline_ok = False
+    run_id = None
     try:
+        import db
+        try:
+            row = db.fetchone(
+                "INSERT INTO pipeline_runs (stage, triggered_by, status) "
+                "VALUES ('layer1', 'scheduler', 'running') RETURNING id",
+            )
+            run_id = row["id"] if row else None
+        except Exception as _e:
+            logger.warning("SCHEDULER: pipeline_runs INSERT failed: %s", _e)
+
         import ingestion
         import parsing
         import scoring
@@ -148,19 +159,15 @@ def _run_layer1() -> None:
             try:
                 result = fn()
                 logger.info("SCHEDULER L1: %s complete — %s", name, result)
-                # Try to read notice count from scoring/output result
                 if name == "Output" and isinstance(result, (int, float)):
                     notice_count = int(result)
             except Exception as exc:
                 logger.exception("SCHEDULER L1: %s FAILED — %s", name, exc)
-                # Continue remaining steps rather than aborting the whole run
 
         pipeline_ok = True
 
-        # Attempt to get notice count from DB if not returned by output step
         if notice_count == 0:
             try:
-                import db
                 from datetime import date
                 row = db.fetchone(
                     "SELECT COUNT(*) AS n FROM parsed_notices WHERE date_parsed::date = %s",
@@ -183,8 +190,17 @@ def _run_layer1() -> None:
     finally:
         logger.info("SCHEDULER: Layer 1 pipeline finished at %s — notices=%d",
                     datetime.utcnow().isoformat(), notice_count)
+        if run_id is not None:
+            try:
+                import db as _db
+                _db.execute(
+                    "UPDATE pipeline_runs SET status=%s, summary=%s, finished_at=NOW() WHERE id=%s",
+                    ("complete" if pipeline_ok else "failed",
+                     f"{notice_count} notices processed", run_id),
+                )
+            except Exception as _e:
+                logger.warning("SCHEDULER: pipeline_runs UPDATE failed: %s", _e)
 
-    # Send watchlist-ready emails to all active clients (non-blocking)
     if pipeline_ok:
         try:
             _notify_watchlist_ready(notice_count)
@@ -372,3 +388,50 @@ def start_scheduler() -> None:
     logger.info("SCHEDULER: APScheduler started — %d jobs registered:", len(scheduler.get_jobs()))
     for job in scheduler.get_jobs():
         logger.info("  • %s  next run: %s", job.name, job.next_run_time)
+
+    # ── Startup catch-up check ────────────────────────────────────────────────
+    # If Railway redeployed after the 06:00 NZT window, Layer 1 was missed.
+    # Query pipeline_runs for the last successful Layer 1 run; if it's more
+    # than 20 hours ago (or no record exists), fire Layer 1 immediately as a
+    # one-off date job scheduled 30 seconds from now (gives Flask time to bind).
+    _CATCHUP_THRESHOLD_HOURS = 20
+
+    try:
+        import db
+        row = db.fetchone(
+            """
+            SELECT finished_at
+            FROM   pipeline_runs
+            WHERE  stage  = 'layer1'
+              AND  status = 'complete'
+            ORDER  BY finished_at DESC
+            LIMIT  1
+            """
+        )
+        now_utc = datetime.utcnow()
+        if row and row.get("finished_at"):
+            last_run = row["finished_at"].replace(tzinfo=None)  # strip tz for comparison
+            hours_since = (now_utc - last_run).total_seconds() / 3600
+            needs_catchup = hours_since > _CATCHUP_THRESHOLD_HOURS
+            logger.info(
+                "SCHEDULER: Last successful Layer 1 was %.1f hours ago — catchup needed: %s",
+                hours_since, needs_catchup,
+            )
+        else:
+            needs_catchup = True
+            logger.info("SCHEDULER: No completed Layer 1 run found in pipeline_runs — scheduling catchup")
+
+        if needs_catchup:
+            from apscheduler.triggers.date import DateTrigger
+            catchup_time = now_utc + timedelta(seconds=30)
+            scheduler.add_job(
+                _run_layer1,
+                DateTrigger(run_date=catchup_time, timezone="UTC"),
+                id="layer1_catchup",
+                name="Layer 1 — startup catchup",
+                max_instances=1,
+            )
+            logger.info("SCHEDULER: Layer 1 catchup job scheduled for %s UTC", catchup_time.isoformat())
+
+    except Exception as exc:
+        logger.warning("SCHEDULER: Startup catchup check failed — %s", exc)
