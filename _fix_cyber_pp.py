@@ -43,7 +43,46 @@ def main() -> None:
         (NOTICE_ID,),
     )
     if not row:
-        log.error("Notice %s not found in DB — check the notice_id", NOTICE_ID)
+        log.warning("Notice %s not found by ID — searching by title keywords...", NOTICE_ID)
+        # Try to find by reference or title keywords
+        candidates = db.fetchall(
+            """
+            SELECT r.notice_id, r.title, r.agency, r.close_date,
+                   p.sector_tag, p.value_band
+              FROM raw_notices r
+              LEFT JOIN parsed_notices p ON p.notice_id = r.notice_id
+             WHERE LOWER(r.title) LIKE ANY(ARRAY[
+                     '%mssp%', '%siem%', '%cw45326%',
+                     '%managed security%', '%security services provider%'
+                   ])
+                OR LOWER(r.description) LIKE '%cw45326%'
+             ORDER BY r.close_date DESC NULLS LAST
+             LIMIT 10
+            """,
+        )
+        if candidates:
+            log.info("Matching notices found in DB:")
+            for c in candidates:
+                log.info("  %s  close=%s  sector=%-15s  '%s'",
+                         c["notice_id"], c["close_date"], c["sector_tag"], c["title"])
+        else:
+            log.warning("No matching notices found — notice may not be ingested yet")
+            log.info("")
+            log.info("All notices with 'security' in title (future close dates):")
+            sec_rows = db.fetchall(
+                """
+                SELECT r.notice_id, r.title, r.agency, r.close_date, p.sector_tag
+                  FROM raw_notices r
+                  LEFT JOIN parsed_notices p ON p.notice_id = r.notice_id
+                 WHERE LOWER(r.title) LIKE '%security%'
+                   AND (r.close_date IS NULL OR r.close_date >= CURRENT_DATE)
+                 ORDER BY r.close_date ASC NULLS LAST
+                 LIMIT 20
+                """,
+            )
+            for s in sec_rows:
+                log.info("  %s  close=%s  sector=%-15s  '%s'",
+                         s["notice_id"], s["close_date"], s["sector_tag"], s["title"])
         sys.exit(1)
 
     log.info("Notice found:")
