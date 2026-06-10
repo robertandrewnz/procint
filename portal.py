@@ -63,41 +63,54 @@ except Exception as _sched_err:
 
 def _bootstrap_demos() -> None:
     """
-    Generate demo artefacts on startup if none exist in the DB.
-    Runs once per process in a background thread so it never delays app startup.
-    Skipped if DISABLE_DEMO_BOOTSTRAP=1 is set.
+    Generate demo artefacts on startup if fewer than 7 are in the DB.
+    Gunicorn flock ensures only one worker runs this. Uses force=True so
+    an empty manifest from a previous failed run never blocks regeneration.
     """
-    import os as _os
+    import os as _os, fcntl as _fcntl
     if _os.getenv("DISABLE_DEMO_BOOTSTRAP", "").strip() == "1":
         return
     _log = logging.getLogger("portal.demo_bootstrap")
+
+    # Single-worker lock — same pattern as the scheduler
+    _lock_path = "/tmp/groundwork_demo_bootstrap.lock"
     try:
-        row = db.fetchone(
-            "SELECT 1 FROM pipeline_outputs WHERE output_type = 'demo_manifest' LIMIT 1"
-        )
-        if row:
-            _log.info("Demo manifest already in DB — skipping bootstrap generation")
-            return
-    except Exception as _e:
-        _log.warning("Demo bootstrap DB check failed: %s — skipping", _e)
+        _lf = open(_lock_path, "w")
+        _fcntl.flock(_lf, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+    except OSError:
+        _log.debug("Demo bootstrap lock held by another worker — skipping")
         return
 
-    _log.info("No demo content found in DB — starting background demo generation")
+    # Check actual artefact count, not just manifest presence
+    try:
+        row = db.fetchone(
+            "SELECT COUNT(*) AS cnt FROM pipeline_outputs WHERE output_type = 'demo_html'"
+        )
+        cnt = int((row or {}).get("cnt") or 0)
+    except Exception as _e:
+        _log.warning("Demo bootstrap DB check failed: %s — will attempt generation anyway", _e)
+        cnt = 0
+
+    if cnt >= 7:
+        _log.info("Demo artefacts in DB (%d) — skipping bootstrap", cnt)
+        return
+
+    _log.info("Demo artefacts in DB: %d — starting background generation (need ≥7)", cnt)
 
     import threading as _thr
 
     def _run():
         try:
             from generate_demo_content import main as _gen_demo
-            stats = _gen_demo(force=False)
+            stats = _gen_demo(force=True)
+            total = stats.get("total", 0)
             _log.info(
-                "Bootstrap demo generation complete: %d artefacts across %d sectors",
-                stats.get("total", 0), stats.get("sectors", 0),
+                "Bootstrap complete: %d artefacts across %d sectors — %s",
+                total, stats.get("sectors", 0),
+                " | ".join(f"{k}:{v}" for k, v in stats.get("by_sector", {}).items()),
             )
-            if stats.get("total", 0) == 0:
-                _log.error(
-                    "Bootstrap produced 0 artefacts — check Railway logs for per-sector errors"
-                )
+            if total == 0:
+                _log.error("Bootstrap produced 0 artefacts — check Railway logs above for per-sector tracebacks")
         except Exception as _exc:
             _log.exception("Bootstrap demo generation failed: %s", _exc)
 
@@ -106,6 +119,7 @@ def _bootstrap_demos() -> None:
 
 
 _bootstrap_demos()
+
 
 CONFIG_FILE = Path("portal_config.json")
 TOKENS_FILE = Path("data/share_tokens.json")
