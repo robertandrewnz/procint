@@ -287,22 +287,33 @@ def _get_search_pages() -> list[str]:
     ]
 
 
+_MIN_PAGES = 5   # always check at least this many pages before stopping on all-seen
+
+
 def run_ingestion() -> int:
     """
     Scrape GETS for active notices. Returns count of new notices stored.
+
+    Pagination rules:
+    - Always fetch at least _MIN_PAGES pages (GETS can reorder listings so new
+      notices may appear on page 2+ even when page 1 is all-known).
+    - Stop when a page returns zero notices (genuine end of results).
+    - After _MIN_PAGES pages, stop if a page returns no new notices.
     """
     logger.info("Starting GETS ingestion")
-    new_count = 0
-    first_page = True
+    new_count   = 0
+    page_num    = 0
+    total_seen  = 0   # notices encountered (including duplicates)
+    first_page  = True
 
     for page_url in _get_search_pages():
-        logger.debug("Fetching page: %s", page_url)
+        page_num += 1
+        logger.debug("Fetching page %d: %s", page_num, page_url)
 
         html = _fetch_html_requests(page_url)
         if html is None:
             html = _fetch_html_playwright(page_url)
 
-        # Dump the first page HTML for selector inspection
         if first_page:
             debug_path = "debug_gets.html"
             with open(debug_path, "w", encoding="utf-8") as f:
@@ -313,12 +324,16 @@ def run_ingestion() -> int:
         notices = _extract_notices_from_html(html, config.GETS_BASE_URL)
 
         if not notices:
-            logger.info("No notices found on %s — stopping pagination", page_url)
+            logger.info("Page %d returned 0 notices — end of results, stopping", page_num)
             break
 
-        page_new = 0
+        total_seen += len(notices)
+        page_new    = 0
+        page_known  = 0
+
         for notice in notices:
             if db.notice_already_seen(notice["notice_id"]):
+                page_known += 1
                 logger.debug("Already seen %s — skipping", notice["notice_id"])
                 continue
 
@@ -331,10 +346,20 @@ def run_ingestion() -> int:
                 logger.warning("Failed to process notice %s: %s", notice["notice_id"], exc)
 
         new_count += page_new
-        if page_new == 0:
-            # All notices on this page were already seen — stop paginating
-            logger.info("All notices on page already seen — stopping pagination")
+        logger.info(
+            "Page %d: %d notices — %d new, %d already known (total new so far: %d)",
+            page_num, len(notices), page_new, page_known, new_count,
+        )
+
+        if page_new == 0 and page_num >= _MIN_PAGES:
+            logger.info(
+                "Page %d all-known and minimum %d pages checked — stopping pagination",
+                page_num, _MIN_PAGES,
+            )
             break
 
-    logger.info("Ingestion complete: %d new notices stored", new_count)
+    logger.info(
+        "Ingestion complete: %d pages checked, %d notices seen, %d new notices stored",
+        page_num, total_seen, new_count,
+    )
     return new_count

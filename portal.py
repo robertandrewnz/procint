@@ -290,8 +290,41 @@ def _list_artefacts(slug: str, pattern: str = "*.html") -> list[dict]:
     return files
 
 def _latest_watchlist() -> Optional[Path]:
-    c = sorted(OUTPUT_DIR.glob("watchlist_*.html"), reverse=True)
-    return c[0] if c else None
+    """
+    Return the path to the most recent watchlist HTML.
+
+    Checks the filesystem first (fast). Falls back to pipeline_outputs DB
+    table and restores the file to disk — needed after Railway redeploys
+    because the ephemeral filesystem loses /app/output on each deploy.
+    """
+    candidates = sorted(OUTPUT_DIR.glob("watchlist_*.html"), reverse=True)
+    if candidates:
+        logger.info("_latest_watchlist: serving from disk — %s", candidates[0])
+        return candidates[0]
+
+    # Filesystem miss — try DB
+    try:
+        row = db.fetchone(
+            """
+            SELECT filename, content, run_date
+            FROM   pipeline_outputs
+            WHERE  output_type = 'watchlist_html'
+              AND  content IS NOT NULL
+            ORDER  BY run_date DESC, created_at DESC
+            LIMIT  1
+            """
+        )
+        if row and row.get("content"):
+            OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            path = OUTPUT_DIR / row["filename"]
+            path.write_text(row["content"], encoding="utf-8")
+            logger.info("_latest_watchlist: restored from DB → %s (run_date %s)", path, row["run_date"])
+            return path
+    except Exception as exc:
+        logger.warning("_latest_watchlist: DB fallback failed — %s", exc)
+
+    logger.info("_latest_watchlist: no watchlist found on disk or in DB")
+    return None
 
 def _watchlist_summary(
     preferred_sectors: Optional[list[str]] = None,

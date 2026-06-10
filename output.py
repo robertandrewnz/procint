@@ -8,10 +8,12 @@ Produces:
 """
 import json
 import logging
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Optional, Tuple
+
+import pytz
 
 import config
 import db
@@ -924,7 +926,8 @@ def run_output(preferred_sectors: Optional[list[str]] = None) -> Tuple[Path, Pat
         "Generating prioritisation output (sectors=%s)",
         ",".join(preferred_sectors) if preferred_sectors else "neutral",
     )
-    run_date = date.today()
+    # Use NZT so filenames reflect the New Zealand calendar date, not UTC
+    run_date = datetime.now(pytz.timezone("Pacific/Auckland")).date()
     output_dir = Path(config.OUTPUT_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
 
