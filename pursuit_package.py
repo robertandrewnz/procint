@@ -74,10 +74,12 @@ def _get_notice(notice_id: str) -> Optional[dict]:
     return db.fetchone(
         """
         SELECT r.notice_id, r.title, r.agency, r.source_url,
-               r.close_date, r.description, r.category_raw, r.estimated_value,
+               r.close_date, r.description, r.overview_text, r.category_raw, r.estimated_value,
                p.sector_tag, p.value_band, p.days_until_close,
                p.geographic_scope, p.evaluation_criteria, p.contract_duration,
                p.estimated_value_min, p.estimated_value_max,
+               p.briefing_date, p.questions_deadline,
+               p.registration_deadline, p.procurement_stage,
                s.composite_score, s.score_reasoning,
                e.summary, e.evaluation_weighting, e.red_flags, e.strategic_framing
           FROM raw_notices r
@@ -395,6 +397,12 @@ DIRECTNESS AND SPECIFICITY:
 
 NARRATIVE CONSISTENCY RULE: if go_nogo is "CONDITIONAL GO", the go_nogo_rationale MUST describe a credible path to success. Never use language that dismisses the client when the recommendation is GO or CONDITIONAL GO.
 
+BRIEFING DATE RULE: If a briefing date is provided and it is in the past, state that the briefing has already occurred — do NOT flag it as a missed opportunity or a negative signal unless there is specific evidence the client was excluded. Past briefings are routine; late entrants can still engage via questions or direct contact.
+
+QUESTIONS DEADLINE RULE: If a questions_deadline is provided, name it explicitly as an action item: "Questions close [date] — any clarifications must be submitted before this date." Do not omit or generalise it as a vague deadline.
+
+DATA COMPLETENESS RULE: Where overview_text or other notice fields are absent or sparse, frame the gap as a data limitation rather than a definitive absence. Write "The notice does not include [X] — this should be confirmed with the agency directly" rather than asserting that [X] does not exist or is not required.
+
 COMPETITIVE NARRATIVE RULE: Generate competitive_narrative first as a full analytical narrative. Then generate ach_table as a structured formalisation of the hypotheses you identified in the narrative. Every hypothesis in the ACH table must trace back to something mentioned in the narrative. Do not introduce new hypotheses in the table that weren't flagged in the narrative. The ACH table must be internally consistent with the narrative.
 
 Respond ONLY with a valid JSON object, no preamble, no markdown fences."""
@@ -410,10 +418,16 @@ CLOSE DATE: {close_date} ({days_until_close} days)
 GETS URL: {source_url}
 
 === OPPORTUNITY CONTEXT ===
-Description: {description}
+Procurement Stage: {procurement_stage}
+Briefing Date: {briefing_date}
+Questions Deadline: {questions_deadline}
+Registration Deadline: {registration_deadline}
 Evaluation criteria (stated): {evaluation_criteria}
 Contract duration: {contract_duration}
 Geographic scope: {geographic_scope}
+
+=== NOTICE OVERVIEW ===
+{overview}
 
 === AI ENRICHMENT (Layer 1) ===
 Summary: {enrichment_summary}
@@ -643,7 +657,11 @@ def _call_claude(context: dict) -> Optional[dict]:
         close_date=str(n.get("close_date", "Unknown")),
         days_until_close=n.get("days_until_close") or "Unknown",
         source_url=n.get("source_url", ""),
-        description=(n.get("description") or "Not provided in notice")[:1500],
+        procurement_stage=n.get("procurement_stage") or "Not determined",
+        briefing_date=str(n.get("briefing_date") or "Not found in notice"),
+        questions_deadline=str(n.get("questions_deadline") or "Not found in notice"),
+        registration_deadline=str(n.get("registration_deadline") or "Not found in notice"),
+        overview=(n.get("overview_text") or n.get("description") or "Not provided in notice")[:2000],
         evaluation_criteria=n.get("evaluation_criteria") or "Not stated",
         contract_duration=n.get("contract_duration") or "Not stated",
         geographic_scope=n.get("geographic_scope") or "Not stated",

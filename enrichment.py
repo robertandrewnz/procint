@@ -49,25 +49,34 @@ USER_PROMPT_TEMPLATE = """Analyse this New Zealand government procurement notice
 Title: {title}
 Agency: {agency}
 Sector: {sector_tag}
+Procurement Stage: {procurement_stage}
 Value Band: {value_band}
 Close Date: {close_date}
 Days Until Close: {days_until_close}
+Briefing Date: {briefing_date}
+Questions Deadline: {questions_deadline}
+Registration Deadline: {registration_deadline}
 Evaluation Criteria (stated): {evaluation_criteria}
-Description:
-{description}
+Overview:
+{overview}
 """
 
 
 def _build_prompt(notice: dict) -> str:
+    overview = notice.get("overview_text") or notice.get("description") or "Not provided"
     return USER_PROMPT_TEMPLATE.format(
         title=notice.get("title") or "Unknown",
         agency=notice.get("agency") or "Unknown",
         sector_tag=notice.get("sector_tag") or "other",
+        procurement_stage=notice.get("procurement_stage") or "Not determined",
         value_band=notice.get("value_band") or "unknown",
         close_date=str(notice.get("close_date") or "Unknown"),
         days_until_close=notice.get("days_until_close") or "Unknown",
+        briefing_date=str(notice.get("briefing_date") or "Not found in notice"),
+        questions_deadline=str(notice.get("questions_deadline") or "Not found in notice"),
+        registration_deadline=str(notice.get("registration_deadline") or "Not found in notice"),
         evaluation_criteria=notice.get("evaluation_criteria") or "Not stated",
-        description=(notice.get("description") or "Not provided")[:3000],
+        overview=overview[:3000],
     )
 
 
@@ -141,9 +150,11 @@ def run_enrichment() -> int:
 
     rows = db.fetchall(
         """
-        SELECT r.notice_id, r.title, r.agency, r.description,
+        SELECT r.notice_id, r.title, r.agency, r.description, r.overview_text,
                p.sector_tag, p.value_band, p.close_date,
-               p.days_until_close, p.evaluation_criteria
+               p.days_until_close, p.evaluation_criteria,
+               p.briefing_date, p.questions_deadline,
+               p.registration_deadline, p.procurement_stage
         FROM   scored_notices s
         JOIN   raw_notices r    ON r.notice_id = s.notice_id
         JOIN   parsed_notices p ON p.notice_id = s.notice_id

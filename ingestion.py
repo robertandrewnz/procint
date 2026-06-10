@@ -144,6 +144,7 @@ def _extract_notices_from_html(html: str, base_url: str) -> list[dict]:
                 "open_date":       None,             # not present on list page
                 "close_date":      _parse_date(close_raw),
                 "description":     None,
+                "overview_text":   None,
                 "raw_html":        None,
             }
         )
@@ -151,19 +152,77 @@ def _extract_notices_from_html(html: str, base_url: str) -> list[dict]:
     return notices
 
 
+def _extract_overview_text(soup: BeautifulSoup) -> Optional[str]:
+    """
+    Multi-strategy extraction of the notice overview body from GETS detail pages.
+
+    Strategy 1: Known CSS selectors (specific to GETS and common CMS patterns).
+    Strategy 2: Label-adjacent table cell (GETS uses definition-table layouts).
+    Strategy 3: Largest text block in the main content area as a last resort.
+    """
+    # Strategy 1: CSS selectors
+    for selector in [
+        ".notice-overview", "#noticeOverview", ".tender-overview",
+        ".notice-description", "#noticeDescription", ".description",
+        ".tender-description", "#overview", ".overview",
+        ".notice-body", "#noticeBody", ".notice-detail",
+        "div.field--name-body", "div.body-text", ".procure-overview",
+        "[class*='overview']", "[class*='notice-desc']",
+    ]:
+        tag = soup.select_one(selector)
+        if tag:
+            text = tag.get_text(separator="\n", strip=True)
+            if len(text) > 50:
+                return text
+
+    # Strategy 2: Label-adjacent cell in definition/data tables
+    for label_text in ["Overview", "Description", "Background", "Scope", "Introduction"]:
+        label = soup.find(string=re.compile(rf"^\s*{re.escape(label_text)}\s*$", re.IGNORECASE))
+        if label:
+            parent = label.find_parent()
+            if parent:
+                sibling = parent.find_next_sibling()
+                if sibling:
+                    text = sibling.get_text(separator="\n", strip=True)
+                    if len(text) > 50:
+                        return text
+                grandparent = parent.find_parent()
+                if grandparent:
+                    next_row = grandparent.find_next_sibling()
+                    if next_row:
+                        text = next_row.get_text(separator="\n", strip=True)
+                        if len(text) > 50:
+                            return text
+
+    # Strategy 3: Largest text block in main content
+    main = soup.select_one("main, #main, #content, .content, article, .main-content, #mainContent")
+    if not main:
+        main = soup.body
+    if main:
+        best_text = ""
+        for tag in main.find_all(["p", "div", "section"]):
+            text = tag.get_text(separator="\n", strip=True)
+            if len(text) > len(best_text):
+                best_text = text
+        if len(best_text) > 100:
+            return best_text
+
+    return None
+
+
 def _fetch_notice_detail(notice: dict) -> dict:
-    """Fetch the individual notice page and extract description + estimated value."""
+    """Fetch the individual notice page and extract overview_text + estimated value."""
     html = _fetch_html_requests(notice["source_url"])
     if html is None:
         html = _fetch_html_playwright(notice["source_url"])
 
     soup = BeautifulSoup(html, "lxml")
 
-    # Description
-    desc_tag = soup.select_one(
-        ".notice-description, #noticeDescription, .description, .tender-description"
-    )
-    notice["description"] = desc_tag.get_text(separator=" ", strip=True) if desc_tag else None
+    # Overview text — multi-strategy extraction replaces the old single-selector approach
+    overview = _extract_overview_text(soup)
+    notice["overview_text"] = overview
+    # Keep description populated for backwards compatibility with existing code
+    notice["description"] = overview
 
     # Estimated value — look for currency pattern near a label
     value_label = soup.find(string=re.compile(r"[Ee]stimated [Vv]alue|[Cc]ontract [Vv]alue"))
@@ -173,7 +232,6 @@ def _fetch_notice_detail(notice: dict) -> dict:
         if sibling:
             notice["estimated_value"] = sibling.get_text(strip=True)
         else:
-            # Try adjacent text
             text_after = value_label.parent.get_text(strip=True) if value_label.parent else ""
             match = re.search(r"\$[\d,\.]+", text_after)
             if match:
@@ -190,8 +248,8 @@ def _store_notice(notice: dict) -> None:
         """
         INSERT INTO raw_notices
             (notice_id, source_url, title, agency, category_raw,
-             estimated_value, open_date, close_date, description, raw_html)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+             estimated_value, open_date, close_date, description, overview_text, raw_html)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (notice_id) DO NOTHING
         """,
         (
@@ -204,6 +262,7 @@ def _store_notice(notice: dict) -> None:
             notice["open_date"],
             notice["close_date"],
             notice["description"],
+            notice["overview_text"],
             notice["raw_html"],
         ),
     )

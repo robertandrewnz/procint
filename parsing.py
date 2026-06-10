@@ -134,6 +134,98 @@ def extract_evaluation_criteria(description: Optional[str]) -> Optional[str]:
     return None
 
 
+# ── Key dates from overview text ─────────────────────────────────────────────
+
+_DATE_PATTERN = (
+    r"(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*"
+    r"\s+\d{4}"
+    r"|\d{1,2}/\d{1,2}/\d{4}"
+    r"|\d{4}-\d{2}-\d{2})"
+)
+
+_KEY_DATE_LABELS = {
+    "briefing_date": [
+        r"briefing\s+date[:\s]+",
+        r"site\s+visit[:\s]+",
+        r"briefing[:\s]+",
+        r"supplier\s+briefing[:\s]+",
+    ],
+    "questions_deadline": [
+        r"close\s+(?:date\s+)?for\s+questions[:\s]+",
+        r"questions?\s+(?:must\s+be\s+)?(?:submitted|close(?:s)?)[:\s]+",
+        r"deadline\s+for\s+questions[:\s]+",
+        r"clarifications?\s+(?:close(?:s)?|deadline)[:\s]+",
+    ],
+    "registration_deadline": [
+        r"registration\s+(?:of\s+interest\s+)?(?:closes?|deadline)[:\s]+",
+        r"expressions?\s+of\s+interest\s+(?:closes?|deadline)[:\s]+",
+        r"eoi\s+(?:closes?|deadline)[:\s]+",
+        r"registration\s+deadline[:\s]+",
+    ],
+}
+
+
+def _parse_date_str(text: str) -> Optional[date]:
+    from datetime import datetime
+    text = re.sub(r"\s*\(.*?\)", "", text).strip()
+    text = re.sub(r"^\d{1,2}:\d{2}\s*(?:AM|PM)?\s*", "", text, flags=re.IGNORECASE).strip()
+    for fmt in ("%d %b %Y", "%d %B %Y", "%d/%m/%Y", "%Y-%m-%d", "%d-%b-%Y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def extract_key_dates(overview_text: Optional[str]) -> dict:
+    """
+    Extract briefing_date, questions_deadline, registration_deadline from overview_text.
+    Returns a dict with those three keys; values are date objects or None.
+    """
+    result = {k: None for k in _KEY_DATE_LABELS}
+    if not overview_text:
+        return result
+
+    for field, patterns in _KEY_DATE_LABELS.items():
+        for label_pat in patterns:
+            full_pat = label_pat + r"\s*" + _DATE_PATTERN
+            m = re.search(full_pat, overview_text, re.IGNORECASE)
+            if m:
+                result[field] = _parse_date_str(m.group(1))
+                break
+        if result[field] is not None:
+            continue
+        # Fallback: scan window after label keyword
+        for label_pat in patterns:
+            m_label = re.search(label_pat, overview_text, re.IGNORECASE)
+            if m_label:
+                window = overview_text[m_label.end(): m_label.end() + 80]
+                m_date = re.search(_DATE_PATTERN, window, re.IGNORECASE)
+                if m_date:
+                    result[field] = _parse_date_str(m_date.group(1))
+                    break
+
+    return result
+
+
+def extract_procurement_stage(category_raw: Optional[str], overview_text: Optional[str]) -> Optional[str]:
+    """
+    Derive procurement stage label from category_raw and/or overview_text keywords.
+    """
+    text = " ".join(filter(None, [category_raw, overview_text])).lower()
+    if re.search(r"\bregistration\s+of\s+interest\b|\broi\b|\beoi\b|\bexpression\s+of\s+interest\b", text):
+        return "Expression of Interest"
+    if re.search(r"\brequest\s+for\s+proposal\b|\brfp\b", text):
+        return "Request for Proposal"
+    if re.search(r"\brequest\s+for\s+tender\b|\brft\b", text):
+        return "Request for Tender"
+    if re.search(r"\bpanel\b|\bprequalif", text):
+        return "Panel / Prequalification"
+    if re.search(r"\brequest\s+for\s+quote\b|\brfq\b", text):
+        return "Request for Quote"
+    return None
+
+
 # ── Days until close ──────────────────────────────────────────────────────────
 
 def days_until_close(close_date: Optional[date]) -> Optional[int]:
@@ -151,20 +243,25 @@ def _store_parsed(parsed: dict) -> None:
         INSERT INTO parsed_notices
             (notice_id, agency_name, sector_tag, value_band,
              estimated_value_min, estimated_value_max, contract_duration,
-             geographic_scope, evaluation_criteria, close_date, days_until_close)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+             geographic_scope, evaluation_criteria, close_date, days_until_close,
+             briefing_date, questions_deadline, registration_deadline, procurement_stage)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (notice_id) DO UPDATE SET
-            agency_name         = EXCLUDED.agency_name,
-            sector_tag          = EXCLUDED.sector_tag,
-            value_band          = EXCLUDED.value_band,
-            estimated_value_min = EXCLUDED.estimated_value_min,
-            estimated_value_max = EXCLUDED.estimated_value_max,
-            contract_duration   = EXCLUDED.contract_duration,
-            geographic_scope    = EXCLUDED.geographic_scope,
-            evaluation_criteria = EXCLUDED.evaluation_criteria,
-            close_date          = EXCLUDED.close_date,
-            days_until_close    = EXCLUDED.days_until_close,
-            parsed_at           = NOW()
+            agency_name           = EXCLUDED.agency_name,
+            sector_tag            = EXCLUDED.sector_tag,
+            value_band            = EXCLUDED.value_band,
+            estimated_value_min   = EXCLUDED.estimated_value_min,
+            estimated_value_max   = EXCLUDED.estimated_value_max,
+            contract_duration     = EXCLUDED.contract_duration,
+            geographic_scope      = EXCLUDED.geographic_scope,
+            evaluation_criteria   = EXCLUDED.evaluation_criteria,
+            close_date            = EXCLUDED.close_date,
+            days_until_close      = EXCLUDED.days_until_close,
+            briefing_date         = EXCLUDED.briefing_date,
+            questions_deadline    = EXCLUDED.questions_deadline,
+            registration_deadline = EXCLUDED.registration_deadline,
+            procurement_stage     = EXCLUDED.procurement_stage,
+            parsed_at             = NOW()
         """,
         (
             parsed["notice_id"],
@@ -178,6 +275,10 @@ def _store_parsed(parsed: dict) -> None:
             parsed["evaluation_criteria"],
             parsed["close_date"],
             parsed["days_until_close"],
+            parsed["briefing_date"],
+            parsed["questions_deadline"],
+            parsed["registration_deadline"],
+            parsed["procurement_stage"],
         ),
     )
 
@@ -190,7 +291,7 @@ def run_parsing() -> int:
     raw_notices = db.fetchall(
         """
         SELECT r.notice_id, r.title, r.agency, r.category_raw,
-               r.estimated_value, r.close_date, r.description
+               r.estimated_value, r.close_date, r.description, r.overview_text
         FROM   raw_notices r
         LEFT JOIN parsed_notices p ON p.notice_id = r.notice_id
         WHERE  p.notice_id IS NULL
@@ -218,11 +319,14 @@ def run_parsing() -> int:
             sector = _rsc_result["sector"]
 
             value_band, val_min, val_max = assign_value_band(raw.get("estimated_value"))
-            duration = extract_duration(raw.get("description"))
-            geo = extract_geographic_scope(raw.get("description"), raw.get("title"))
-            criteria = extract_evaluation_criteria(raw.get("description"))
+            overview = raw.get("overview_text") or raw.get("description")
+            duration = extract_duration(overview)
+            geo = extract_geographic_scope(overview, raw.get("title"))
+            criteria = extract_evaluation_criteria(overview)
             close_dt = raw.get("close_date")
             dtc = days_until_close(close_dt)
+            key_dates = extract_key_dates(overview)
+            stage = extract_procurement_stage(raw.get("category_raw"), overview)
 
             parsed = {
                 "notice_id": raw["notice_id"],
@@ -236,6 +340,10 @@ def run_parsing() -> int:
                 "evaluation_criteria": criteria,
                 "close_date": close_dt,
                 "days_until_close": dtc,
+                "briefing_date": key_dates["briefing_date"],
+                "questions_deadline": key_dates["questions_deadline"],
+                "registration_deadline": key_dates["registration_deadline"],
+                "procurement_stage": stage,
             }
             _store_parsed(parsed)
             count += 1
