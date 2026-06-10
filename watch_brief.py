@@ -113,8 +113,22 @@ def _top_opportunities(
     return rows[:limit]
 
 
-def _market_signals() -> list[dict]:
-    """Pattern flags of type sector_spike or procurement_surge."""
+def _market_signals(sectors: Optional[list[str]] = None) -> list[dict]:
+    """Pattern flags of type sector_spike or procurement_surge, filtered by sector when provided."""
+    if sectors:
+        placeholders = ",".join(["%s"] * len(sectors))
+        return db.fetchall(
+            f"""
+            SELECT flag_type, description, severity, detected_at, sector_tag
+              FROM pattern_flags
+             WHERE flag_type IN ('sector_spike', 'procurement_surge')
+               AND (expires_at IS NULL OR expires_at >= CURRENT_DATE)
+               AND sector_tag IN ({placeholders})
+             ORDER BY severity DESC, detected_at DESC
+             LIMIT 5
+            """,
+            tuple(sectors),
+        )
     return db.fetchall(
         """
         SELECT flag_type, description, severity, detected_at, sector_tag
@@ -212,7 +226,8 @@ def _loss_streak_flags() -> list[dict]:
 def _generate_insight(opportunities: list[dict], signals: list[dict],
                       client_name: str,
                       competitor_moves: Optional[list[dict]] = None,
-                      renewals: Optional[list[dict]] = None) -> str:
+                      renewals: Optional[list[dict]] = None,
+                      sector_context: Optional[str] = None) -> str:
     """One synthesised market observation from Claude, grounded in actual notice data."""
     if not opportunities:
         return "Insufficient data for market observation this week."
@@ -255,9 +270,15 @@ def _generate_insight(opportunities: list[dict], signals: list[dict],
         for s in signals[:3]
     ) or "  No unusual market signals detected."
 
+    sector_clause = (
+        f"The client operates specifically in the {sector_context} sector of NZ government procurement. "
+        f"Focus your observation on {sector_context}-specific market dynamics, renewal patterns, and competitive signals — "
+        f"not generic procurement trends. "
+    ) if sector_context else ""
+
     prompt = (
         f"You are a procurement intelligence analyst writing a weekly market observation for {client_name}, "
-        f"a supplier competing for NZ government contracts.\n\n"
+        f"a supplier competing for NZ government contracts. {sector_clause}"
         f"Based on the data below, write exactly ONE paragraph (4-5 sentences) covering the single most "
         f"strategically significant market development this week. "
         f"Name specific agencies, suppliers, or contracts. Do not use bullet points. Return plain text only.\n\n"
@@ -561,12 +582,15 @@ def generate_watch_brief(
     run_date = date.today()
 
     hard_filter = DEMO_SECTOR_ALLOWLIST.get(demo_sector) if demo_sector else None
+    sector_filter = hard_filter or sectors
+    sector_context = demo_sector or (sectors[0] if sectors else None)
     opportunities = _top_opportunities(sectors, hard_sector_filter=hard_filter)
-    signals = _market_signals()
+    signals = _market_signals(sectors=sector_filter)
     comp_moves = _competitor_moves(client_name, sectors)
-    renewals = _renewal_radar()
+    renewals = _renewal_radar(sectors=sector_filter)
     insight = _generate_insight(opportunities, signals, client_name,
-                               competitor_moves=comp_moves, renewals=renewals)
+                               competitor_moves=comp_moves, renewals=renewals,
+                               sector_context=sector_context)
 
     html = _render_brief_html(
         client_name=client_name,

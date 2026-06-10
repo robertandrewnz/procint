@@ -55,7 +55,7 @@ DEMO_SECTORS: dict = {
         "icon":            "🔒",
         "tagline":         "Government security assessments, pen testing & compliance advisory",
         "db_tag":          "cybersecurity",
-        "fallback_db_tags": ["ICT"],   # try ICT if no active cybersecurity notices
+        "fallback_db_tags": [],   # ICT fallback removed — caused cross-sector contamination
         "firm": {
             "name":          "Sentinel Digital",
             "description":   "mid-sized cybersecurity consultancy, 45 staff, Wellington-based, "
@@ -205,7 +205,7 @@ DEMO_SECTORS: dict = {
 # Any notice whose sector_tag is NOT in this list is rejected for that demo.
 # cybersecurity allows ICT as a fallback (sparse cybersecurity notices in DB).
 DEMO_SECTOR_ALLOWLIST: dict[str, list[str]] = {
-    "cybersecurity": ["cybersecurity", "ICT"],
+    "cybersecurity": ["cybersecurity"],
     "FM":            ["FM"],
     "construction":  ["construction"],
     "defence":       ["defence"],
