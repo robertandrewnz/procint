@@ -863,15 +863,9 @@ def about():
   <a href="{url_for('keystone_landing')}" style="font-size:.82rem;color:var(--muted);
      text-decoration:none;transition:color .12s;"
      onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">Keystone</a>
-  <a href="{url_for('groundwork_landing')}#how-it-works" style="font-size:.82rem;color:var(--muted);
+  <a href="{url_for('about')}" style="font-size:.82rem;color:var(--muted);
      text-decoration:none;transition:color .12s;"
-     onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">How it works</a>
-  <a href="{url_for('groundwork_landing')}#pricing" style="font-size:.82rem;color:var(--muted);
-     text-decoration:none;transition:color .12s;"
-     onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">Pricing</a>
-  <a href="{url_for('demo')}" style="font-size:.82rem;color:var(--muted);
-     text-decoration:none;transition:color .12s;"
-     onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">Demo</a>
+     onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">About</a>
   <a href="{url_for('login')}" class="btn bg-out"
      style="margin-left:auto;font-size:.82rem;">Client Login</a>
 </div>
@@ -972,7 +966,6 @@ def homepage():
         f'<a href="{url_for("groundwork_landing")}" class="pub-nav-link">Groundwork</a>'
         f'<a href="{url_for("terrain_landing")}" class="pub-nav-link">Terrain</a>'
         f'<a href="{url_for("keystone_landing")}" class="pub-nav-link">Keystone</a>'
-        f'<a href="{url_for("demo")}" class="pub-nav-link">Demo</a>'
         f'<a href="{url_for("about")}" class="pub-nav-link">About</a>'
         f'<a href="{url_for("login")}" class="btn bg-out pub-nav-login">Client Login</a>'
         f'</nav>'
@@ -1101,6 +1094,7 @@ def terrain_landing():
         f'<a href="{url_for("groundwork_landing")}" class="pub-nav-link">Groundwork</a>'
         f'<a href="{url_for("terrain_landing")}" class="pub-nav-link">Terrain</a>'
         f'<a href="{url_for("keystone_landing")}" class="pub-nav-link">Keystone</a>'
+        f'<a href="{url_for("about")}" class="pub-nav-link">About</a>'
         f'<a href="{url_for("login")}" class="btn bg-out pub-nav-login">Client Login</a>'
         f'</nav>'
         f'<div style="max-width:680px;margin:0 auto;padding:3.5rem 1.5rem 5rem;">'
@@ -1239,6 +1233,7 @@ def keystone_landing():
         f'<a href="{url_for("groundwork_landing")}" class="pub-nav-link">Groundwork</a>'
         f'<a href="{url_for("terrain_landing")}" class="pub-nav-link">Terrain</a>'
         f'<a href="{url_for("keystone_landing")}" class="pub-nav-link">Keystone</a>'
+        f'<a href="{url_for("about")}" class="pub-nav-link">About</a>'
         f'<a href="{url_for("login")}" class="btn bg-out pub-nav-login">Client Login</a>'
         f'</nav>'
         f'<div style="max-width:680px;margin:0 auto;padding:3.5rem 1.5rem 5rem;">'
@@ -1489,11 +1484,9 @@ function toggleBilling(cb) {{
         f'<nav class="pub-nav">'
         f'<a href="/" class="pub-brand" style="flex-shrink:0;text-decoration:none;color:#fff;">'
         f'Groundwork <span>by BidEdge</span></a>'
-        f'<a href="#how-it-works" class="pub-nav-link">How it works</a>'
-        f'<a href="#pricing" class="pub-nav-link">Pricing</a>'
+        f'<a href="{url_for("groundwork_landing")}" class="pub-nav-link">Groundwork</a>'
         f'<a href="{url_for("terrain_landing")}" class="pub-nav-link">Terrain</a>'
         f'<a href="{url_for("keystone_landing")}" class="pub-nav-link">Keystone</a>'
-        f'<a href="{url_for("demo")}" class="pub-nav-link">Demo</a>'
         f'<a href="{url_for("about")}" class="pub-nav-link">About</a>'
         f'<a href="{url_for("login")}" class="btn bg-out pub-nav-login">Client Login</a>'
         f'</nav>'
@@ -2076,6 +2069,7 @@ def demo():
         f'<a href="{url_for("groundwork_landing")}" class="pub-nav-link">Groundwork</a>'
         f'<a href="{url_for("terrain_landing")}" class="pub-nav-link">Terrain</a>'
         f'<a href="{url_for("keystone_landing")}" class="pub-nav-link">Keystone</a>'
+        f'<a href="{url_for("about")}" class="pub-nav-link">About</a>'
         f'<a href="{url_for("login")}" class="btn bg-out pub-nav-login">Client Login</a>'
         f'</nav>'
         f'<div style="max-width:900px;margin:0 auto;padding:2.5rem 1.5rem 4rem;">'
