@@ -724,7 +724,7 @@ def _page(title: str, body: str, active: str = "",
     return (f'<!DOCTYPE html><html lang="en"><head>'
             f'<meta charset="UTF-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1">'
-            f'<title>{title} — Groundwork by BidEdge</title>'
+            f'<title>{title if public else f"{title} — Groundwork by BidEdge"}</title>'
             f'<link rel="icon" type="image/svg+xml" href="/static/img/bidedge-mark.svg">'
             f'<link rel="alternate icon" href="/static/img/bidedge-mark.svg">'
             f'{CSS}</head><body>'
@@ -857,6 +857,12 @@ def about():
   <a href="{url_for('groundwork_landing')}" style="font-size:.82rem;color:var(--muted);
      text-decoration:none;transition:color .12s;"
      onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">Groundwork</a>
+  <a href="{url_for('terrain_landing')}" style="font-size:.82rem;color:var(--muted);
+     text-decoration:none;transition:color .12s;"
+     onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">Terrain</a>
+  <a href="{url_for('keystone_landing')}" style="font-size:.82rem;color:var(--muted);
+     text-decoration:none;transition:color .12s;"
+     onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">Keystone</a>
   <a href="{url_for('groundwork_landing')}#how-it-works" style="font-size:.82rem;color:var(--muted);
      text-decoration:none;transition:color .12s;"
      onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">How it works</a>
@@ -922,7 +928,7 @@ def about():
   <a href="{url_for('login')}">Client Login</a>
 </div>
 """
-    return _page("About — BidEdge", body, public=True, sidebar=False)
+    return _page("About BidEdge", body, public=True, sidebar=False)
 
 
 @app.route("/")
@@ -964,6 +970,8 @@ def homepage():
         '</text></svg>'
         '</a>'
         f'<a href="{url_for("groundwork_landing")}" class="pub-nav-link">Groundwork</a>'
+        f'<a href="{url_for("terrain_landing")}" class="pub-nav-link">Terrain</a>'
+        f'<a href="{url_for("keystone_landing")}" class="pub-nav-link">Keystone</a>'
         f'<a href="{url_for("demo")}" class="pub-nav-link">Demo</a>'
         f'<a href="{url_for("about")}" class="pub-nav-link">About</a>'
         f'<a href="{url_for("login")}" class="btn bg-out pub-nav-login">Client Login</a>'
@@ -1013,7 +1021,7 @@ def homepage():
         f'<a href="{url_for("login")}">Client Login</a>'
         f'</div>'
     )
-    return _page("BidEdge — Intelligence for Better Business Decisions", body, public=True, sidebar=False)
+    return _page("BidEdge — Strategic Intelligence for New Zealand Organisations", body, public=True, sidebar=False)
 
 
 @app.route("/terrain", methods=["GET", "POST"])
@@ -1090,8 +1098,9 @@ def terrain_landing():
         f'<nav class="pub-nav">'
         f'<a href="/" class="pub-brand" style="flex-shrink:0;text-decoration:none;color:#fff;">'
         f'BidEdge <span>&#8594; Terrain</span></a>'
-        f'<a href="{url_for("homepage")}" class="pub-nav-link" style="font-size:.74rem;'
-        f'color:var(--muted);">&#8592; BidEdge suite</a>'
+        f'<a href="{url_for("groundwork_landing")}" class="pub-nav-link">Groundwork</a>'
+        f'<a href="{url_for("terrain_landing")}" class="pub-nav-link">Terrain</a>'
+        f'<a href="{url_for("keystone_landing")}" class="pub-nav-link">Keystone</a>'
         f'<a href="{url_for("login")}" class="btn bg-out pub-nav-login">Client Login</a>'
         f'</nav>'
         f'<div style="max-width:680px;margin:0 auto;padding:3.5rem 1.5rem 5rem;">'
@@ -1150,7 +1159,7 @@ def terrain_landing():
         f'<a href="{url_for("homepage")}">Suite</a> &middot; '
         f'<a href="{url_for("login")}">Client Login</a></div>'
     )
-    return _page("Terrain by BidEdge", body, public=True, sidebar=False)
+    return _page("Terrain by BidEdge — Market Opportunity Scans", body, public=True, sidebar=False)
 
 
 @app.route("/keystone", methods=["GET", "POST"])
@@ -1227,8 +1236,9 @@ def keystone_landing():
         f'<nav class="pub-nav">'
         f'<a href="/" class="pub-brand" style="flex-shrink:0;text-decoration:none;color:#fff;">'
         f'BidEdge <span>&#8594; Keystone</span></a>'
-        f'<a href="{url_for("homepage")}" class="pub-nav-link" style="font-size:.74rem;'
-        f'color:var(--muted);">&#8592; BidEdge suite</a>'
+        f'<a href="{url_for("groundwork_landing")}" class="pub-nav-link">Groundwork</a>'
+        f'<a href="{url_for("terrain_landing")}" class="pub-nav-link">Terrain</a>'
+        f'<a href="{url_for("keystone_landing")}" class="pub-nav-link">Keystone</a>'
         f'<a href="{url_for("login")}" class="btn bg-out pub-nav-login">Client Login</a>'
         f'</nav>'
         f'<div style="max-width:680px;margin:0 auto;padding:3.5rem 1.5rem 5rem;">'
@@ -1254,23 +1264,23 @@ def keystone_landing():
         f'<li style="font-size:.87rem;color:var(--muted);padding:.4rem 0;'
         f'border-top:1px solid var(--border);display:flex;gap:.6rem;">'
         f'<span style="color:var(--gold);flex-shrink:0;">&#10003;</span>'
-        f'Integrated situational snapshot across all input streams with RAG status</li>'
+        f'A single view across all your intelligence streams — where things stand, colour-coded by urgency</li>'
         f'<li style="font-size:.87rem;color:var(--muted);padding:.4rem 0;'
         f'border-top:1px solid var(--border);display:flex;gap:.6rem;">'
         f'<span style="color:var(--gold);flex-shrink:0;">&#10003;</span>'
-        f'Convergence analysis — where multiple signals point to the same underlying issue</li>'
+        f'Where multiple signals point to the same underlying issue — surfaced before it becomes a problem</li>'
         f'<li style="font-size:.87rem;color:var(--muted);padding:.4rem 0;'
         f'border-top:1px solid var(--border);display:flex;gap:.6rem;">'
         f'<span style="color:var(--gold);flex-shrink:0;">&#10003;</span>'
-        f'Ranked decision agenda with Act / Watch / Defer options and trade-off framing</li>'
+        f'Who is moving in your market and in which direction — competitors, partners, and emerging threats</li>'
         f'<li style="font-size:.87rem;color:var(--muted);padding:.4rem 0;'
         f'border-top:1px solid var(--border);display:flex;gap:.6rem;">'
         f'<span style="color:var(--gold);flex-shrink:0;">&#10003;</span>'
-        f'Information gap identification — what would materially change the assessment</li>'
+        f'What information gaps would change the assessment — so you know where to look next</li>'
         f'<li style="font-size:.87rem;color:var(--muted);padding:.4rem 0;'
         f'border-top:1px solid var(--border);display:flex;gap:.6rem;">'
         f'<span style="color:var(--gold);flex-shrink:0;">&#10003;</span>'
-        f'Direct access to the BidEdge team for strategic interpretation and briefing</li>'
+        f'Direct access to the BidEdge team to interpret findings and brief your leadership</li>'
         f'</ul></div>'
         f'<div class="pricing-anchor" style="margin:1.5rem 0 1.25rem;">'
         f'<span style="font-size:1.5rem;font-weight:800;color:#fff;">From $8,500 '
@@ -1287,7 +1297,7 @@ def keystone_landing():
         f'<a href="{url_for("homepage")}">Suite</a> &middot; '
         f'<a href="{url_for("login")}">Client Login</a></div>'
     )
-    return _page("Keystone by BidEdge", body, public=True, sidebar=False)
+    return _page("Keystone by BidEdge — Executive Decision Intelligence", body, public=True, sidebar=False)
 
 
 @app.route("/pricing")
@@ -1481,6 +1491,8 @@ function toggleBilling(cb) {{
         f'Groundwork <span>by BidEdge</span></a>'
         f'<a href="#how-it-works" class="pub-nav-link">How it works</a>'
         f'<a href="#pricing" class="pub-nav-link">Pricing</a>'
+        f'<a href="{url_for("terrain_landing")}" class="pub-nav-link">Terrain</a>'
+        f'<a href="{url_for("keystone_landing")}" class="pub-nav-link">Keystone</a>'
         f'<a href="{url_for("demo")}" class="pub-nav-link">Demo</a>'
         f'<a href="{url_for("about")}" class="pub-nav-link">About</a>'
         f'<a href="{url_for("login")}" class="btn bg-out pub-nav-login">Client Login</a>'
@@ -1614,7 +1626,7 @@ function toggleBilling(cb) {{
         f'<div style="text-align:center;padding:3rem 2rem;">'
         f'<h2 style="font-size:1.5rem;margin-bottom:.75rem;">Questions? Talk to us.</h2>'
         f'<p style="color:var(--muted);margin-bottom:2rem;">Not sure which plan fits? A BidEdge adviser will help you choose.</p>'
-        f'<a href="{url_for("signup")}?plan=edge" class="btn bg-gold" style="font-size:.9rem;padding:.65rem 1.75rem;">Get in touch &rarr;</a>'
+        f'<a href="{url_for("keystone_landing")}" class="btn bg-gold" style="font-size:.9rem;padding:.65rem 1.75rem;">Get in touch &rarr;</a>'
         f'</div>'
         f'<div class="pub-footer">&copy; BidEdge Ltd &middot; Groundwork Procurement Intelligence &middot; '
         f'<a href="#how-it-works">How it works</a> &middot; '
@@ -1623,7 +1635,7 @@ function toggleBilling(cb) {{
         f'<a href="{url_for("about")}">About</a> &middot; '
         f'<a href="{url_for("login")}">Client Login</a></div>'
     )
-    return _page("Groundwork by BidEdge", body, public=True, sidebar=False)
+    return _page("Groundwork by BidEdge — Procurement Intelligence", body, public=True, sidebar=False)
 
 
 @app.route("/request-access", methods=["POST"])
@@ -2061,8 +2073,10 @@ def demo():
         f'{sector_card_css}'
         f'<nav class="pub-nav">'
         f'<a href="/" class="pub-brand" style="flex-shrink:0;text-decoration:none;color:#fff;">Groundwork <span>by BidEdge</span></a>'
-        f'<a href="{url_for("groundwork_landing")}#pricing" style="font-size:.82rem;color:var(--muted);padding:.3rem .5rem;text-decoration:none;">Pricing</a>'
-        f'<a href="{url_for("login")}" class="btn bg-out" style="margin-left:auto;font-size:.82rem;">Client Login</a>'
+        f'<a href="{url_for("groundwork_landing")}" class="pub-nav-link">Groundwork</a>'
+        f'<a href="{url_for("terrain_landing")}" class="pub-nav-link">Terrain</a>'
+        f'<a href="{url_for("keystone_landing")}" class="pub-nav-link">Keystone</a>'
+        f'<a href="{url_for("login")}" class="btn bg-out pub-nav-login">Client Login</a>'
         f'</nav>'
         f'<div style="max-width:900px;margin:0 auto;padding:2.5rem 1.5rem 4rem;">'
         f'<div class="ptitle">Groundwork Demo</div>'
