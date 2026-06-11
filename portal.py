@@ -1016,8 +1016,9 @@ def homepage():
         f'<div class="suite-name">Groundwork</div>'
         f'<div class="suite-tagline">Know before you bid. Win when you do.</div>'
         f'<p class="suite-desc">Daily scored opportunity monitoring across every NZ government'
-        f' tender. Know the field, the likely incumbents, and whether it\'s worth pursuing'
-        f' — before the close date.</p>'
+        f' tender — enriched with a decade of contract award history. Know the field, the likely'
+        f' incumbents, and whether it\'s worth pursuing before you\'ve read a single page of the'
+        f' tender document.</p>'
         f'<a href="{url_for("groundwork_landing")}" class="btn bg-gold">Explore Groundwork &rarr;</a>'
         f'</div>'
         f'<div class="suite-card">'
@@ -1918,14 +1919,14 @@ def groundwork_landing():
         <span class="period" id="pursue-period">/yr</span>
       </div>
       <div class="ptier-price-sub" id="pursue-sub">billed annually &mdash; 2 months free</div>
-      <div class="ptier-desc">Everything in Watch, plus AI-powered pursuit
-        intelligence for every opportunity you target.</div>
+      <div class="ptier-desc">Everything in Watch, plus competitive intelligence for every opportunity you decide to pursue — who's likely to bid, who holds the incumbent position, your win probability based on a decade of award history, and a clear go/no-go assessment before you commit a single hour of bid resource.</div>
       <ul>
         <li class="inherited">Everything in Watch</li>
         <li>AI-generated pursuit packages</li>
         <li>Competitor intelligence profiles</li>
         <li>Weekly watch briefs</li>
         <li>Contract renewal radar</li>
+        <li>Full Analysis upgrade — upload authenticated tender documents for deep synthesis of ROI specifications, Q&amp;A, and briefing materials combined with competitive intelligence</li>
       </ul>
       <a href="{url_for('signup')}?plan=pursue" class="btn bg-gold cta"
          style="font-size:.85rem;padding:.6rem 1.25rem;">Get started &rarr;</a>
@@ -2051,10 +2052,11 @@ function toggleBilling(cb) {{
         f'<li>Weekly watch brief via email</li><li>MBIE-evidenced likely bidders</li></ul></div>'
         f'<div class="tier ft"><div class="tier-lbl">Best value</div>'
         f'<div class="tier-name">Groundwork Pursue</div>'
-        f'<div class="tier-desc">Everything in Watch, plus a full pursuit intelligence package for each opportunity you target.</div>'
+        f'<div class="tier-desc">Everything in Watch, plus competitive intelligence for every opportunity you decide to pursue — who\'s likely to bid, who holds the incumbent position, your win probability based on a decade of award history, and a clear go/no-go assessment before you commit a single hour of bid resource.</div>'
         f'<ul><li>Pursuit intelligence packages</li><li>Win position assessment from 27,948 MBIE awards</li>'
         f'<li>Incumbent detection &amp; competitor analysis</li>'
-        f'<li>Agency procurement profiling</li><li>Recommended actions per notice</li></ul></div>'
+        f'<li>Agency procurement profiling</li><li>Recommended actions per notice</li>'
+        f'<li>Full Analysis upgrade — upload authenticated tender documents for deep synthesis of ROI specifications, Q&amp;A, and briefing materials combined with competitive intelligence</li></ul></div>'
         f'<div class="tier"><div class="tier-lbl">Enterprise</div>'
         f'<div class="tier-name">Groundwork Edge</div>'
         f'<div class="tier-desc">The complete platform — pursuit intelligence, competitor profiling, renewal radar, and analyst support.</div>'
@@ -2106,10 +2108,11 @@ function toggleBilling(cb) {{
       <div style="font-size:.72rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
         color:var(--gold);margin-bottom:.5rem;">Act</div>
       <div style="font-size:1.05rem;font-weight:800;color:var(--text);margin-bottom:.65rem;
-        line-height:1.25;">Request a pursuit package for any opportunity.</div>
-      <div style="font-size:.84rem;color:var(--muted);line-height:1.7;">Get a full bid
-        intelligence brief before your competitors have read the notice — recommended actions,
-        competitor profiles, and everything you need to bid with confidence.</div>
+        line-height:1.25;">Request a competitive intelligence assessment for any opportunity.</div>
+      <div style="font-size:.84rem;color:var(--muted);line-height:1.7;">Know the likely field,
+        the incumbent, the agency's buying history, and your realistic win position — before you
+        commit your team to a bid. We tell you whether to pursue, who to watch, and what your
+        path to winning looks like.</div>
     </div>
   </div>
   <style>
