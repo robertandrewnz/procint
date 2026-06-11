@@ -5813,6 +5813,7 @@ def admin_client(username: str):
 @login_required
 @admin_required
 def admin_generate():
+    import threading as _thr
     username  = request.form.get("username", "")
     atype     = request.form.get("atype", "pursuit")
     notice_id = request.form.get("notice_id", "").strip()
@@ -5820,7 +5821,6 @@ def admin_generate():
     cfg       = _load_cfg()
     client_data = cfg.get("clients", {}).get(username, {})
     cname     = client_data.get("display_name", username)
-    # Respect client's sector preferences when generating artefacts
     client_sectors = (
         client_data.get("preferred_sectors")
         or client_data.get("sectors")
@@ -5828,11 +5828,26 @@ def admin_generate():
     )
     try:
         if atype == "pursuit" and notice_id:
-            from pursuit_package import generate_pursuit_package
-            generate_pursuit_package(notice_id, cname, preferred_sectors=client_sectors or None)
+            # Dispatch in background — web search + LLM synthesis takes 5+ minutes
+            # and will exceed Gunicorn's worker timeout if run synchronously.
+            def _run_pursuit(nid, cname_, sects):
+                try:
+                    from pursuit_package import generate_pursuit_package
+                    generate_pursuit_package(nid, cname_, preferred_sectors=sects or None)
+                    logger.info("admin_generate bg: done notice=%s client=%s", nid, cname_)
+                except Exception as exc:
+                    logger.exception("admin_generate bg: FAILED %s / %s: %s", nid, cname_, exc)
+            _thr.Thread(
+                target=_run_pursuit,
+                args=(notice_id, cname, client_sectors or []),
+                daemon=True,
+                name=f"adm-pursuit-{notice_id[:12]}",
+            ).start()
+            _flash(f"Pursuit package generation started in background for {cname} / {notice_id}. Allow 3-5 min, then refresh.", "success")
         elif atype == "brief":
             from watch_brief import generate_watch_brief
             generate_watch_brief(cname, sectors=client_sectors or None)
+            _flash(f"Generated brief for {cname}.", "success")
         elif atype == "competitor" and comp_name:
             from competitor_profile import generate_competitor_profile
             sector_ctx = request.form.get("sector_context", "").strip()
@@ -5844,7 +5859,7 @@ def admin_generate():
             generate_competitor_profile(
                 comp_name, client_name=cname, sector_context=sector_ctx
             )
-        _flash(f"Generated {atype} for {cname}.", "success")
+            _flash(f"Generated competitor profile for {comp_name}.", "success")
     except Exception as exc:
         logger.error("admin_generate: %s", exc)
         _flash(f"Generation failed: {exc}", "error")
@@ -5897,7 +5912,7 @@ def admin_gen_bg():
                 f'Generation started in background for <strong>{_safe(client_name)}</strong> '
                 f'/ notice <strong>{_safe(notice_id)}</strong>. '
                 f'Allow 3-5 minutes, then check '
-                f'<a href="{url_for("gw_pursuits")}" style="color:inherit;font-weight:700;">'
+                f'<a href="/groundwork/pursuits" style="color:inherit;font-weight:700;">'
                 f'the pursuits page</a>.'
                 f'</div>'
             )
