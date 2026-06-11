@@ -227,6 +227,16 @@ capability_match values:
 - "inferred": adjacent capability with plausible transfer, but not confirmed for this service type
 - "unknown": operates in the broad sector but no evidence of this specific service
 
+FIRM NAME FORMAT — strictly enforced:
+- Use the organisation's common NZ trading name only. Examples: "Datacom", "Spark NZ", \
+"Leighs Construction", "Orion Health".
+- Maximum 50 characters.
+- No parenthetical explanations: NOT "Nuance Communications (Microsoft subsidiary)".
+- No technology stack descriptions embedded in the name: NOT "Google Cloud (Speech-to-Text stack)".
+- No hedging phrases: NOT "Verbit.ai (or equivalent provider)".
+- If a global firm, use its recognised NZ entity name: "Microsoft NZ", "IBM NZ", "Cisco NZ".
+- If only a global brand is known and no NZ entity name exists, use the global brand name alone.
+
 CRITICAL INSTRUCTION: You MUST always return exactly 3 bidder hypotheses. Even when the \
 contract notice is sparse or lacks a description, produce your best 3 hypotheses based on \
 the notice title, agency name, region, and your knowledge of the NZ market for this service type. \
