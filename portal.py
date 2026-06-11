@@ -5851,6 +5851,77 @@ def admin_generate():
     return redirect(url_for("admin_client", username=username))
 
 
+@app.route("/admin/gen-bg", methods=["GET", "POST"])
+@login_required
+@admin_required
+def admin_gen_bg():
+    """
+    Dispatch a pursuit package generation in a background thread and return
+    immediately — avoids Railway's 60-second response timeout.
+    GET  → show a simple form.
+    POST → kick off generation, show confirmation.
+    """
+    import threading as _thr
+
+    msg = ""
+    if request.method == "POST":
+        notice_id   = request.form.get("notice_id", "").strip()
+        client_name = request.form.get("client_name", "").strip()
+        sectors_raw = request.form.get("sectors", "").strip()
+        preferred   = [s.strip() for s in sectors_raw.split(",") if s.strip()]
+
+        if not notice_id or not client_name:
+            msg = '<div class="al al-er">Notice ID and client name are required.</div>'
+        else:
+            def _run(nid, cname, sects):
+                try:
+                    from pursuit_package import generate_pursuit_package, _artefact_dir
+                    out = generate_pursuit_package(
+                        notice_id=nid,
+                        client_name=cname,
+                        output_dir=_artefact_dir(cname),
+                        preferred_sectors=sects or [],
+                    )
+                    logger.info("admin_gen_bg: done — %s", out)
+                except Exception as exc:
+                    logger.exception("admin_gen_bg: FAILED %s / %s: %s", nid, cname, exc)
+
+            _thr.Thread(
+                target=_run,
+                args=(notice_id, client_name, preferred),
+                daemon=True,
+                name=f"admin-gen-{notice_id[:12]}",
+            ).start()
+            msg = (
+                f'<div class="al al-ok">'
+                f'Generation started in background for <strong>{_safe(client_name)}</strong> '
+                f'/ notice <strong>{_safe(notice_id)}</strong>. '
+                f'Allow 3-5 minutes, then check '
+                f'<a href="{url_for("gw_pursuits")}" style="color:inherit;font-weight:700;">'
+                f'the pursuits page</a>.'
+                f'</div>'
+            )
+
+    body = (
+        f'<div class="ptitle">Admin — Generate Pursuit Package (Background)</div>'
+        f'{msg}'
+        f'<div class="card" style="max-width:520px;">'
+        f'<div class="ch"><span class="ct">Dispatch Generation</span></div>'
+        f'<div class="cb">'
+        f'<form method="POST">'
+        f'<div class="fg"><label class="fl">Notice ID *</label>'
+        f'<input name="notice_id" class="fc2" placeholder="e.g. 34118228" required></div>'
+        f'<div class="fg"><label class="fl">Client name *</label>'
+        f'<input name="client_name" class="fc2" placeholder="e.g. Pacific Transcription NZ" required></div>'
+        f'<div class="fg"><label class="fl">Preferred sectors (comma-separated, optional)</label>'
+        f'<input name="sectors" class="fc2" placeholder="e.g. ICT,other"></div>'
+        f'<button type="submit" class="btn bg-gold">Generate in background &rarr;</button>'
+        f'</form>'
+        f'</div></div>'
+    )
+    return _page("Admin — Gen Background", body, "admin")
+
+
 @app.route("/admin/add-client", methods=["GET", "POST"])
 @login_required
 @admin_required
