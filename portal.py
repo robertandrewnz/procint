@@ -284,19 +284,64 @@ def _admin_emails() -> list[str]:
 
 # ── File helpers ──────────────────────────────────────────────────────────────
 
-def _list_artefacts(slug: str, pattern: str = "*.html") -> list[dict]:
+def _list_artefacts(
+    slug: str,
+    pattern: str = "*.html",
+    db_output_types: list = None,
+) -> list[dict]:
+    import fnmatch
     base = ARTEFACTS / slug
-    if not base.exists(): return []
     files = []
-    for f in sorted(base.rglob(pattern), reverse=True)[:60]:
-        rel_full = f.relative_to(ARTEFACTS)        # includes slug — for FS/share ops
-        rel_url  = f.relative_to(ARTEFACTS / slug)  # slug-stripped — for url_for
-        files.append({"name": f.stem.replace("_", " ").title(),
-                      "rel_path": str(rel_full),  # full path from ARTEFACTS root
-                      "url_path": str(rel_url),   # path after slug (use in url_for)
-                      "date": f.parent.name,
-                      "size_kb": f.stat().st_size // 1024,
-                      "has_pdf": f.with_suffix(".pdf").exists()})
+    if base.exists():
+        for f in sorted(base.rglob(pattern), reverse=True)[:60]:
+            rel_full = f.relative_to(ARTEFACTS)
+            rel_url  = f.relative_to(ARTEFACTS / slug)
+            files.append({"name": f.stem.replace("_", " ").title(),
+                          "rel_path": str(rel_full),
+                          "url_path": str(rel_url),
+                          "date": f.parent.name,
+                          "size_kb": f.stat().st_size // 1024,
+                          "has_pdf": f.with_suffix(".pdf").exists()})
+
+    if not files and db_output_types:
+        # Filesystem miss after Railway redeploy — restore from pipeline_outputs DB
+        try:
+            rows = db.fetchall(
+                """
+                SELECT filename, content, run_date
+                  FROM pipeline_outputs
+                 WHERE output_type = ANY(%s)
+                   AND client_slug = %s
+                   AND content IS NOT NULL
+                 ORDER BY run_date DESC, created_at DESC
+                 LIMIT 60
+                """,
+                (db_output_types, slug),
+            )
+            for row in rows:
+                filename = row["filename"]
+                if not fnmatch.fnmatch(filename, pattern):
+                    continue
+                run_date = str(row["run_date"])
+                target_dir = ARTEFACTS / slug / run_date
+                target_dir.mkdir(parents=True, exist_ok=True)
+                target_path = target_dir / filename
+                if not target_path.exists():
+                    target_path.write_text(row["content"], encoding="utf-8")
+                    logger.info("_list_artefacts: restored %s from DB", target_path)
+                rel_full = target_path.relative_to(ARTEFACTS)
+                rel_url  = target_path.relative_to(ARTEFACTS / slug)
+                files.append({
+                    "name": Path(filename).stem.replace("_", " ").title(),
+                    "rel_path": str(rel_full),
+                    "url_path": str(rel_url),
+                    "date": run_date,
+                    "size_kb": len(row["content"].encode("utf-8")) // 1024,
+                    "has_pdf": False,
+                })
+        except Exception as exc:
+            logger.warning("_list_artefacts DB fallback failed: %s", exc)
+
     return files
 
 def _latest_watchlist() -> Optional[Path]:
@@ -4133,8 +4178,14 @@ function cls(){document.getElementById("sm").style.display="none";}
 </script>"""
 
 
-def _artefact_page(title: str, pattern: str, empty_msg: str, active: str) -> str:
-    files = _list_artefacts(current_user.slug, pattern)
+def _artefact_page(
+    title: str,
+    pattern: str,
+    empty_msg: str,
+    active: str,
+    db_output_types: list = None,
+) -> str:
+    files = _list_artefacts(current_user.slug, pattern, db_output_types)
     if not files:
         body = (f'<div class="ptitle">{title}</div>'
                 f'<div class="card cb"><p style="color:var(--muted);">{empty_msg}</p>'
@@ -4305,8 +4356,11 @@ def gw_help():
 @app.route("/groundwork/pursuits")
 @login_required
 def gw_pursuits():
-    return _artefact_page("Pursuit Packages", "*pursuit_package*.html",
-                          "No pursuit packages yet for your account.", "pursuits")
+    return _artefact_page(
+        "Pursuit Packages", "*pursuit_package*.html",
+        "No pursuit packages yet for your account.", "pursuits",
+        db_output_types=["pursuit_package", "pursuit_package_full"],
+    )
 
 
 @app.route("/groundwork/competitors")

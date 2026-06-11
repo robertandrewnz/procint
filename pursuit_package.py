@@ -517,6 +517,43 @@ Return a JSON object with EXACTLY these keys:
 "recommended_actions": Array of 4-6 objects, each with "action" (imperative sentence), "timeframe" (e.g. "Today", "Within 48 hours", "Week 1", "Before close"), "priority" (Critical/High/Medium)."""
 
 
+def _web_search_incumbent(agency: str, sector: str, notice_title: str) -> Optional[str]:
+    """
+    Use Claude with web_search to find the current or most recent incumbent
+    supplier for this agency/sector when MBIE data has no match.
+    Returns a short descriptive string (max 600 chars), or None.
+    """
+    try:
+        client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+        query = (
+            f"Search for the current or most recent incumbent supplier/contractor "
+            f"for '{agency}' in {sector} services in New Zealand government procurement. "
+            f"The specific tender is: '{notice_title}'. "
+            f"Look for: recent GETS contract awards, NZ government contract registers, "
+            f"supplier press releases, or annual reports. "
+            f"If you find a named incumbent, respond with: "
+            f"'[Supplier Name] — [brief context of the contract/relationship]'. "
+            f"If no credible evidence is found, respond with: 'No incumbent identified.'"
+        )
+        msg = client.messages.create(
+            model=config.CLAUDE_MODEL_L3,
+            max_tokens=400,
+            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 2}],
+            messages=[{"role": "user", "content": query}],
+        )
+        result_parts = [
+            block.text.strip()
+            for block in msg.content
+            if hasattr(block, "text") and block.text
+        ]
+        result = " ".join(result_parts).strip()
+        if result and "no incumbent identified" not in result.lower() and len(result) > 20:
+            return result[:600]
+    except Exception as exc:
+        logger.warning("_web_search_incumbent failed for %s/%s: %s", agency, sector, exc)
+    return None
+
+
 def _call_claude(context: dict) -> Optional[dict]:
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
@@ -544,7 +581,11 @@ def _call_claude(context: dict) -> Optional[dict]:
             f"{inc_date}): {inc.get('title', '')[:80]}"
         )
     else:
-        incumbent_text = "No incumbent identified in MBIE data for this agency/sector."
+        web_inc = context.get("incumbent_research")
+        if web_inc:
+            incumbent_text = f"Web research: {web_inc}"
+        else:
+            incumbent_text = "No incumbent identified in MBIE data or web research for this agency/sector."
 
     # Client history note
     ch = context.get("client_history", {})
@@ -1491,6 +1532,13 @@ def generate_pursuit_package(
     competitors = _get_competitive_landscape(agency, sector)
     client_history = _get_client_history(client_name, sector, agency)
     incumbent = _detect_incumbent(agency, sector)
+    incumbent_research = None
+    if not incumbent:
+        incumbent_research = _web_search_incumbent(
+            agency, sector, notice.get("title") or ""
+        )
+        if incumbent_research:
+            logger.info("Incumbent web search for %s/%s: %s", agency, sector, incumbent_research[:80])
     agency_stats = _get_agency_stats(agency, sector)
     flags = _get_relevant_flags(agency, sector)
     citation = _mbie_citation(sector, agency)
@@ -1536,6 +1584,7 @@ def generate_pursuit_package(
         "competitors": [dict(c) for c in competitors],
         "client_history": client_history,
         "incumbent": dict(incumbent) if incumbent else None,
+        "incumbent_research": incumbent_research,
         "agency_stats": agency_stats,
         "flags": [dict(f) for f in flags],
         "mbie_citation": citation,

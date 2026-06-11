@@ -169,6 +169,20 @@ CREATE INDEX IF NOT EXISTS idx_pipeline_outputs_type_date
     ON pipeline_outputs (output_type, run_date DESC);
 CREATE INDEX IF NOT EXISTS idx_pipeline_outputs_storage_path
     ON pipeline_outputs (storage_path) WHERE storage_path IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS package_documents (
+    id           SERIAL PRIMARY KEY,
+    notice_id    TEXT        NOT NULL,
+    client_slug  TEXT        NOT NULL,
+    file_path    TEXT        NOT NULL,
+    file_name    TEXT        NOT NULL,
+    file_size    INTEGER,
+    uploaded_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_package_documents_notice
+    ON package_documents (notice_id);
+CREATE INDEX IF NOT EXISTS idx_package_documents_client
+    ON package_documents (client_slug, notice_id);
 """
 
 
