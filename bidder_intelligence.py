@@ -33,8 +33,10 @@ Caching:
 """
 from __future__ import annotations
 
+import csv
 import json
 import logging
+import os
 import re
 from typing import Optional
 
@@ -50,6 +52,59 @@ PROBABILITY_COLOURS = {
     "Medium-Low":  "#e07b39",   # orange
     "Low":         "#8fa3bc",   # muted
 }
+
+
+# ── CSV candidate pool (for ICT / Cybersecurity seeding) ──────────────────────
+
+_CSV_CANDIDATES: dict[str, list[str]] = {}
+
+
+def _load_csv_candidates() -> dict[str, list[str]]:
+    """
+    Lazily load bidders.csv and index firm names by sector tag.
+    Returns a dict keyed by lowercase sector string.
+    """
+    global _CSV_CANDIDATES
+    if _CSV_CANDIDATES:
+        return _CSV_CANDIDATES
+    csv_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "data", "bidders.csv"
+    )
+    result: dict[str, list[str]] = {}
+    try:
+        with open(csv_path, newline="", encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                name = (row.get("canonical_name") or row.get("firm_name") or "").strip()
+                if not name:
+                    continue
+                for sec in (row.get("sectors") or "").split("|"):
+                    sec = sec.strip().lower()
+                    if sec:
+                        result.setdefault(sec, []).append(name)
+        _CSV_CANDIDATES = result
+        logger.debug("Loaded CSV candidates for %d sector keys", len(result))
+    except Exception as exc:
+        logger.warning("Could not load bidders.csv candidates: %s", exc)
+    return result
+
+
+def _sector_candidates(sector_tag: str) -> list[str]:
+    """
+    Return known NZ firms from bidders.csv that are relevant to ICT or
+    Cybersecurity notices.  Returns empty list for all other sectors.
+    """
+    s = (sector_tag or "").lower()
+    if not any(k in s for k in ("ict", "cyber", "security", "defence")):
+        return []
+    candidates = _load_csv_candidates()
+    seen: set[str] = set()
+    firms: list[str] = []
+    for sec_key in ("cybersecurity", "ict", "security"):
+        for f in candidates.get(sec_key, []):
+            if f not in seen:
+                seen.add(f)
+                firms.append(f)
+    return firms[:30]
 
 
 # ── Step 1: Requirements extraction ───────────────────────────────────────────
@@ -203,6 +258,19 @@ def _build_ach_prompt(notice: dict, requirements_summary: str) -> str:
     }
     value_str = value_labels.get(value_band, value_band)
 
+    # Inject known NZ firm list for ICT / Cybersecurity notices.
+    # Government cybersecurity contracts are often not published in MBIE award data,
+    # so Claude's training knowledge must be anchored with the known NZ market players.
+    candidates_block = ""
+    candidates = _sector_candidates(sector)
+    if candidates:
+        candidates_block = (
+            "\n\nKNOWN NZ ICT/CYBERSECURITY FIRMS (from NZ procurement database — "
+            "evaluate each against the specific requirements above and include only "
+            "those with genuine capability match; do not include all firms by default):\n"
+            + "\n".join(f"- {c}" for c in candidates)
+        )
+
     return (
         f"Notice title: {title}\n"
         f"Agency: {agency}\n"
@@ -211,6 +279,7 @@ def _build_ach_prompt(notice: dict, requirements_summary: str) -> str:
         f"Contract value: {value_str}\n\n"
         f"Specific requirements extracted:\n{requirements_summary}\n\n"
         f"Full description: {description or 'Not provided'}"
+        f"{candidates_block}"
     )
 
 
@@ -338,11 +407,26 @@ def _is_garbage_name(name: str) -> bool:
 def _run_ach_reasoning(notice: dict, requirements_summary: str) -> list[dict]:
     """
     Call Claude with the 4-step ACH prompt. Returns raw bidder list from Claude
-    with no MBIE enrichment applied yet. Garbage placeholder names are filtered out.
+    with no MBIE enrichment applied yet.
+
+    Returns [] on any failure — caller must fall back to MBIE inference.
+    Distinct log messages identify the failure mode so zero-bidder notices
+    can be diagnosed from logs.
     """
+    notice_id = notice.get("notice_id", "?")
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    except Exception as exc:
+        logger.warning(
+            "ACH skip notice %s: Anthropic client init failed — %s "
+            "(caller will fall back to MBIE)",
+            notice_id, exc,
+        )
+        return []
+
+    # --- Claude API call ---
+    try:
         resp = client.messages.create(
             model="claude-haiku-4-5",
             max_tokens=1400,
@@ -352,16 +436,52 @@ def _run_ach_reasoning(notice: dict, requirements_summary: str) -> list[dict]:
                 "content": _build_ach_prompt(notice, requirements_summary),
             }],
         )
-        raw = resp.content[0].text.strip()
-        data = _extract_json_from_response(raw)
-        bidders = data.get("bidders", [])
-        # Filter out placeholder / garbage names
-        bidders = [b for b in bidders if not _is_garbage_name(str(b.get("name") or ""))]
-        return bidders
-    except Exception as exc:
-        logger.warning("ACH Claude call failed for notice %s: %s",
-                       notice.get("notice_id", "?"), exc)
+    except Exception as api_exc:
+        logger.warning(
+            "ACH skip notice %s: Claude API call failed — %s "
+            "(caller will fall back to MBIE)",
+            notice_id, api_exc,
+        )
         return []
+
+    # --- JSON extraction ---
+    raw = resp.content[0].text.strip()
+    data = _extract_json_from_response(raw)
+    if not data:
+        logger.warning(
+            "ACH skip notice %s: JSON extraction failed (raw length=%d, "
+            "preview=%.120r) — caller will fall back to MBIE",
+            notice_id, len(raw), raw,
+        )
+        return []
+
+    bidders = data.get("bidders", [])
+    if not bidders:
+        logger.warning(
+            "ACH skip notice %s: Claude returned valid JSON but 'bidders' "
+            "list is empty — caller will fall back to MBIE",
+            notice_id,
+        )
+        return []
+
+    # --- Garbage-name filter ---
+    before = len(bidders)
+    bidders = [b for b in bidders if not _is_garbage_name(str(b.get("name") or ""))]
+    dropped = before - len(bidders)
+    if dropped:
+        logger.info(
+            "ACH notice %s: filtered %d garbage-name bidder(s) "
+            "(%d remain after filter)",
+            notice_id, dropped, len(bidders),
+        )
+    if not bidders:
+        logger.warning(
+            "ACH skip notice %s: all %d bidder(s) from Claude were "
+            "garbage/placeholder names — caller will fall back to MBIE",
+            notice_id, before,
+        )
+
+    return bidders
 
 
 # ── Step 3: Category-gated MBIE enrichment ────────────────────────────────────
@@ -498,6 +618,91 @@ def _apply_mbie_enrichment(
     return results
 
 
+# ── MBIE fallback ─────────────────────────────────────────────────────────────
+
+def _mbie_fallback_bidders(notice: dict) -> list[dict]:
+    """
+    MBIE/CSV inference fallback — called when the ACH Claude call returns no
+    usable results (API failure, JSON parse failure, or empty bidder list).
+
+    Runs score_bidders_for_notice() from bidders.py and converts the results
+    to the ACH-compatible dict format so they can be stored and rendered via
+    store_ach_results() / render_ach_card().
+    """
+    notice_id = notice.get("notice_id", "?")
+    logger.info(
+        "ACH fallback: running MBIE inference for notice %s "
+        "(sector=%s, agency=%s)",
+        notice_id,
+        notice.get("sector_tag") or "other",
+        notice.get("agency") or "",
+    )
+    try:
+        from bidders import score_bidders_for_notice
+        mbie_results = score_bidders_for_notice(notice)
+    except Exception as exc:
+        logger.error(
+            "ACH fallback: MBIE inference also failed for notice %s: %s",
+            notice_id, exc,
+        )
+        return []
+
+    if not mbie_results:
+        logger.warning(
+            "ACH fallback: MBIE inference returned 0 bidders for notice %s",
+            notice_id,
+        )
+        return []
+
+    out: list[dict] = []
+    for b in mbie_results[:3]:
+        name = (b.get("canonical_name") or b.get("firm_name") or "").strip()
+        if not name:
+            continue
+
+        # Map MBIE strategic_importance to ACH probability bands
+        si = (b.get("strategic_importance") or "medium").lower()
+        prob_map = {
+            "high": "Medium", "medium": "Medium", "low": "Medium-Low",
+            "strategic": "Medium", "opportunistic": "Medium-Low",
+        }
+        prob = prob_map.get(si, "Medium-Low")
+
+        # Adapt context_confidence from legacy "high"/"low" format
+        conf = (b.get("context_confidence") or "no_mbie:0").strip()
+        if conf == "high":
+            conf = "category_match:1"
+        elif conf == "low" or ":" not in conf:
+            conf = "no_mbie:0"
+
+        reasoning_parts = b.get("reasoning") or []
+        if isinstance(reasoning_parts, str):
+            reasoning_parts = [reasoning_parts]
+
+        out.append({
+            "name":             name,
+            "probability":      prob,
+            "capability_match": "inferred",
+            "evidence":         [str(r) for r in reasoning_parts[:2]]
+                                or ["MBIE historical award data"],
+            "discriminator":    "MBIE-only fallback — ACH Claude unavailable at inference time",
+            "size":             b.get("size") or "medium",
+            "mbie_wins":        0,
+            "mbie_badge_type":  conf.split(":")[0],
+            "mbie_extra":       "",
+            "conf_str":         conf,
+            "match_type":       "ach_analysis",
+        })
+
+    logger.info(
+        "ACH fallback: produced %d MBIE bidder(s) for notice %s — %s",
+        len(out),
+        notice_id,
+        ", ".join(r["name"] for r in out),
+    )
+    return out
+
+
 # ── Main ACH function ──────────────────────────────────────────────────────────
 
 def generate_bidder_intelligence(
@@ -509,30 +714,47 @@ def generate_bidder_intelligence(
 
     Three-step pipeline:
       1. Extract specific capability requirements (separate Claude call)
-      2. Pure ACH reasoning — no MBIE context injected
+      2. Pure ACH reasoning — no MBIE context injected (but ICT/Cyber notices
+         receive a candidate list from bidders.csv to anchor Claude's hypotheses)
       3. Category-gated MBIE enrichment applied post-hoc
+
+    On any Claude API failure, JSON parse failure, or empty result, falls back
+    to MBIE-only inference rather than returning zero bidders.  Every skip
+    decision is logged with a specific reason.
 
     Args:
         notice: Dict with at minimum: title, agency, sector_tag, value_band.
                 description and geographic_scope significantly improve quality.
-        show_reasoning: If True, log the requirements and raw ACH output at INFO
-                        level for debugging. Use --show-reasoning in the CLI.
+                category_raw improves tender-type logging.
+        show_reasoning: If True, log requirements + raw ACH output at INFO level.
 
     Returns:
-        List of up to 3 bidder dicts. Returns [] on API failure.
+        List of up to 3 bidder dicts.  Falls back to MBIE results on failure.
     """
     notice_id     = notice.get("notice_id", "?")
     notice_sector = notice.get("sector_tag") or notice.get("sector") or "other"
     agency_name   = notice.get("agency") or notice.get("agency_name") or ""
+    tender_type   = notice.get("category_raw") or "unknown"
+
+    logger.info(
+        "ACH starting for notice %s (sector=%s, tender_type=%s, agency=%s)",
+        notice_id, notice_sector, tender_type, agency_name,
+    )
 
     # Step 1 — Extract capability requirements
     reqs = _extract_requirements(notice)
     requirements_summary = _format_requirements_summary(reqs)
+    if not reqs.get("requirements"):
+        logger.info(
+            "ACH notice %s: requirements extraction returned empty list "
+            "(Step 1 fell back to defaults) — ACH will run on title/description only",
+            notice_id,
+        )
 
     if show_reasoning:
         logger.info("=== REQUIREMENTS for %s ===\n%s", notice_id, requirements_summary)
 
-    # Step 2 — Pure ACH reasoning (no MBIE context)
+    # Step 2 — Pure ACH reasoning (no MBIE context; ICT/Cyber get candidate seeds)
     bidders_raw = _run_ach_reasoning(notice, requirements_summary)
 
     if show_reasoning:
@@ -540,13 +762,23 @@ def generate_bidder_intelligence(
                     notice_id, json.dumps(bidders_raw, indent=2))
 
     if not bidders_raw:
-        return []
+        # _run_ach_reasoning already logged the specific failure reason
+        return _mbie_fallback_bidders(notice)
 
-    # Step 3 — Category-gated MBIE enrichment (agency-as-bidder filtered out here)
+    # Step 3 — Category-gated MBIE enrichment (agency-as-bidder filtered here)
+    pre_enrichment_count = len(bidders_raw)
     results = _apply_mbie_enrichment(bidders_raw, notice_sector, agency_name=agency_name)
 
+    if not results:
+        logger.warning(
+            "ACH notice %s: all %d Claude bidder(s) removed by enrichment/agency filter "
+            "(agency='%s') — falling back to MBIE inference",
+            notice_id, pre_enrichment_count, agency_name,
+        )
+        return _mbie_fallback_bidders(notice)
+
     logger.info(
-        "ACH analysis for notice %s: %d bidders — %s",
+        "ACH complete for notice %s: %d bidder(s) — %s",
         notice_id,
         len(results),
         ", ".join(
@@ -662,11 +894,22 @@ def store_ach_results(notice_id: str, bidders: list[dict]) -> None:
 # ── Batch runner ───────────────────────────────────────────────────────────────
 
 def run_ach_for_enriched(force: bool = False) -> dict:
-    """Run ACH analysis on all notices with enriched_notices entries."""
+    """
+    Run ACH analysis on all notices with enriched_notices entries.
+
+    Note on tender type filtering: this runner has NO tender-type exclusions.
+    Notice of Intent and Advance Notice tender types are NOT skipped — they
+    receive ACH analysis if they have been enriched.  The category_raw field
+    is included in each notice dict for logging and prompt context only.
+    (Tender type filtering in the legacy MBIE batch runner in bidders.py line ~857
+    explicitly INCLUDES those types via an OR clause; this runner is consistent
+    with that intent.)
+    """
     enriched_ids = db.fetchall(
         """
         SELECT e.notice_id, r.title, r.agency, r.description,
-               p.sector_tag, p.value_band, p.geographic_scope
+               p.sector_tag, p.value_band, p.geographic_scope,
+               r.category_raw
           FROM enriched_notices e
           JOIN raw_notices r ON r.notice_id = e.notice_id
           JOIN parsed_notices p ON p.notice_id = e.notice_id
@@ -685,19 +928,25 @@ def run_ach_for_enriched(force: bool = False) -> dict:
 
         try:
             notice = {
-                "notice_id":      nid,
-                "title":          row.get("title") or "",
-                "agency":         row.get("agency") or "",
-                "description":    row.get("description") or "",
-                "sector_tag":     row.get("sector_tag") or "other",
-                "value_band":     row.get("value_band") or "unknown",
+                "notice_id":        nid,
+                "title":            row.get("title") or "",
+                "agency":           row.get("agency") or "",
+                "description":      row.get("description") or "",
+                "sector_tag":       row.get("sector_tag") or "other",
+                "value_band":       row.get("value_band") or "unknown",
                 "geographic_scope": row.get("geographic_scope"),
+                "category_raw":     row.get("category_raw") or "",
             }
             bidders = generate_bidder_intelligence(notice)
             if bidders:
                 store_ach_results(nid, bidders)
                 counts["processed"] += 1
             else:
+                logger.warning(
+                    "ACH batch: zero bidders returned for notice %s "
+                    "(both ACH and MBIE fallback exhausted)",
+                    nid,
+                )
                 counts["failed"] += 1
         except Exception as exc:
             logger.error("ACH batch failed for %s: %s", nid, exc)
@@ -925,6 +1174,7 @@ if __name__ == "__main__":
     if args.notice_id:
         row = db.fetchone(
             """SELECT r.notice_id, r.title, r.agency, r.description,
+                      r.category_raw,
                       p.sector_tag, p.value_band, p.geographic_scope
                FROM raw_notices r JOIN parsed_notices p ON p.notice_id=r.notice_id
                WHERE r.notice_id=%s""",
