@@ -4372,11 +4372,65 @@ def gw_help():
 @app.route("/groundwork/pursuits")
 @login_required
 def gw_pursuits():
+    if current_user.is_admin_user:
+        return _admin_pursuits_page()
     return _artefact_page(
         "Pursuit Packages", "*pursuit_package*.html",
         "No pursuit packages yet for your account.", "pursuits",
         db_output_types=["pursuit_package", "pursuit_package_full"],
     )
+
+
+def _admin_pursuits_page() -> str:
+    """Admin view: all pursuit packages across all clients, newest first."""
+    try:
+        rows = db.fetchall(
+            """
+            SELECT filename, content, run_date, client_slug, notice_id, output_type
+              FROM pipeline_outputs
+             WHERE output_type IN ('pursuit_package', 'pursuit_package_full')
+               AND content IS NOT NULL
+             ORDER BY run_date DESC, created_at DESC
+             LIMIT 100
+            """
+        )
+    except Exception as exc:
+        logger.warning("_admin_pursuits_page query failed: %s", exc)
+        rows = []
+
+    if not rows:
+        body = (
+            f'<div class="ptitle">All Pursuit Packages (Admin)</div>'
+            f'<div class="card cb"><p style="color:var(--muted);">No packages in pipeline_outputs yet.</p></div>'
+        )
+        return _page("Pursuits — Admin", body, "pursuits")
+
+    cards = ""
+    for row in rows:
+        filename    = row["filename"]
+        run_date    = str(row["run_date"])
+        slug        = row.get("client_slug") or "unknown"
+        notice_id   = row.get("notice_id") or "—"
+        full_label  = " (Full)" if row.get("output_type") == "pursuit_package_full" else ""
+        name        = Path(filename).stem.replace("_", " ").title()
+        view_url    = url_for("serve_artefact_file", client_slug=slug,
+                               filepath=f"{run_date}/{filename}")
+        cards += (
+            f'<div class="fc">'
+            f'<div class="fct">{name}{full_label}</div>'
+            f'<div class="fcd">{run_date} &middot; {slug} &middot; notice {_safe(notice_id)}</div>'
+            f'<div class="fca">'
+            f'<a href="{view_url}" target="_blank" class="btn bg-gold sm">View</a>'
+            f'<a href="{view_url}?dl=1" class="btn bg-out sm">Download</a>'
+            f'</div></div>'
+        )
+
+    body = (
+        f'<div class="ptitle">All Pursuit Packages (Admin)</div>'
+        f'<div class="psub">{len(rows)} package{"s" if len(rows)!=1 else ""} across all clients</div>'
+        f'<div class="fgrid">{cards}</div>'
+    )
+    return _page("Pursuits — Admin", body, "pursuits")
 
 
 @app.route("/groundwork/competitors")
