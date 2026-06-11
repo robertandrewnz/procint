@@ -18,6 +18,7 @@ Setup:
 from __future__ import annotations
 import argparse, json, logging, os, secrets, sys
 from datetime import date, datetime, timedelta
+from html import escape as _safe
 from decimal import Decimal
 from functools import wraps
 from pathlib import Path
