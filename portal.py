@@ -132,6 +132,16 @@ config.ensure_output_dirs()
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _nzt_today() -> str:
+    """Return today's date in NZ time (Pacific/Auckland) as an ISO string."""
+    try:
+        import pytz as _pytz
+        from datetime import datetime as _dt
+        return _dt.now(_pytz.timezone('Pacific/Auckland')).date().isoformat()
+    except ImportError:
+        return date.today().isoformat()
+
+
 def _slug(s: str) -> str:
     import re
     return re.sub(r"[^\w]", "_", s.lower())[:40]
@@ -399,7 +409,7 @@ def _watchlist_summary(
         return {"top_notices": notices,
                 "flags": [dict(f) for f in flags],
                 "total": total["n"] if total else 0,
-                "run_date": date.today().isoformat(),
+                "run_date": _nzt_today(),
                 "preferred_sectors": preferred_sectors or []}
     except Exception as exc:
         logger.error("watchlist_summary: %s", exc)
@@ -3598,7 +3608,7 @@ def gw_watchlist():
                 '<div class="card cb"><p style="color:var(--muted);">No watchlist yet. Run Layer 1 pipeline.</p></div>')
         return _page("Watchlist", body, "watchlist")
 
-    run_date = date.today().isoformat()
+    run_date = _nzt_today()
 
     # ── Sector filter bar HTML ─────────────────────────────────────────────────
     sector_pills = (
@@ -3629,7 +3639,13 @@ def gw_watchlist():
         f'background:none;border:none;font-size:1rem;color:var(--muted);cursor:pointer;'
         f'line-height:1;padding:.1rem .3rem;">&#215;</button>'
         f'</div>'
-        # Sector pills (below search)
+        # Sort toggle (between search and sector pills)
+        f'<div style="display:flex;align-items:center;gap:.45rem;margin-bottom:.55rem;">'
+        f'<span style="font-size:.72rem;color:var(--muted);font-weight:600;white-space:nowrap;">Sort:</span>'
+        f'<button id="sort-urgency" class="sf-pill sort-pill" onclick="wlSort(\'urgency\')">Urgency</button>'
+        f'<button id="sort-recent" class="sf-pill sort-pill" onclick="wlSort(\'recent\')">Recently Added</button>'
+        f'</div>'
+        # Sector pills (below sort)
         f'<div id="sf-bar" style="display:flex;flex-wrap:wrap;gap:.45rem;'
         f'padding-bottom:.85rem;margin-bottom:.25rem;">'
         f'{sector_pills}'
@@ -3693,6 +3709,33 @@ def gw_watchlist():
 
     filter_js = """<script>
 var _wlActiveSector='all', _wlSearchTerm='';
+var _wlSortMode = (sessionStorage.getItem('wl-sort') || 'urgency');
+
+var _BAND_RANK = {'10m_plus':5,'2m_10m':4,'500k_2m':3,'100k_500k':2,'under_100k':1};
+
+function wlSort(mode) {
+  _wlSortMode = mode;
+  try { sessionStorage.setItem('wl-sort', mode); } catch(e) {}
+  document.querySelectorAll('.sort-pill').forEach(function(p){ p.classList.remove('sf-active'); });
+  var btn = document.getElementById('sort-' + mode);
+  if (btn) btn.classList.add('sf-active');
+  var list = document.getElementById('wl-list');
+  if (!list) return;
+  var cards = Array.from(list.querySelectorAll('.wl-card'));
+  cards.sort(function(a, b) {
+    if (mode === 'recent') {
+      return parseInt(b.getAttribute('data-notice-id') || 0) - parseInt(a.getAttribute('data-notice-id') || 0);
+    }
+    var da = parseInt(a.getAttribute('data-dtc') || 9999);
+    var db = parseInt(b.getAttribute('data-dtc') || 9999);
+    if (da !== db) return da - db;
+    var ba = _BAND_RANK[a.getAttribute('data-value-band')] || 0;
+    var bb = _BAND_RANK[b.getAttribute('data-value-band')] || 0;
+    return bb - ba;
+  });
+  cards.forEach(function(c) { list.appendChild(c); });
+  _wlApplyFilters();
+}
 
 function _wlApplyFilters(){
   var matched=0;
@@ -3737,6 +3780,12 @@ function wlClearSearch(){
   if(clr) clr.style.display='none';
   _wlApplyFilters();
 }
+
+(function(){
+  var btn = document.getElementById('sort-' + _wlSortMode);
+  if (btn) btn.classList.add('sf-active');
+  wlSort(_wlSortMode);
+})();
 </script>"""
 
     # ── Batch-fetch all enriched fields and bidders for the pool ─────────────
@@ -3965,6 +4014,9 @@ function wlClearSearch(){
         cards_html += (
             f'<div class="wl-card" data-sector="{sector}"'
             f' data-title="{title_attr}" data-agency="{agency_attr}"'
+            f' data-dtc="{dtc if dtc is not None else 9999}"'
+            f' data-notice-id="{n.get("notice_id", "0")}"'
+            f' data-value-band="{n.get("value_band") or "unknown"}"'
             f' style="background:var(--surf);border:1px solid var(--border);'
             f'border-radius:8px;padding:.9rem 1.1rem;margin-bottom:.6rem;">'
             f'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:.75rem;">'
@@ -5616,7 +5668,7 @@ def admin_dash():
             f'<div class="stats">'
             f'<div class="stat"><div class="sval">{len(clients)}</div><div class="slbl">Active clients</div></div>'
             f'<div class="stat"><div class="sval">{n_pending}</div><div class="slbl">Pending leads</div></div>'
-            f'<div class="stat"><div class="sval">{"Today" if wl and wl.stem.endswith(date.today().isoformat()) else "—"}</div>'
+            f'<div class="stat"><div class="sval">{"Today" if wl and wl.stem.endswith(_nzt_today()) else "—"}</div>'
             f'<div class="slbl">Last watchlist</div></div></div>'
             f'<div class="card">'
             f'<div class="ch"><span class="ct">Client Accounts</span>'

@@ -166,6 +166,31 @@ def main() -> None:
     log.info("")
     log.info("✓ Cybersecurity PP updated to notice %s — %s", NOTICE_ID, row["title"])
 
+    # Run bidder inference for this notice so it shows cybersecurity firms
+    log.info("")
+    log.info("Running bidder inference for notice %s...", NOTICE_ID)
+    try:
+        from bidders import score_bidders_for_notice, _store_bidders, load_bidders
+        notice_ctx = dict(row)
+        notice_ctx["notice_id"] = NOTICE_ID
+        # Force cybersecurity sector so specialist filtering kicks in correctly
+        if not notice_ctx.get("sector_tag") or notice_ctx["sector_tag"] not in ("cybersecurity", "ICT"):
+            notice_ctx["sector_tag"] = "cybersecurity"
+        all_bidders = load_bidders()
+        bidders_result = score_bidders_for_notice(notice_ctx, all_bidders)
+        if bidders_result:
+            # Clear old bidder_pool entries for this notice first
+            db.execute("DELETE FROM bidder_pool WHERE notice_id = %s", (NOTICE_ID,))
+            _store_bidders(NOTICE_ID, bidders_result)
+            log.info("✓ Stored %d bidders for notice %s:", len(bidders_result), NOTICE_ID)
+            for b in bidders_result[:6]:
+                log.info("  %-35s  match=%s", b.get("firm_name", ""), b.get("match_type", ""))
+        else:
+            log.warning("Bidder inference returned no results for notice %s", NOTICE_ID)
+            log.warning("  Check that cybersecurity firms exist in bidders.csv with specialist_flags=cybersecurity")
+    except Exception as exc:
+        log.error("Bidder inference failed: %s", exc, exc_info=True)
+
 
 if __name__ == "__main__":
     main()

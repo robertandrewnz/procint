@@ -352,4 +352,54 @@ def run_parsing() -> int:
             logger.warning("Failed to parse notice %s: %s", raw.get("notice_id"), exc)
 
     logger.info("Parsing complete: %d notices parsed", count)
+
+    # Reclassify recent notices in case keywords were updated
+    changed = reclassify_recent(days=14)
+    if changed:
+        logger.info("Reclassified %d recently-parsed notices with updated keywords", changed)
+
     return count
+
+
+def reclassify_recent(days: int = 14) -> int:
+    """
+    Re-run sector classification on notices parsed in the last N days.
+    Updates sector_tag where classification has changed under the current keywords.
+    Returns count of updated rows.
+    """
+    from datetime import timedelta
+    cutoff = date.today() - timedelta(days=days)
+    rows = db.fetchall(
+        """
+        SELECT r.notice_id, r.title, r.category_raw,
+               r.description, r.overview_text,
+               p.sector_tag AS current_sector
+          FROM raw_notices r
+          JOIN parsed_notices p ON p.notice_id = r.notice_id
+         WHERE p.parsed_at >= %s
+        """,
+        (cutoff,),
+    )
+    changed = 0
+    for row in rows:
+        try:
+            description = row.get("overview_text") or row.get("description") or ""
+            new_sector = classify_sector(
+                row.get("title") or "",
+                row.get("category_raw") or "",
+                description,
+            )
+            if new_sector != row["current_sector"]:
+                db.execute(
+                    "UPDATE parsed_notices SET sector_tag = %s WHERE notice_id = %s",
+                    (new_sector, row["notice_id"]),
+                )
+                logger.info(
+                    "Reclassified %s: %s → %s  ('%s')",
+                    row["notice_id"], row["current_sector"], new_sector,
+                    (row.get("title") or "")[:60],
+                )
+                changed += 1
+        except Exception as exc:
+            logger.warning("Reclassify failed for %s: %s", row.get("notice_id"), exc)
+    return changed

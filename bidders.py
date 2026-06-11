@@ -174,7 +174,9 @@ def _notice_is_specialist(notice: dict) -> Optional[str]:
     if any(kw in title for kw in AEROSPACE_KWS):
         return "aerospace"
     CYBER_KWS = ["penetration test", "pen test", "soc services", "siem",
-                 "cyber incident", "vulnerability assessment", "iso 27001"]
+                 "cyber incident", "vulnerability assessment", "iso 27001",
+                 "mssp", "managed security", "security operations centre",
+                 "managed security services"]
     if any(kw in title for kw in CYBER_KWS):
         return "cybersecurity"
     LEGAL_KWS = ["legal services", "legal advice", "solicitor", "barrister",
@@ -850,7 +852,10 @@ def run_bidder_inference() -> int:
           FROM scored_notices s
           JOIN parsed_notices p ON p.notice_id = s.notice_id
           JOIN raw_notices r    ON r.notice_id = s.notice_id
-         WHERE s.composite_score >= %s
+         WHERE (
+               s.composite_score >= %s
+            OR r.category_raw ILIKE ANY(ARRAY['%%advance%%','%%NOI%%','%%notice of intent%%'])
+         )
            AND s.notice_id NOT IN (SELECT DISTINCT notice_id FROM bidder_pool)
          ORDER BY s.composite_score DESC
         """,
