@@ -4384,6 +4384,7 @@ def gw_pursuits():
 
 def _admin_pursuits_page() -> str:
     """Admin view: all pursuit packages across all clients, newest first."""
+    import traceback as _tb
     try:
         rows = db.fetchall(
             """
@@ -4396,8 +4397,15 @@ def _admin_pursuits_page() -> str:
             """
         )
     except Exception as exc:
+        _trace = _tb.format_exc()
         logger.warning("_admin_pursuits_page query failed: %s", exc)
-        rows = []
+        body = (
+            f'<div class="ptitle">All Pursuit Packages (Admin)</div>'
+            f'<div class="al al-er" style="white-space:pre-wrap;font-family:monospace;font-size:.75rem;">'
+            f'<b>DB error (admin diagnostic):</b>\n{_safe(_trace)}'
+            f'</div>'
+        )
+        return _page("Pursuits — Admin", body, "pursuits")
 
     if not rows:
         body = (
@@ -4408,23 +4416,25 @@ def _admin_pursuits_page() -> str:
 
     cards = ""
     for row in rows:
-        filename    = row["filename"]
-        run_date    = str(row["run_date"])
-        slug        = row.get("client_slug") or "unknown"
-        notice_id   = row.get("notice_id") or "—"
-        full_label  = " (Full)" if row.get("output_type") == "pursuit_package_full" else ""
-        name        = Path(filename).stem.replace("_", " ").title()
-        view_url    = url_for("serve_artefact_file", client_slug=slug,
-                               filepath=f"{run_date}/{filename}")
-        cards += (
-            f'<div class="fc">'
-            f'<div class="fct">{name}{full_label}</div>'
-            f'<div class="fcd">{run_date} &middot; {slug} &middot; notice {_safe(notice_id)}</div>'
-            f'<div class="fca">'
-            f'<a href="{view_url}" target="_blank" class="btn bg-gold sm">View</a>'
-            f'<a href="{view_url}?dl=1" class="btn bg-out sm">Download</a>'
-            f'</div></div>'
-        )
+        try:
+            filename    = row["filename"]
+            run_date    = str(row["run_date"])
+            slug        = row.get("client_slug") or "unknown"
+            notice_id   = row.get("notice_id") or "—"
+            full_label  = " (Full)" if row.get("output_type") == "pursuit_package_full" else ""
+            name        = Path(filename).stem.replace("_", " ").title()
+            view_url    = f"/groundwork/files/{slug}/{run_date}/{filename}"
+            cards += (
+                f'<div class="fc">'
+                f'<div class="fct">{name}{full_label}</div>'
+                f'<div class="fcd">{run_date} &middot; {slug} &middot; notice {_safe(notice_id)}</div>'
+                f'<div class="fca">'
+                f'<a href="{view_url}" target="_blank" class="btn bg-gold sm">View</a>'
+                f'<a href="{view_url}?dl=1" class="btn bg-out sm">Download</a>'
+                f'</div></div>'
+            )
+        except Exception as _row_exc:
+            logger.warning("_admin_pursuits_page: skipping row due to error: %s", _row_exc)
 
     body = (
         f'<div class="ptitle">All Pursuit Packages (Admin)</div>'
@@ -5948,43 +5958,53 @@ def admin_gen_bg():
     POST → kick off generation, show confirmation.
     """
     import threading as _thr
+    import traceback as _tb
 
     msg = ""
     if request.method == "POST":
-        notice_id   = request.form.get("notice_id", "").strip()
-        client_name = request.form.get("client_name", "").strip()
-        sectors_raw = request.form.get("sectors", "").strip()
-        preferred   = [s.strip() for s in sectors_raw.split(",") if s.strip()]
+        try:
+            notice_id   = request.form.get("notice_id", "").strip()
+            client_name = request.form.get("client_name", "").strip()
+            sectors_raw = request.form.get("sectors", "").strip()
+            preferred   = [s.strip() for s in sectors_raw.split(",") if s.strip()]
 
-        if not notice_id or not client_name:
-            msg = '<div class="al al-er">Notice ID and client name are required.</div>'
-        else:
-            def _run(nid, cname, sects):
-                try:
-                    from pursuit_package import generate_pursuit_package, _artefact_dir
-                    out = generate_pursuit_package(
-                        notice_id=nid,
-                        client_name=cname,
-                        output_dir=_artefact_dir(cname),
-                        preferred_sectors=sects or [],
-                    )
-                    logger.info("admin_gen_bg: done — %s", out)
-                except Exception as exc:
-                    logger.exception("admin_gen_bg: FAILED %s / %s: %s", nid, cname, exc)
+            if not notice_id or not client_name:
+                msg = '<div class="al al-er">Notice ID and client name are required.</div>'
+            else:
+                def _run(nid, cname, sects):
+                    try:
+                        from pursuit_package import generate_pursuit_package, _artefact_dir
+                        out = generate_pursuit_package(
+                            notice_id=nid,
+                            client_name=cname,
+                            output_dir=_artefact_dir(cname),
+                            preferred_sectors=sects or [],
+                        )
+                        logger.info("admin_gen_bg: done — %s", out)
+                    except Exception as exc:
+                        logger.exception("admin_gen_bg: FAILED %s / %s: %s", nid, cname, exc)
 
-            _thr.Thread(
-                target=_run,
-                args=(notice_id, client_name, preferred),
-                daemon=True,
-                name=f"admin-gen-{notice_id[:12]}",
-            ).start()
+                _thr.Thread(
+                    target=_run,
+                    args=(notice_id, client_name, preferred),
+                    daemon=True,
+                    name=f"admin-gen-{notice_id[:12]}",
+                ).start()
+                msg = (
+                    f'<div class="al al-ok">'
+                    f'Generation started in background for <strong>{_safe(client_name)}</strong> '
+                    f'/ notice <strong>{_safe(notice_id)}</strong>. '
+                    f'Allow 3-5 minutes, then check '
+                    f'<a href="/groundwork/pursuits" style="color:inherit;font-weight:700;">'
+                    f'the pursuits page</a>.'
+                    f'</div>'
+                )
+        except Exception as _exc:
+            _trace = _tb.format_exc()
+            logger.exception("admin_gen_bg POST handler error: %s", _exc)
             msg = (
-                f'<div class="al al-ok">'
-                f'Generation started in background for <strong>{_safe(client_name)}</strong> '
-                f'/ notice <strong>{_safe(notice_id)}</strong>. '
-                f'Allow 3-5 minutes, then check '
-                f'<a href="/groundwork/pursuits" style="color:inherit;font-weight:700;">'
-                f'the pursuits page</a>.'
+                f'<div class="al al-er" style="white-space:pre-wrap;font-family:monospace;font-size:.75rem;">'
+                f'<b>Diagnostic error (admin only):</b>\n{_safe(_trace)}'
                 f'</div>'
             )
 
