@@ -165,7 +165,8 @@ def run_enrichment() -> int:
                )
           AND  e.notice_id IS NULL
           AND  (r.close_date IS NULL OR r.close_date >= CURRENT_DATE)
-        ORDER  BY p.days_until_close ASC NULLS LAST, s.composite_score DESC
+        ORDER  BY CASE WHEN p.days_until_close IS NOT NULL AND p.days_until_close <= 7 THEN 0 ELSE 1 END,
+                  p.days_until_close ASC NULLS LAST
         """,
         (config.PRIORITY_THRESHOLD,),
     )

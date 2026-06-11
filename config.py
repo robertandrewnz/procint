@@ -284,7 +284,7 @@ COMPLEXITY_PHRASES: list[str] = [
 # Minimum composite score for a notice to receive Claude AI enrichment.
 # Notices with close_date within 14 days are ALWAYS enriched regardless of score
 # (urgency overrides score threshold — see enrichment.py run_enrichment()).
-PRIORITY_THRESHOLD: float = float(os.getenv("PRIORITY_THRESHOLD", "4.0"))
+PRIORITY_THRESHOLD: float = float(os.getenv("PRIORITY_THRESHOLD", "2.0"))
 
 # ── Output ────────────────────────────────────────────────────────────────────
 OUTPUT_DIR: str = os.environ.get("OUTPUT_DIR", "/app/output")

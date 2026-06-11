@@ -3936,118 +3936,134 @@ function wlClearSearch(){
         src_link = n.get("source_url", "#")
 
         # ── Detail sections ───────────────────────────────────────────────────
-        # Intelligence summary (full, not truncated)
-        if summary:
-            summary_html = f'<p style="margin:0;color:var(--text);line-height:1.6;">{summary}</p>'
-        else:
-            summary_html = '<p style="margin:0;color:var(--muted);font-style:italic;">AI summary will appear here once enrichment runs.</p>'
-
-        # Strategic framing
-        framing = n.get("strategic_framing") or ""
-        framing_html = ""
-        if framing:
-            framing_html = (
-                f'<div style="margin-top:.75rem;padding:.6rem .85rem;'
-                f'background:rgba(42,157,143,.07);border-left:3px solid var(--gold);'
-                f'border-radius:0 6px 6px 0;">'
-                f'<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;'
-                f'letter-spacing:.06em;color:var(--gold);margin-bottom:.25rem;">Strategic framing</div>'
-                f'<div style="font-size:.82rem;color:var(--text);line-height:1.55;">{framing}</div>'
-                f'</div>'
-            )
-
-        # Red flags
-        red_flags_raw = n.get("red_flags") or ""
-        flags = [f.strip() for f in red_flags_raw.split(";") if f.strip()]
-        if flags:
-            flags_html = "".join(
-                f'<div style="display:flex;gap:.5rem;align-items:flex-start;margin-bottom:.3rem;">'
-                f'<span style="color:#e05555;flex-shrink:0;font-size:.85rem;">⚠</span>'
-                f'<span style="font-size:.8rem;color:var(--text);line-height:1.5;">{f}</span></div>'
-                for f in flags
-            )
-        else:
-            flags_html = '<div style="font-size:.8rem;color:var(--muted);font-style:italic;">No red flags identified</div>'
-
-        # Recommended actions
-        actions = _recommended_actions(n)
-        if actions:
-            actions_html = "".join(
-                f'<div style="display:flex;gap:.6rem;align-items:flex-start;margin-bottom:.5rem;">'
-                f'<span style="flex-shrink:0;width:1.35rem;height:1.35rem;border-radius:50%;'
-                f'background:var(--gold);color:#fff;font-size:.68rem;font-weight:700;'
-                f'display:flex;align-items:center;justify-content:center;">{i2+1}</span>'
-                f'<span style="font-size:.8rem;color:var(--text);line-height:1.5;">{a}</span></div>'
-                for i2, a in enumerate(actions)
-            )
-        else:
-            actions_html = '<div style="font-size:.8rem;color:var(--muted);">No actions available.</div>'
-
-        # Likely bidders — use ACH renderer for ACH rows, legacy for MBIE rows
-        notice_id = n.get("notice_id", "")
-        bidders = bidders_by_notice.get(notice_id, [])
-        if bidders:
-            try:
-                from bidder_intelligence import render_ach_card
-                def _render_bidder(b):
-                    if b.get("match_type") == "ach_analysis":
-                        return render_ach_card(b)
-                    return _bidder_card(b)
-                bidders_html = "".join(_render_bidder(b) for b in bidders)
-            except Exception:
-                bidders_html = "".join(_bidder_card(b) for b in bidders)
-        else:
-            bidders_html = '<div style="font-size:.8rem;color:var(--muted);">No bidder data available.</div>'
-
-        # Meta row: value band, close date, scope
+        # Intelligence summary drives enrichment state
         value_labels = {
-            "under_100k": "< $100K", "100k_500k": "$100K–$500K",
-            "500k_2m": "$500K–$2M", "2m_10m": "$2M–$10M",
+            "under_100k": "< $100K", "100k_500k": "$100K\u2013$500K",
+            "500k_2m": "$500K\u2013$2M", "2m_10m": "$2M\u2013$10M",
             "10m_plus": "$10M+", "unknown": "Value TBC",
         }
         value_label = value_labels.get(n.get("value_band") or "unknown", "Value TBC")
         close_str = str(n.get("close_date") or "TBC")
-        scope = n.get("geographic_scope") or "—"
+        scope = n.get("geographic_scope") or "\u2014"
 
-        detail_html = (
-            f'<div style="border-top:1px solid var(--border);margin-top:.75rem;padding-top:.9rem;">'
-            # Meta row
-            f'<div style="display:flex;flex-wrap:wrap;gap:.75rem 1.5rem;'
-            f'margin-bottom:1rem;font-size:.78rem;">'
-            f'<div><span style="color:var(--muted);">Value </span>'
-            f'<strong>{value_label}</strong></div>'
-            f'<div><span style="color:var(--muted);">Close </span>'
-            f'<strong>{close_str}</strong></div>'
-            f'<div><span style="color:var(--muted);">Scope </span>'
-            f'<strong>{scope}</strong></div>'
-            f'</div>'
-            # Three-column body (stacks on mobile via flex-wrap)
-            f'<div style="display:flex;flex-wrap:wrap;gap:1.25rem;align-items:flex-start;">'
-            # Left: intelligence summary + framing + red flags
-            f'<div style="flex:2;min-width:240px;">'
-            f'<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;'
-            f'letter-spacing:.06em;color:var(--muted);margin-bottom:.45rem;">Intelligence summary</div>'
-            f'{summary_html}'
-            f'{framing_html}'
-            f'<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;'
-            f'letter-spacing:.06em;color:var(--muted);margin:.85rem 0 .4rem;">Red flags</div>'
-            f'{flags_html}'
-            f'</div>'
-            # Middle: recommended actions
-            f'<div style="flex:1;min-width:200px;">'
-            f'<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;'
-            f'letter-spacing:.06em;color:var(--muted);margin-bottom:.45rem;">Recommended actions</div>'
-            f'{actions_html}'
-            f'</div>'
-            # Right: likely bidders
-            f'<div style="flex:1;min-width:200px;">'
-            f'<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;'
-            f'letter-spacing:.06em;color:var(--muted);margin-bottom:.45rem;">Likely bidders</div>'
-            f'{bidders_html}'
-            f'</div>'
-            f'</div>'  # end body columns
-            f'</div>'  # end detail panel
-        )
+        if not summary:
+            # Compact card for unenriched notices \u2014 show only known facts, no empty placeholders
+            detail_html = (
+                f'<div style="border-top:1px solid var(--border);margin-top:.75rem;padding-top:.9rem;">'
+                f'<div style="display:flex;flex-wrap:wrap;gap:.75rem 1.5rem;'
+                f'margin-bottom:.75rem;font-size:.78rem;">'
+                f'<div><span style="color:var(--muted);">Value </span>'
+                f'<strong>{value_label}</strong></div>'
+                f'<div><span style="color:var(--muted);">Close </span>'
+                f'<strong>{close_str}</strong></div>'
+                f'<div><span style="color:var(--muted);">Scope </span>'
+                f'<strong>{scope}</strong></div>'
+                f'</div>'
+                f'<span style="display:inline-block;font-size:.68rem;color:var(--muted);'
+                f'background:rgba(0,0,0,.06);border:1px solid var(--border);border-radius:3px;'
+                f'padding:.15rem .5rem;letter-spacing:.03em;">Summary pending</span>'
+                f'</div>'
+            )
+        else:
+            # Full intelligence card for enriched notices
+            summary_html = f'<p style="margin:0;color:var(--text);line-height:1.6;">{summary}</p>'
+
+            # Strategic framing
+            framing = n.get("strategic_framing") or ""
+            framing_html = ""
+            if framing:
+                framing_html = (
+                    f'<div style="margin-top:.75rem;padding:.6rem .85rem;'
+                    f'background:rgba(42,157,143,.07);border-left:3px solid var(--gold);'
+                    f'border-radius:0 6px 6px 0;">'
+                    f'<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;'
+                    f'letter-spacing:.06em;color:var(--gold);margin-bottom:.25rem;">Strategic framing</div>'
+                    f'<div style="font-size:.82rem;color:var(--text);line-height:1.55;">{framing}</div>'
+                    f'</div>'
+                )
+
+            # Red flags
+            red_flags_raw = n.get("red_flags") or ""
+            flags = [f.strip() for f in red_flags_raw.split(";") if f.strip()]
+            if flags:
+                flags_html = "".join(
+                    f'<div style="display:flex;gap:.5rem;align-items:flex-start;margin-bottom:.3rem;">'
+                    f'<span style="color:#e05555;flex-shrink:0;font-size:.85rem;">\u26a0</span>'
+                    f'<span style="font-size:.8rem;color:var(--text);line-height:1.5;">{f}</span></div>'
+                    for f in flags
+                )
+            else:
+                flags_html = '<div style="font-size:.8rem;color:var(--muted);font-style:italic;">No red flags identified</div>'
+
+            # Recommended actions
+            actions = _recommended_actions(n)
+            if actions:
+                actions_html = "".join(
+                    f'<div style="display:flex;gap:.6rem;align-items:flex-start;margin-bottom:.5rem;">'
+                    f'<span style="flex-shrink:0;width:1.35rem;height:1.35rem;border-radius:50%;'
+                    f'background:var(--gold);color:#fff;font-size:.68rem;font-weight:700;'
+                    f'display:flex;align-items:center;justify-content:center;">{i2+1}</span>'
+                    f'<span style="font-size:.8rem;color:var(--text);line-height:1.5;">{a}</span></div>'
+                    for i2, a in enumerate(actions)
+                )
+            else:
+                actions_html = '<div style="font-size:.8rem;color:var(--muted);">No actions available.</div>'
+
+            # Likely bidders \u2014 use ACH renderer for ACH rows, legacy for MBIE rows
+            notice_id = n.get("notice_id", "")
+            bidders = bidders_by_notice.get(notice_id, [])
+            if bidders:
+                try:
+                    from bidder_intelligence import render_ach_card
+                    def _render_bidder(b):
+                        if b.get("match_type") == "ach_analysis":
+                            return render_ach_card(b)
+                        return _bidder_card(b)
+                    bidders_html = "".join(_render_bidder(b) for b in bidders)
+                except Exception:
+                    bidders_html = "".join(_bidder_card(b) for b in bidders)
+            else:
+                bidders_html = '<div style="font-size:.8rem;color:var(--muted);">No bidder data available.</div>'
+
+            detail_html = (
+                f'<div style="border-top:1px solid var(--border);margin-top:.75rem;padding-top:.9rem;">'
+                # Meta row
+                f'<div style="display:flex;flex-wrap:wrap;gap:.75rem 1.5rem;'
+                f'margin-bottom:1rem;font-size:.78rem;">'
+                f'<div><span style="color:var(--muted);">Value </span>'
+                f'<strong>{value_label}</strong></div>'
+                f'<div><span style="color:var(--muted);">Close </span>'
+                f'<strong>{close_str}</strong></div>'
+                f'<div><span style="color:var(--muted);">Scope </span>'
+                f'<strong>{scope}</strong></div>'
+                f'</div>'
+                # Three-column body (stacks on mobile via flex-wrap)
+                f'<div style="display:flex;flex-wrap:wrap;gap:1.25rem;align-items:flex-start;">'
+                # Left: intelligence summary + framing + red flags
+                f'<div style="flex:2;min-width:240px;">'
+                f'<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;'
+                f'letter-spacing:.06em;color:var(--muted);margin-bottom:.45rem;">Intelligence summary</div>'
+                f'{summary_html}'
+                f'{framing_html}'
+                f'<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;'
+                f'letter-spacing:.06em;color:var(--muted);margin:.85rem 0 .4rem;">Red flags</div>'
+                f'{flags_html}'
+                f'</div>'
+                # Middle: recommended actions
+                f'<div style="flex:1;min-width:200px;">'
+                f'<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;'
+                f'letter-spacing:.06em;color:var(--muted);margin-bottom:.45rem;">Recommended actions</div>'
+                f'{actions_html}'
+                f'</div>'
+                # Right: likely bidders
+                f'<div style="flex:1;min-width:200px;">'
+                f'<div style="font-size:.7rem;font-weight:700;text-transform:uppercase;'
+                f'letter-spacing:.06em;color:var(--muted);margin-bottom:.45rem;">Likely bidders</div>'
+                f'{bidders_html}'
+                f'</div>'
+                f'</div>'  # end body columns
+                f'</div>'  # end detail panel
+            )
 
         notice_id = n.get("notice_id", "")
         title_attr = (n.get("title") or "").replace('"', '&quot;')
