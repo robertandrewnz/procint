@@ -184,24 +184,55 @@ def _get_client_history(client_name: str, sector: str, agency: str) -> dict:
     }
 
 
-def _detect_incumbent(agency: str, sector: str) -> Optional[dict]:
-    """Who most recently won a contract from this agency in this sector."""
-    agency_word = agency.split()[0] if agency else ""
-    return db.fetchone(
-        """
-        SELECT s.business_name, n.awarded_date, n.awarded_amount, n.title
-          FROM mbie_award_notices n
-          JOIN mbie_award_suppliers s ON s.rfx_id = n.rfx_id
-          JOIN mbie_award_categories c ON c.rfx_id = n.rfx_id
-         WHERE n.is_awarded
-           AND LOWER(n.posting_agency) LIKE LOWER(%s)
-           AND c.sector_tag = %s
-           AND s.business_name NOT IN ('', 'NULL')
-         ORDER BY n.awarded_date DESC NULLS LAST
-         LIMIT 1
-        """,
-        (f"%{agency_word}%", sector),
-    )
+def _extract_doc_incumbent(
+    extra_docs: list[dict], agency: str, notice_title: str
+) -> Optional[str]:
+    """
+    Scan uploaded tender documents for named technology vendors, platforms, or systems.
+    Returns a short descriptive string (max 600 chars), or None.
+    """
+    if not extra_docs:
+        return None
+    try:
+        client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+        doc_parts = []
+        for doc in extra_docs[:3]:
+            text = (doc.get("text") or "").strip()[:4000]
+            doc_parts.append(
+                f"--- {doc.get('file_name', 'Document')} ---\n{text}"
+            )
+        docs_block = "\n\n".join(doc_parts)
+        query = (
+            f"Read these tender documents from {agency} (tender: '{notice_title}') "
+            f"and identify any existing technology platform, software system, or service "
+            f"provider that is currently in use or being replaced/migrated from.\n\n"
+            f"Look for: references to current systems, existing providers, platforms "
+            f"being replaced, current vendors, or systems already deployed at this agency.\n\n"
+            f"If found, state: the system/product name, who makes it (include parent company "
+            f"if it was acquired), and any NZ distributor or delivery partner mentioned.\n"
+            f"Format: '[System/Product] by [Vendor/Parent Company], NZ partner: [NZ Partner] "
+            f"— [brief context from document]'.\n"
+            f"If no current system or vendor is mentioned in the documents, respond only with: "
+            f"'No incumbent identified.'\n\n"
+            f"{docs_block}"
+        )
+        msg = client.messages.create(
+            model=config.CLAUDE_MODEL_L3,
+            max_tokens=400,
+            messages=[{"role": "user", "content": query}],
+        )
+        result_parts = [
+            block.text.strip()
+            for block in msg.content
+            if hasattr(block, "text") and block.text
+        ]
+        result = " ".join(result_parts).strip()
+        if result and "no incumbent identified" not in result.lower() and len(result) > 20:
+            logger.info("_extract_doc_incumbent found for %s: %s", agency, result[:80])
+            return result[:600]
+    except Exception as exc:
+        logger.warning("_extract_doc_incumbent failed for %s: %s", agency, exc)
+    return None
 
 
 def _get_agency_stats(agency: str, sector: str) -> dict:
@@ -448,7 +479,7 @@ Historical winners of similar contracts ({sector} sector, same agency or similar
 {competitors_text}
 
 === INCUMBENT INTELLIGENCE ===
-Most recent winner from {agency} in {sector}: {incumbent_text}
+Current technology system/provider for {agency} ({sector} sector): {incumbent_text}
 
 === AGENCY PROFILE (contract award records) ===
 Total recorded awards: {agency_total_awards} contracts worth {agency_total_value}
@@ -519,33 +550,35 @@ Return a JSON object with EXACTLY these keys:
 
 def _web_search_incumbent(agency: str, sector: str, notice_title: str) -> Optional[str]:
     """
-    Use Claude with web_search to find the current or most recent incumbent
-    supplier for this agency/sector when MBIE data has no match.
+    Use Claude with web_search to find the current system or service provider
+    for this agency. Query format: '[agency] [service type] current system provider NZ'.
     Returns a short descriptive string (max 600 chars), or None.
     """
     try:
         client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-        query = (
-            f"Search for the current or most recent incumbent supplier/contractor "
-            f"for '{agency}' in {sector} services in New Zealand government procurement. "
-            f"The specific tender is: '{notice_title}'. "
-            f"For any incumbent system, product, or supplier you identify, provide ALL of: "
-            f"(1) the specific product or system name; "
-            f"(2) the parent company that owns the product (including if it was acquired, "
-            f"e.g. 'Tyler Technologies acquired For The Record'); "
-            f"(3) the NZ distributor, local reseller, or NZ-based delivery partner if the "
-            f"parent company is a foreign company. "
+        service_type = f"{sector} services"
+        search_query = f"{agency} {service_type} current system provider NZ"
+        prompt = (
+            f"Search for: {search_query}\n\n"
+            f"Find who currently provides the {sector} system or service to {agency} "
+            f"in New Zealand. The specific tender is: '{notice_title}'.\n\n"
+            f"For any system, platform, or provider you identify, state ALL of:\n"
+            f"(1) the specific product or system name\n"
+            f"(2) the parent company (including if acquired, "
+            f"e.g. 'Tyler Technologies acquired For The Record')\n"
+            f"(3) the NZ distributor, local reseller, or NZ-based delivery partner "
+            f"if the parent company is foreign\n\n"
             f"Look for: GETS contract awards, NZ government contract registers, "
-            f"NZ supplier directories, official press releases, and NZ reseller websites. "
-            f"Format your answer as: "
-            f"'[System/Product] by [Parent Company], NZ distributor: [NZ Partner] — [contract context]'. "
-            f"If no credible incumbent evidence is found, respond only with: 'No incumbent identified.'"
+            f"official press releases, and NZ reseller websites.\n\n"
+            f"Format: '[System/Product] by [Parent Company], NZ distributor: [NZ Partner] "
+            f"— [contract context]'.\n"
+            f"If no credible evidence is found, respond only with: 'No incumbent identified.'"
         )
         msg = client.messages.create(
             model=config.CLAUDE_MODEL_L3,
             max_tokens=600,
             tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 2}],
-            messages=[{"role": "user", "content": query}],
+            messages=[{"role": "user", "content": prompt}],
         )
         result_parts = [
             block.text.strip()
@@ -578,25 +611,17 @@ def _call_claude(context: dict) -> Optional[dict]:
     else:
         competitors_text = "No government contract award records found for this agency/sector combination. Market data is limited."
 
-    # Incumbent
-    inc = context.get("incumbent")
-    if inc:
-        inc_date = str(inc.get("awarded_date", ""))[:10]
+    # Incumbent / current system (always from doc scan or web research — never MBIE data)
+    web_inc = context.get("incumbent_research")
+    if web_inc:
         incumbent_text = (
-            f"{inc['business_name']} (most recent award: {_fmt_value(inc.get('awarded_amount'))}, "
-            f"{inc_date}): {inc.get('title', '')[:80]}"
+            f"Research result: {web_inc}\n"
+            f"IMPORTANT: In competitive_narrative and incumbent_assessment, name the parent company "
+            f"and NZ distributor/reseller explicitly if they appear in the research above. "
+            f"Do not omit corporate ownership or NZ distribution chain when the data is present."
         )
     else:
-        web_inc = context.get("incumbent_research")
-        if web_inc:
-            incumbent_text = (
-                f"Web research (no MBIE match for this specific contract type): {web_inc}\n"
-                f"IMPORTANT: In competitive_narrative and incumbent_assessment, name the parent company "
-                f"and NZ distributor/reseller explicitly if they appear in the web research above. "
-                f"Do not omit corporate ownership or NZ distribution chain when the data is present."
-            )
-        else:
-            incumbent_text = "No incumbent identified in MBIE data or web research for this agency/sector."
+        incumbent_text = "No current system or provider identified from uploaded documents or web research."
 
     # Client history note
     ch = context.get("client_history", {})
@@ -1542,14 +1567,22 @@ def generate_pursuit_package(
 
     competitors = _get_competitive_landscape(agency, sector)
     client_history = _get_client_history(client_name, sector, agency)
-    incumbent = _detect_incumbent(agency, sector)
+    # Incumbent detection: scan uploaded docs first, then web search.
+    # MBIE award data is never used for named incumbent identification.
+    incumbent = None
     incumbent_research = None
-    if not incumbent:
+    if extra_docs:
+        incumbent_research = _extract_doc_incumbent(
+            extra_docs, agency, notice.get("title") or ""
+        )
+        if incumbent_research:
+            logger.info("Doc incumbent for %s: %s", agency, incumbent_research[:80])
+    if not incumbent_research:
         incumbent_research = _web_search_incumbent(
             agency, sector, notice.get("title") or ""
         )
         if incumbent_research:
-            logger.info("Incumbent web search for %s/%s: %s", agency, sector, incumbent_research[:80])
+            logger.info("Web incumbent for %s/%s: %s", agency, sector, incumbent_research[:80])
     agency_stats = _get_agency_stats(agency, sector)
     flags = _get_relevant_flags(agency, sector)
     citation = _mbie_citation(sector, agency)
@@ -1594,7 +1627,7 @@ def generate_pursuit_package(
         },
         "competitors": [dict(c) for c in competitors],
         "client_history": client_history,
-        "incumbent": dict(incumbent) if incumbent else None,
+        "incumbent": None,
         "incumbent_research": incumbent_research,
         "agency_stats": agency_stats,
         "flags": [dict(f) for f in flags],
@@ -1615,7 +1648,7 @@ def generate_pursuit_package(
     win_pos = calculate_win_position(
         notice=dict(notice),
         client_profile={"name": client_name},
-        named_incumbent=dict(incumbent) if incumbent else None,
+        named_incumbent=None,
     )
 
     # 2c. Enforce band → recommendation consistency.

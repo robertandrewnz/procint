@@ -309,7 +309,7 @@ def _list_artefacts(
         try:
             rows = db.fetchall(
                 """
-                SELECT filename, content, run_date
+                SELECT id, filename, content, run_date
                   FROM pipeline_outputs
                  WHERE output_type = ANY(%s)
                    AND client_slug = %s
@@ -339,6 +339,8 @@ def _list_artefacts(
                     "date": run_date,
                     "size_kb": len(row["content"].encode("utf-8")) // 1024,
                     "has_pdf": False,
+                    "db_id": row.get("id"),
+                    "filename": filename,
                 })
         except Exception as exc:
             logger.warning("_list_artefacts DB fallback failed: %s", exc)
@@ -4201,6 +4203,7 @@ def _artefact_page(
     empty_msg: str,
     active: str,
     db_output_types: list = None,
+    allow_delete: bool = False,
 ) -> str:
     files = _list_artefacts(current_user.slug, pattern, db_output_types)
     if not files:
@@ -4220,7 +4223,18 @@ def _artefact_page(
             pdf_url  = url_for("serve_artefact_file",
                                client_slug=current_user.slug, filepath=pdf_path)
             pdf_btn = f'<a href="{pdf_url}" target="_blank" class="btn bg-out sm">PDF</a>'
-        cards += (f'<div class="fc">'
+        db_id = f.get("db_id")
+        fname = f.get("filename", "")
+        slug  = current_user.slug
+        del_btn = ""
+        if allow_delete and (db_id or fname):
+            card_id = f"pcard-{db_id}" if db_id else f"pcard-{fname}"
+            del_btn = (
+                f'<button class="btn bg-ghost sm" style="color:#e05555;" '
+                f'onclick="deletePursuit({db_id or \'null\'},\'{_safe(fname)}\',\'{_safe(slug)}\',\'{card_id}\')">'
+                f'Delete</button>'
+            )
+        cards += (f'<div class="fc" id="{f"pcard-{db_id}" if db_id else f"pcard-{fname}"}">'
                   f'<div class="fct">{f["name"]}</div>'
                   f'<div class="fcd">{f["date"]} &middot; {f["size_kb"]}KB</div>'
                   f'<div class="fca">'
@@ -4229,12 +4243,34 @@ def _artefact_page(
                   f'{pdf_btn}'
                   f'<button class="btn bg-ghost sm" '
                   f'onclick="share(\'{f["rel_path"]}\',\'{f["name"]}\')">Share &#128279;</button>'
+                  f'{del_btn}'
                   f'</div></div>')
+
+    delete_js = ""
+    if allow_delete:
+        delete_js = """
+<script>
+function deletePursuit(id, filename, slug, cardId) {
+  if (!confirm('Delete this pursuit package? This cannot be undone.')) return;
+  fetch('/groundwork/pursuits/delete', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({id: id, filename: filename, client_slug: slug})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      var el = document.getElementById(cardId);
+      if (el) el.remove();
+    } else {
+      alert('Delete failed: ' + (d.error || 'unknown error'));
+    }
+  }).catch(e => alert('Delete failed: ' + e));
+}
+</script>"""
 
     body = (f'<div class="ptitle">{title}</div>'
             f'<div class="psub">{len(files)} file{"s" if len(files)!=1 else ""}</div>'
             f'<div class="fgrid">{cards}</div>'
-            f'{_SHARE_JS}')
+            f'{_SHARE_JS}{delete_js}')
     return _page(title, body, active)
 
 
@@ -4379,6 +4415,7 @@ def gw_pursuits():
         "Pursuit Packages", "*pursuit_package*.html",
         "No pursuit packages yet for your account.", "pursuits",
         db_output_types=["pursuit_package", "pursuit_package_full"],
+        allow_delete=True,
     )
 
 
@@ -4388,7 +4425,7 @@ def _admin_pursuits_page() -> str:
     try:
         rows = db.fetchall(
             """
-            SELECT filename, run_date, client_slug, notice_id, output_type,
+            SELECT id, filename, run_date, client_slug, notice_id, output_type,
                    client_name
               FROM pipeline_outputs
              WHERE output_type IN ('pursuit_package', 'pursuit_package_full')
@@ -4418,32 +4455,91 @@ def _admin_pursuits_page() -> str:
     cards = ""
     for row in rows:
         try:
+            row_id      = row["id"]
             filename    = row["filename"]
             run_date    = str(row["run_date"])
             slug        = row.get("client_slug") or "unknown"
             cname       = row.get("client_name") or slug
             notice_id   = row.get("notice_id") or "—"
             full_label  = " (Full)" if row.get("output_type") == "pursuit_package_full" else ""
-            name        = Path(filename).stem.replace("_", " ").title()
             view_url    = f"/groundwork/files/{slug}/{run_date}/{filename}"
             cards += (
-                f'<div class="fc">'
+                f'<div class="fc" id="pcard-{row_id}">'
                 f'<div class="fct">{_safe(cname)}{full_label}</div>'
                 f'<div class="fcd">{run_date} &middot; notice {_safe(notice_id)}</div>'
                 f'<div class="fca">'
                 f'<a href="{view_url}" target="_blank" class="btn bg-gold sm">View</a>'
                 f'<a href="{view_url}?dl=1" class="btn bg-out sm">Download</a>'
+                f'<button class="btn bg-ghost sm" style="color:#e05555;" '
+                f'onclick="deletePursuit({row_id},\'{_safe(filename)}\',\'{_safe(slug)}\')">Delete</button>'
                 f'</div></div>'
             )
         except Exception as _row_exc:
             logger.warning("_admin_pursuits_page: skipping row due to error: %s", _row_exc)
 
+    delete_js = """
+<script>
+function deletePursuit(id, filename, slug) {
+  if (!confirm('Delete this pursuit package? This cannot be undone.')) return;
+  fetch('/groundwork/pursuits/delete', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({id: id, filename: filename, client_slug: slug})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      var el = document.getElementById('pcard-' + id);
+      if (el) el.remove();
+    } else {
+      alert('Delete failed: ' + (d.error || 'unknown error'));
+    }
+  }).catch(e => alert('Delete failed: ' + e));
+}
+</script>"""
+
     body = (
         f'<div class="ptitle">All Pursuit Packages (Admin)</div>'
         f'<div class="psub">{len(rows)} package{"s" if len(rows)!=1 else ""} across all clients</div>'
         f'<div class="fgrid">{cards}</div>'
+        f'{delete_js}'
     )
     return _page("Pursuits — Admin", body, "pursuits")
+
+
+@app.route("/groundwork/pursuits/delete", methods=["POST"])
+@login_required
+def gw_pursuits_delete():
+    from flask import jsonify
+    data = request.get_json(silent=True) or {}
+    row_id    = data.get("id")
+    filename  = data.get("filename", "").strip()
+    client_slug = data.get("client_slug", "").strip()
+
+    if not filename or not client_slug:
+        return jsonify({"ok": False, "error": "Missing filename or client_slug"}), 400
+
+    # Non-admin users may only delete their own packages
+    if not current_user.is_admin_user and client_slug != current_user.slug:
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+
+    try:
+        if row_id:
+            db.execute(
+                "DELETE FROM pipeline_outputs WHERE id = %s",
+                (row_id,),
+            )
+        else:
+            db.execute(
+                """DELETE FROM pipeline_outputs
+                    WHERE filename = %s AND client_slug = %s
+                      AND output_type IN ('pursuit_package', 'pursuit_package_full')""",
+                (filename, client_slug),
+            )
+        logger.info("Deleted pursuit package: id=%s filename=%s slug=%s by %s",
+                    row_id, filename, client_slug, current_user.username)
+        return jsonify({"ok": True})
+    except Exception as exc:
+        logger.error("gw_pursuits_delete failed: %s", exc)
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 @app.route("/groundwork/competitors")
