@@ -4226,15 +4226,16 @@ def _artefact_page(
         db_id = f.get("db_id")
         fname = f.get("filename", "")
         slug  = current_user.slug
+        card_id = f"pcard-{db_id}" if db_id else f"pcard-{fname}"
         del_btn = ""
         if allow_delete and (db_id or fname):
-            card_id = f"pcard-{db_id}" if db_id else f"pcard-{fname}"
+            db_id_js = db_id if db_id is not None else "null"
             del_btn = (
                 f'<button class="btn bg-ghost sm" style="color:#e05555;" '
-                f'onclick="deletePursuit({db_id or \'null\'},\'{_safe(fname)}\',\'{_safe(slug)}\',\'{card_id}\')">'
+                f'onclick="deletePursuit({db_id_js},\'{_safe(fname)}\',\'{_safe(slug)}\',\'{card_id}\')">'
                 f'Delete</button>'
             )
-        cards += (f'<div class="fc" id="{f"pcard-{db_id}" if db_id else f"pcard-{fname}"}">'
+        cards += (f'<div class="fc" id="{card_id}">'
                   f'<div class="fct">{f["name"]}</div>'
                   f'<div class="fcd">{f["date"]} &middot; {f["size_kb"]}KB</div>'
                   f'<div class="fca">'
