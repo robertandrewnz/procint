@@ -4388,7 +4388,8 @@ def _admin_pursuits_page() -> str:
     try:
         rows = db.fetchall(
             """
-            SELECT filename, content, run_date, client_slug, notice_id, output_type
+            SELECT filename, run_date, client_slug, notice_id, output_type,
+                   client_name
               FROM pipeline_outputs
              WHERE output_type IN ('pursuit_package', 'pursuit_package_full')
                AND content IS NOT NULL
@@ -4420,14 +4421,15 @@ def _admin_pursuits_page() -> str:
             filename    = row["filename"]
             run_date    = str(row["run_date"])
             slug        = row.get("client_slug") or "unknown"
+            cname       = row.get("client_name") or slug
             notice_id   = row.get("notice_id") or "—"
             full_label  = " (Full)" if row.get("output_type") == "pursuit_package_full" else ""
             name        = Path(filename).stem.replace("_", " ").title()
             view_url    = f"/groundwork/files/{slug}/{run_date}/{filename}"
             cards += (
                 f'<div class="fc">'
-                f'<div class="fct">{name}{full_label}</div>'
-                f'<div class="fcd">{run_date} &middot; {slug} &middot; notice {_safe(notice_id)}</div>'
+                f'<div class="fct">{_safe(cname)}{full_label}</div>'
+                f'<div class="fcd">{run_date} &middot; notice {_safe(notice_id)}</div>'
                 f'<div class="fca">'
                 f'<a href="{view_url}" target="_blank" class="btn bg-gold sm">View</a>'
                 f'<a href="{view_url}?dl=1" class="btn bg-out sm">Download</a>'

@@ -201,23 +201,54 @@ def save_output(
     storage_path: Optional[str] = None,
 ) -> None:
     """Upsert a generated artefact into pipeline_outputs."""
-    execute(
-        """
-        INSERT INTO pipeline_outputs
-               (output_type, run_date, filename, content, content_bytes,
-                client_slug, client_name, notice_id, storage_path)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (output_type, run_date, filename) DO UPDATE
-          SET content       = EXCLUDED.content,
-              content_bytes = EXCLUDED.content_bytes,
-              storage_path  = EXCLUDED.storage_path,
-              client_slug   = EXCLUDED.client_slug,
-              client_name   = EXCLUDED.client_name,
-              notice_id     = EXCLUDED.notice_id
-        """,
-        (output_type, run_date, filename, content, content_bytes,
-         client_slug, client_name, notice_id, storage_path),
-    )
+    try:
+        execute(
+            """
+            INSERT INTO pipeline_outputs
+                   (output_type, run_date, filename, content, content_bytes,
+                    client_slug, client_name, notice_id, storage_path)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (output_type, run_date, filename) DO UPDATE
+              SET content       = EXCLUDED.content,
+                  content_bytes = EXCLUDED.content_bytes,
+                  storage_path  = EXCLUDED.storage_path,
+                  client_slug   = EXCLUDED.client_slug,
+                  client_name   = EXCLUDED.client_name,
+                  notice_id     = EXCLUDED.notice_id
+            """,
+            (output_type, run_date, filename, content, content_bytes,
+             client_slug, client_name, notice_id, storage_path),
+        )
+    except Exception as _exc:
+        # If the client_name column hasn't been added yet (e.g. ensure_tables
+        # hasn't run on this deployment), fall back to the insert without it.
+        if "client_name" in str(_exc):
+            logger.warning(
+                "save_output: client_name column missing — retrying without it. "
+                "Run ensure_tables() to fix. Error: %s", _exc
+            )
+            execute(
+                """
+                INSERT INTO pipeline_outputs
+                       (output_type, run_date, filename, content, content_bytes,
+                        client_slug, notice_id, storage_path)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (output_type, run_date, filename) DO UPDATE
+                  SET content       = EXCLUDED.content,
+                      content_bytes = EXCLUDED.content_bytes,
+                      storage_path  = EXCLUDED.storage_path,
+                      client_slug   = EXCLUDED.client_slug,
+                      notice_id     = EXCLUDED.notice_id
+                """,
+                (output_type, run_date, filename, content, content_bytes,
+                 client_slug, notice_id, storage_path),
+            )
+        else:
+            logger.error(
+                "save_output FAILED for %s/%s/%s: %s",
+                output_type, client_slug, filename, _exc,
+            )
+            raise
 
 
 def load_output(
@@ -295,6 +326,19 @@ def ensure_tables() -> None:
     Called once from portal.py at startup. Safe to re-run — all statements
     are idempotent (CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS).
     """
+    # Run ALTER TABLE migrations first, separately, so a new column addition
+    # is always applied even if the main CREATE TABLE block has any issue.
+    _ALTER_SQL = """
+    ALTER TABLE pipeline_outputs ADD COLUMN IF NOT EXISTS client_name TEXT;
+    """
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(_ALTER_SQL)
+        logger.info("db.ensure_tables(): column migrations applied")
+    except Exception as exc:
+        logger.error("db.ensure_tables() column migration failed: %s", exc)
+
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
