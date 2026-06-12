@@ -470,6 +470,7 @@ def get_suppliers_by_sector_and_agency(
                wh.avg_contract_value,
                wh.last_win_date,
                wh.regions,
+               wh.primary_sector,
                COALESCE(aw.agency_win_count, 0) AS agency_wins
           FROM supplier_win_history wh
           LEFT JOIN agency_wins aw ON aw.business_name = wh.supplier_name
@@ -527,7 +528,8 @@ def get_suppliers_by_category(
         )
         SELECT cw.*,
                wh.avg_contract_value,
-               wh.regions
+               wh.regions,
+               wh.primary_sector
           FROM cat_wins cw
           LEFT JOIN supplier_win_history wh ON wh.supplier_name = cw.business_name
          ORDER BY agency_wins DESC, category_wins DESC

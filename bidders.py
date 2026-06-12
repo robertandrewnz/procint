@@ -261,9 +261,50 @@ def _mbie_bidders_for_notice(notice: dict) -> list[dict]:
     results = []
     today = date.today()
 
+    # Pre-compute exclusion context for this notice
+    notice_sector = sector  # the notice's sector_tag
+    excluded_for_notice = SECTOR_EXCLUSION_MATRIX.get(notice_sector, set())
+    notice_title_lower = title.lower()
+    # Physical works sectors that don't belong in advisory/services/education notices
+    _PHYSICAL_WORKS = {"construction", "roading", "civil", "infrastructure", "FM"}
+    _PHYSICAL_TITLE_SIGNALS = {
+        "building", "construct", "infrastructure", "roading", "maintenance",
+        "civil", "facility", "upgrade", "installation", "earthworks", "structural",
+        "bridge", "pavement", "drainage", "demolition", "fitout",
+    }
+
     for r in combined[:30]:
         name = r.get("supplier_name") or r.get("business_name") or ""
         if not name:
+            continue
+
+        # Use the firm's actual primary_sector from supplier_win_history,
+        # NOT the notice's sector_tag. This is the root-cause fix: previously
+        # results stored the notice sector, making the exclusion check in
+        # score_bidders_for_notice() always a no-op (notice sector is never
+        # in its own exclusion list).
+        firm_primary_sector = (r.get("primary_sector") or "").lower().strip()
+
+        # Cross-sector exclusion using the firm's actual sector
+        if firm_primary_sector and firm_primary_sector in excluded_for_notice:
+            logger.debug(
+                "MBIE: skipping %s (firm sector '%s' excluded from notice sector '%s', notice %s)",
+                name, firm_primary_sector, notice_sector,
+                notice.get("notice_id", ""),
+            )
+            continue
+
+        # For unclassified notices ('other'/'unknown'): exclude physical works
+        # firms unless the notice title itself is construction-related.
+        if (
+            notice_sector in ("other", "unknown", "")
+            and firm_primary_sector in _PHYSICAL_WORKS
+            and not any(sig in notice_title_lower for sig in _PHYSICAL_TITLE_SIGNALS)
+        ):
+            logger.debug(
+                "MBIE: skipping %s (physical works firm in non-construction notice: %s)",
+                name, title[:60],
+            )
             continue
 
         total_wins = int(r.get("total_wins") or r.get("category_wins") or 0)
@@ -295,7 +336,7 @@ def _mbie_bidders_for_notice(notice: dict) -> list[dict]:
 
         results.append({
             "firm_name": name,
-            "sector": sector,
+            "sector": firm_primary_sector or notice_sector,
             "size": None,  # not in MBIE data; Layer 2 may enrich from organisations table
             "strategic_importance": _importance_from_wins(agency_wins, total_wins),
             "intelligence_maturity": _maturity_from_wins(total_wins, years_since),
