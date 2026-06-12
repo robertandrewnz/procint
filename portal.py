@@ -724,6 +724,15 @@ textarea.fc2{min-height:90px;resize:vertical;}
 </style>
 """
 
+_PLAUSIBLE = (
+    '<!-- Privacy-friendly analytics by Plausible -->'
+    '<script async src="https://plausible.io/js/pa-gmqjZOhHFkswfjIvJ8cNe.js"></script>'
+    '<script>'
+    'window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};'
+    'plausible.init()'
+    '</script>'
+)
+
 
 # ── Layout helpers ────────────────────────────────────────────────────────────
 
@@ -818,8 +827,7 @@ def _page(title: str, body: str, active: str = "",
             f'<title>{title if public else f"{title} — Groundwork by BidEdge"}</title>'
             f'<link rel="icon" type="image/svg+xml" href="/static/img/bidedge-mark.svg">'
             f'<link rel="alternate icon" href="/static/img/bidedge-mark.svg">'
-            f'{CSS}'
-            f'<script defer data-domain="bidedge.co.nz" src="https://plausible.io/js/script.js"></script>'
+            f'{CSS}{_PLAUSIBLE}'
             f'</head><body>'
             f'{ham}{nav}{wrap_open}{overlay}{side}{cont_open}{flashes}{body}'
             f'{cont_close}{wrap_close}</body></html>')
