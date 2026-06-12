@@ -818,7 +818,9 @@ def _page(title: str, body: str, active: str = "",
             f'<title>{title if public else f"{title} — Groundwork by BidEdge"}</title>'
             f'<link rel="icon" type="image/svg+xml" href="/static/img/bidedge-mark.svg">'
             f'<link rel="alternate icon" href="/static/img/bidedge-mark.svg">'
-            f'{CSS}</head><body>'
+            f'{CSS}'
+            f'<script defer data-domain="bidedge.co.nz" src="https://plausible.io/js/script.js"></script>'
+            f'</head><body>'
             f'{ham}{nav}{wrap_open}{overlay}{side}{cont_open}{flashes}{body}'
             f'{cont_close}{wrap_close}</body></html>')
 
