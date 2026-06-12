@@ -160,6 +160,7 @@ CREATE TABLE IF NOT EXISTS pipeline_outputs (
     content       TEXT,
     content_bytes BYTEA,
     client_slug   TEXT,
+    client_name   TEXT,
     notice_id     TEXT,
     storage_path  TEXT,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -169,6 +170,8 @@ CREATE INDEX IF NOT EXISTS idx_pipeline_outputs_type_date
     ON pipeline_outputs (output_type, run_date DESC);
 CREATE INDEX IF NOT EXISTS idx_pipeline_outputs_storage_path
     ON pipeline_outputs (storage_path) WHERE storage_path IS NOT NULL;
+
+ALTER TABLE pipeline_outputs ADD COLUMN IF NOT EXISTS client_name TEXT;
 
 CREATE TABLE IF NOT EXISTS package_documents (
     id           SERIAL PRIMARY KEY,
@@ -193,6 +196,7 @@ def save_output(
     content: Optional[str] = None,
     content_bytes: Optional[bytes] = None,
     client_slug: Optional[str] = None,
+    client_name: Optional[str] = None,
     notice_id: Optional[str] = None,
     storage_path: Optional[str] = None,
 ) -> None:
@@ -201,17 +205,18 @@ def save_output(
         """
         INSERT INTO pipeline_outputs
                (output_type, run_date, filename, content, content_bytes,
-                client_slug, notice_id, storage_path)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                client_slug, client_name, notice_id, storage_path)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (output_type, run_date, filename) DO UPDATE
           SET content       = EXCLUDED.content,
               content_bytes = EXCLUDED.content_bytes,
               storage_path  = EXCLUDED.storage_path,
               client_slug   = EXCLUDED.client_slug,
+              client_name   = EXCLUDED.client_name,
               notice_id     = EXCLUDED.notice_id
         """,
         (output_type, run_date, filename, content, content_bytes,
-         client_slug, notice_id, storage_path),
+         client_slug, client_name, notice_id, storage_path),
     )
 
 

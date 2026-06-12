@@ -46,13 +46,22 @@ def _score_to_band(score: int) -> dict:
 
 # ── Factor scorers ────────────────────────────────────────────────────────────
 
-def _f1_incumbent_strength(agency: str, sector: str) -> tuple[int, str]:
+def _f1_incumbent_strength(agency: str, sector: str, named_incumbent: Optional[dict] = None) -> tuple[int, str]:
     """
-    How many times has the same/related supplier won with this specific agency
-    in this category.
-    Score: 0 (no incumbent) → −3 (5+ wins with this agency).
+    Incumbent strength based on a named incumbent identified from MBIE award data.
+    If no named incumbent exists for this specific contract type, score is neutral (0).
+    Agency loyalty patterns are a separate factor (_f2_agency_loyalty) — do not conflate.
     """
+    if not named_incumbent:
+        return (0, "No named incumbent identified for this specific contract type — incumbent signal neutral")
+
+    supplier_name = named_incumbent.get("business_name", "")
+    if not supplier_name:
+        return (0, "Incumbent record found but supplier name missing — treating as neutral")
+
+    supplier_word = supplier_name.split()[0]
     agency_word = agency.split()[0] if agency else ""
+
     row = db.fetchone(
         """
         SELECT COUNT(DISTINCT n.rfx_id) AS wins
@@ -62,18 +71,18 @@ def _f1_incumbent_strength(agency: str, sector: str) -> tuple[int, str]:
          WHERE n.is_awarded
            AND LOWER(n.posting_agency) LIKE LOWER(%s)
            AND c.sector_tag = %s
-           AND s.business_name NOT IN ('', 'NULL')
+           AND LOWER(s.business_name) LIKE LOWER(%s)
         """,
-        (f"%{agency_word}%", sector),
+        (f"%{agency_word}%", sector, f"%{supplier_word}%"),
     )
     wins = int((row or {}).get("wins") or 0)
     if wins == 0:
-        return (0, "No incumbent detected for this agency/sector")
+        return (-1, f"Named incumbent ({supplier_name}) — no prior wins recorded with this buyer in this sector")
     if wins >= 5:
-        return (-3, f"Strong incumbent: {wins} wins with this buyer in {sector}")
+        return (-3, f"Strong incumbent: {supplier_name} — {wins} wins with this buyer in {sector}")
     if wins >= 3:
-        return (-2, f"Established incumbent: {wins} wins with this buyer in {sector}")
-    return (-1, f"Possible incumbent: {wins} prior win(s) with this buyer in {sector}")
+        return (-2, f"Established incumbent: {supplier_name} — {wins} wins with this buyer in {sector}")
+    return (-1, f"Possible incumbent: {supplier_name} — {wins} prior win(s) with this buyer in {sector}")
 
 
 def _f2_agency_loyalty(agency: str) -> tuple[int, str]:
@@ -289,14 +298,22 @@ def _f8_strategic_alignment(sector: str, agency: str) -> tuple[int, str]:
 
 # ── Main function ─────────────────────────────────────────────────────────────
 
-def calculate_win_position(notice: dict, client_profile: dict) -> dict:
+def calculate_win_position(
+    notice: dict,
+    client_profile: dict,
+    named_incumbent: Optional[dict] = None,
+) -> dict:
     """
     Score all 8 factors and return a win position assessment.
 
     Args:
-        notice:         Dict with at minimum: sector_tag, agency, days_until_close,
-                        value_band, evaluation_criteria.
-        client_profile: Dict with at minimum: name (client firm name).
+        notice:           Dict with at minimum: sector_tag, agency, days_until_close,
+                          value_band, evaluation_criteria.
+        client_profile:   Dict with at minimum: name (client firm name).
+        named_incumbent:  The result of _detect_incumbent() — a dict with business_name,
+                          awarded_date, etc., or None if no named incumbent was found.
+                          When None, f1_incumbent_strength returns neutral (0) rather than
+                          using aggregate contract counts as a proxy.
 
     Returns:
         {
@@ -317,8 +334,8 @@ def calculate_win_position(notice: dict, client_profile: dict) -> dict:
     client  = client_profile.get("name") or ""
 
     factor_fns = [
-        ("Incumbent strength",     lambda: _f1_incumbent_strength(agency, sector)),
-        ("Agency loyalty",         lambda: _f2_agency_loyalty(agency)),
+        ("Incumbent strength",     lambda: _f1_incumbent_strength(agency, sector, named_incumbent)),
+        ("Agency loyalty pattern", lambda: _f2_agency_loyalty(agency)),
         ("Market concentration",   lambda: _f3_market_concentration(sector)),
         ("Client history",         lambda: _f4_client_history(client, sector, agency)),
         ("Timing",                 lambda: _f5_timing(dtc)),

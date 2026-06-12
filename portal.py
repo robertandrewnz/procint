@@ -4861,6 +4861,19 @@ def gw_pursuit_upgrade():
     notice_title  = (nrow or {}).get("title") or notice_id
     notice_agency = (nrow or {}).get("agency") or ""
 
+    # Resolve the client organisation name from the original package record, not from
+    # the session user. The client_slug comes from the query parameter; client_name
+    # was stored in pipeline_outputs when the original package was generated.
+    org_row = db.fetchone(
+        """
+        SELECT client_name FROM pipeline_outputs
+         WHERE notice_id = %s AND client_slug = %s AND client_name IS NOT NULL
+         ORDER BY created_at DESC LIMIT 1
+        """,
+        (notice_id, client_slug),
+    )
+    resolved_client_name = (org_row or {}).get("client_name") or ""
+
     msg = ""
     if request.method == "POST":
         uploaded_files = request.files.getlist("docs")
@@ -5005,7 +5018,7 @@ def gw_pursuit_upgrade():
         f'and download documents from the tender\'s Documents tab.'
         f'</div>'
         f'<form method="POST" enctype="multipart/form-data" id="upgrade-form">'
-        f'<input type="hidden" name="client_org" value="{_safe(current_user.name)}">'
+        f'<input type="hidden" name="client_org" value="{_safe(resolved_client_name)}">'
         f'<div class="fg">'
         f'<label class="fl">Select documents to upload *</label>'
         f'<div id="drop-zone" style="border:2px dashed var(--border);border-radius:8px;'

@@ -490,7 +490,7 @@ Return a JSON object with EXACTLY these keys:
   "why_it_dominates": 2-3 sentences explaining why this factor outweighs all others based on agency history and notice characteristics. Reference specific data.
   "strategic_implication": One sentence on what this means for how {client_name} should allocate bid resources.
 
-"competitive_narrative": 3-4 paragraph analytical narrative covering: (1) the realistic competitive field for this specific contract — not a generic sector list, name actual firms where data exists; (2) the incumbent risk assessment including both disclosed incumbents (from award history) and undisclosed incumbents (platform vendors, direct engagements, informal relationships that wouldn't appear in award data); (3) the key competitive dynamic — what will actually determine who wins and where genuine differentiation opportunity exists; (4) any sector-specific competitive patterns relevant to this contract type. Be specific — not "several firms may bid" but analytical conclusions with reasoning.
+"competitive_narrative": 3-4 paragraph analytical narrative covering: (1) the realistic competitive field for this specific contract — not a generic sector list, name actual firms where data exists; (2) the incumbent risk assessment — CRITICAL RULE: distinguish clearly between (a) a named incumbent supplier identified from MBIE award data or web research for THIS specific contract type, and (b) the agency's general repeat supplier rate (agency loyalty pattern). If no named incumbent is identified for this contract type, do not use the agency loyalty rate as a proxy for incumbent risk — treat it as a market entry barrier signal only, not evidence of a specific entrenched supplier. If incumbent intelligence names a parent company and/or NZ distributor (e.g. "For The Record by Tyler Technologies, NZ distributor: Vega NZ"), name all entities explicitly in this section — do not collapse to just the product name; (3) the key competitive dynamic — what will actually determine who wins and where genuine differentiation opportunity exists; (4) any sector-specific competitive patterns relevant to this contract type. Be specific — not "several firms may bid" but analytical conclusions with reasoning.
 
 "ach_table": Array of 3-4 objects, each representing a hypothesis about WHO WINS THIS PROCUREMENT AND WHY — modelling the competitive field, not the client's success. Each object has:
   "hypothesis": String framing a competitive outcome (e.g. "Incumbent retains contract on relationship strength", "New entrant displaces incumbent by competing on total cost of ownership", "Panel shortlist favours established IT panel suppliers"). CRITICAL: Do NOT frame any hypothesis as "{client_name} successfully [does X]" or name {client_name} as the subject of a hypothesis. The ACH models who wins in the market — {client_name} can read where they fit, but must not be named as a hypothesis subject.
@@ -500,7 +500,7 @@ Return a JSON object with EXACTLY these keys:
   Plus one final object: {{"hypothesis": "Most discriminating factor", "evidence_for": ["The single piece of intelligence that would most change the probability assessment — one specific data point or event"], "evidence_against": [], "probability": "N/A"}}
   CRITICAL: Every hypothesis must trace back to something mentioned in competitive_narrative. Do not introduce hypotheses here that weren't flagged in the narrative. Internal consistency is mandatory.
 
-"incumbent_assessment": One paragraph. How entrenched the incumbent is and what it would take to displace them.
+"incumbent_assessment": One paragraph. How entrenched the incumbent is and what it would take to displace them. If the incumbent intelligence names a parent company and NZ distributor (e.g. "For The Record by Tyler Technologies, distributed by Vega NZ"), identify all named entities and the competitive dynamics they create (e.g. a foreign-owned system with a local distributor creates different displacement dynamics than a locally-owned solution). If no named incumbent exists, state that clearly — do not characterise agency loyalty statistics as incumbent entrenchment.
 
 "agency_insights": One to two paragraphs. What this buyer values, how they procure, and what the data reveals about their evaluation behaviour.
 
@@ -529,15 +529,21 @@ def _web_search_incumbent(agency: str, sector: str, notice_title: str) -> Option
             f"Search for the current or most recent incumbent supplier/contractor "
             f"for '{agency}' in {sector} services in New Zealand government procurement. "
             f"The specific tender is: '{notice_title}'. "
-            f"Look for: recent GETS contract awards, NZ government contract registers, "
-            f"supplier press releases, or annual reports. "
-            f"If you find a named incumbent, respond with: "
-            f"'[Supplier Name] — [brief context of the contract/relationship]'. "
-            f"If no credible evidence is found, respond with: 'No incumbent identified.'"
+            f"For any incumbent system, product, or supplier you identify, provide ALL of: "
+            f"(1) the specific product or system name; "
+            f"(2) the parent company that owns the product (including if it was acquired, "
+            f"e.g. 'Tyler Technologies acquired For The Record'); "
+            f"(3) the NZ distributor, local reseller, or NZ-based delivery partner if the "
+            f"parent company is a foreign company. "
+            f"Look for: GETS contract awards, NZ government contract registers, "
+            f"NZ supplier directories, official press releases, and NZ reseller websites. "
+            f"Format your answer as: "
+            f"'[System/Product] by [Parent Company], NZ distributor: [NZ Partner] — [contract context]'. "
+            f"If no credible incumbent evidence is found, respond only with: 'No incumbent identified.'"
         )
         msg = client.messages.create(
             model=config.CLAUDE_MODEL_L3,
-            max_tokens=400,
+            max_tokens=600,
             tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 2}],
             messages=[{"role": "user", "content": query}],
         )
@@ -583,7 +589,12 @@ def _call_claude(context: dict) -> Optional[dict]:
     else:
         web_inc = context.get("incumbent_research")
         if web_inc:
-            incumbent_text = f"Web research: {web_inc}"
+            incumbent_text = (
+                f"Web research (no MBIE match for this specific contract type): {web_inc}\n"
+                f"IMPORTANT: In competitive_narrative and incumbent_assessment, name the parent company "
+                f"and NZ distributor/reseller explicitly if they appear in the web research above. "
+                f"Do not omit corporate ownership or NZ distribution chain when the data is present."
+            )
         else:
             incumbent_text = "No incumbent identified in MBIE data or web research for this agency/sector."
 
@@ -1604,6 +1615,7 @@ def generate_pursuit_package(
     win_pos = calculate_win_position(
         notice=dict(notice),
         client_profile={"name": client_name},
+        named_incumbent=dict(incumbent) if incumbent else None,
     )
 
     # 2c. Enforce band → recommendation consistency.
@@ -1673,7 +1685,8 @@ def generate_pursuit_package(
     _db.save_output(
         output_type, date.today(), filename,
         content=html, storage_path=storage_path,
-        client_slug=client_slug_val, notice_id=notice_id,
+        client_slug=client_slug_val, client_name=client_name,
+        notice_id=notice_id,
     )
 
     return out_path
