@@ -264,29 +264,65 @@ def _mbie_bidders_for_notice(notice: dict) -> list[dict]:
     # Pre-compute exclusion context for this notice
     notice_sector = sector  # the notice's sector_tag
     excluded_for_notice = SECTOR_EXCLUSION_MATRIX.get(notice_sector, set())
+    excluded_lower = {e.lower() for e in excluded_for_notice}
     notice_title_lower = title.lower()
-    # Physical works sectors that don't belong in advisory/services/education notices
-    _PHYSICAL_WORKS = {"construction", "roading", "civil", "infrastructure", "FM"}
+    notice_desc_lower = (notice.get("description") or "")[:600].lower()
+    notice_text_lower = notice_title_lower + " " + notice_desc_lower
+
+    # Physical-works taxonomy (all lowercase for comparison against lowercased firm sector)
+    _PHYSICAL_WORKS = {"construction", "roading", "civil", "infrastructure", "fm"}
+    # Title/description signals that a notice involves physical works
     _PHYSICAL_TITLE_SIGNALS = {
         "building", "construct", "infrastructure", "roading", "maintenance",
         "civil", "facility", "upgrade", "installation", "earthworks", "structural",
         "bridge", "pavement", "drainage", "demolition", "fitout",
     }
+    # UNSPSC category description keywords indicating physical-works specialist
+    _PHYSICAL_CAT_SIGNALS = {
+        "road", "highway", "roading", "bridge", "civil eng", "civil con",
+        "construction", "surfacing", "paving", "earthwork", "drainage work",
+        "demolition", "excavat", "geotechnical", "structural steel",
+        "land development", "water and sewer", "pipeline",
+    }
+    # Signals that a notice is for services/advisory/technology (no physical works)
+    _SERVICES_SIGNALS = {
+        "advisory", "consulting", "professional services", "management services",
+        "strategy", "research", "analysis", "training", "audit",
+        "software", "ict", "it services", "digital", "technology",
+        "platform", "system development", "application", "data", "cyber",
+        "recruitment", "legal services", "financial services",
+    }
+
+    notice_is_physical = any(sig in notice_text_lower for sig in _PHYSICAL_TITLE_SIGNALS)
+    notice_is_services = (
+        not notice_is_physical
+        and any(sig in notice_text_lower for sig in _SERVICES_SIGNALS)
+    )
 
     for r in combined[:30]:
         name = r.get("supplier_name") or r.get("business_name") or ""
         if not name:
             continue
 
-        # Use the firm's actual primary_sector from supplier_win_history,
-        # NOT the notice's sector_tag. This is the root-cause fix: previously
-        # results stored the notice sector, making the exclusion check in
-        # score_bidders_for_notice() always a no-op (notice sector is never
-        # in its own exclusion list).
-        firm_primary_sector = (r.get("primary_sector") or "").lower().strip()
+        # Get the firm's actual primary_sector from supplier_win_history.
+        # Keep original case for storage (so downstream _firm_is_excluded() can
+        # match against SECTOR_EXCLUSION_MATRIX which uses mixed case like "FM","ICT").
+        # Use a separate lowercase var for internal comparisons.
+        firm_primary_sector = (r.get("primary_sector") or "").strip()
+        firm_ps_lower = firm_primary_sector.lower()
 
-        # Cross-sector exclusion using the firm's actual sector
-        if firm_primary_sector and firm_primary_sector in excluded_for_notice:
+        # Detect physical-works firm via matched_categories when primary_sector is absent
+        firm_categories = r.get("matched_categories") or []
+        if isinstance(firm_categories, str):
+            firm_categories = [firm_categories]
+        cat_text = " ".join(c.lower() for c in firm_categories if isinstance(c, str))
+        firm_is_physical = (
+            firm_ps_lower in _PHYSICAL_WORKS
+            or (cat_text and any(sig in cat_text for sig in _PHYSICAL_CAT_SIGNALS))
+        )
+
+        # Rule 1: cross-sector exclusion via matrix (case-insensitive)
+        if firm_ps_lower and firm_ps_lower in excluded_lower:
             logger.debug(
                 "MBIE: skipping %s (firm sector '%s' excluded from notice sector '%s', notice %s)",
                 name, firm_primary_sector, notice_sector,
@@ -294,15 +330,23 @@ def _mbie_bidders_for_notice(notice: dict) -> list[dict]:
             )
             continue
 
-        # For unclassified notices ('other'/'unknown'): exclude physical works
-        # firms unless the notice title itself is construction-related.
+        # Rule 2: physical-works firm in a services/advisory/tech notice
+        if firm_is_physical and notice_is_services:
+            logger.debug(
+                "MBIE: skipping %s (physical-works firm in services notice: %s)",
+                name, title[:60],
+            )
+            continue
+
+        # Rule 3: for unclassified notices ('other'/'unknown'), exclude physical-works
+        # firms unless the notice title/description itself is construction-related.
         if (
             notice_sector in ("other", "unknown", "")
-            and firm_primary_sector in _PHYSICAL_WORKS
-            and not any(sig in notice_title_lower for sig in _PHYSICAL_TITLE_SIGNALS)
+            and firm_is_physical
+            and not notice_is_physical
         ):
             logger.debug(
-                "MBIE: skipping %s (physical works firm in non-construction notice: %s)",
+                "MBIE: skipping %s (physical-works firm in unclassified non-construction notice: %s)",
                 name, title[:60],
             )
             continue
@@ -336,7 +380,7 @@ def _mbie_bidders_for_notice(notice: dict) -> list[dict]:
 
         results.append({
             "firm_name": name,
-            "sector": firm_primary_sector or notice_sector,
+            "sector": firm_primary_sector or notice_sector,  # original case so _firm_is_excluded() can match the matrix
             "size": None,  # not in MBIE data; Layer 2 may enrich from organisations table
             "strategic_importance": _importance_from_wins(agency_wins, total_wins),
             "intelligence_maturity": _maturity_from_wins(total_wins, years_since),
@@ -767,8 +811,12 @@ def _store_bidders(notice_id: str, bidders: list[dict]) -> None:
                 relevance_score       = COALESCE(
                     GREATEST(EXCLUDED.relevance_score, bidder_pool.relevance_score),
                     EXCLUDED.relevance_score),
-                match_type            = EXCLUDED.match_type,
-                reasoning             = EXCLUDED.reasoning
+                match_type            = CASE WHEN bidder_pool.match_type = 'ach_analysis'
+                                            THEN bidder_pool.match_type
+                                            ELSE EXCLUDED.match_type END,
+                reasoning             = CASE WHEN bidder_pool.match_type = 'ach_analysis'
+                                            THEN bidder_pool.reasoning
+                                            ELSE EXCLUDED.reasoning END
             """,
             (
                 notice_id,
