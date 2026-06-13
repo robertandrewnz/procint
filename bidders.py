@@ -99,6 +99,18 @@ SECTOR_EXCLUSION_MATRIX: dict[str, set[str]] = {
     },
 }
 
+# ── Firm-level sector overrides ───────────────────────────────────────────────
+# Maps lowercase canonical firm name → correct sector tag.
+# Used when supplier_win_history.primary_sector is wrong due to UNSPSC miscoding
+# in MBIE data (e.g. an IT firm's contracts categorised under infrastructure codes).
+# Add entries here for any known misclassifications discovered via _audit_firm_sectors.py.
+
+FIRM_SECTOR_OVERRIDES: dict[str, str] = {
+    "fusion5":        "ICT",   # ERP/Microsoft Dynamics — miscoded as infrastructure
+    "empired":        "ICT",   # IT managed services — now Revolent Group
+    "revolent group": "ICT",   # Formerly Empired; IT services
+}
+
 # ── Title-keyword exclusion triggers ──────────────────────────────────────────
 # If a notice title contains any of these phrases the named sector firms are hard-excluded.
 # This catches misclassified notices (e.g. aerospace notice tagged "infrastructure").
@@ -310,6 +322,12 @@ def _mbie_bidders_for_notice(notice: dict) -> list[dict]:
         # Use a separate lowercase var for internal comparisons.
         firm_primary_sector = (r.get("primary_sector") or "").strip()
         firm_ps_lower = firm_primary_sector.lower()
+
+        # Apply firm-level sector override for known MBIE misclassifications.
+        firm_canon_lower = canonical_name(name).lower()
+        if firm_canon_lower in FIRM_SECTOR_OVERRIDES:
+            firm_primary_sector = FIRM_SECTOR_OVERRIDES[firm_canon_lower]
+            firm_ps_lower = firm_primary_sector.lower()
 
         # Detect physical-works firm via matched_categories when primary_sector is absent
         firm_categories = r.get("matched_categories") or []
