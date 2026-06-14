@@ -356,6 +356,10 @@ def _run_fix_bidder_mismatches() -> None:
             "platform", "system development", "application", "data", "cyber",
             "recruitment", "legal services", "financial services",
         }
+        _EXCLUDED_FIRMS = {
+            "beca", "beca limited", "stantec nz", "stantec new zealand",
+            "morphum environmental",
+        }
 
         def _is_mismatch(firm_sector, notice_sector, notice_text):
             fs  = (firm_sector  or "").lower().strip()
@@ -396,6 +400,9 @@ def _run_fix_bidder_mismatches() -> None:
 
         flagged: set = set()
         for row in rows:
+            firm_lower = (row["firm_name"] or "").lower().strip()
+            if firm_lower in _EXCLUDED_FIRMS:
+                continue
             if _is_mismatch(row.get("firm_sector"), row.get("notice_sector"),
                             row.get("combined_text") or ""):
                 flagged.add(row["notice_id"])
@@ -406,13 +413,15 @@ def _run_fix_bidder_mismatches() -> None:
             logger.info("SCHEDULER: fix_bidder_mismatches — %s", summary)
         else:
             affected_ids = list(flagged)
+            _excl_list = list(_EXCLUDED_FIRMS)
             _db.execute(
                 """
                 DELETE FROM bidder_pool
                  WHERE notice_id = ANY(%s)
                    AND match_type IN ('mbie_evidence', 'csv_inferred')
+                   AND LOWER(firm_name) != ALL(%s)
                 """,
-                (affected_ids,),
+                (affected_ids, _excl_list),
             )
             notice_rows = _db.fetchall(
                 """

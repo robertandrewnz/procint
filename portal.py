@@ -6545,6 +6545,13 @@ def admin_fix_bidder_mismatches():
         "platform", "system development", "application", "data", "cyber",
         "recruitment", "legal services", "financial services",
     }
+    # Engineering consultancies / environmental firms that legitimately span sector types.
+    # Never purged wholesale — they must be reviewed and overridden individually via
+    # FIRM_SECTOR_OVERRIDES in bidders.py if reclassification is needed.
+    _EXCLUDED_FIRMS = {
+        "beca", "beca limited", "stantec nz", "stantec new zealand",
+        "morphum environmental",
+    }
 
     try:
         from bidders import SECTOR_EXCLUSION_MATRIX as _SEM
@@ -6594,6 +6601,9 @@ def admin_fix_bidder_mismatches():
         flagged: dict = {}
         for row in rows:
             nid = row["notice_id"]
+            firm_lower = (row["firm_name"] or "").lower().strip()
+            if firm_lower in _EXCLUDED_FIRMS:
+                continue
             if _is_mismatch(row.get("firm_sector"), row.get("notice_sector"),
                             row.get("combined_text") or ""):
                 if nid not in flagged:
@@ -6614,13 +6624,15 @@ def admin_fix_bidder_mismatches():
         if not affected_ids:
             return _jfy({"ok": True, "deleted": 0, "stored": 0, "empty": 0, "failed": 0})
 
+        _excl_list = list(_EXCLUDED_FIRMS)
         db.execute(
             """
             DELETE FROM bidder_pool
              WHERE notice_id = ANY(%s)
                AND match_type IN ('mbie_evidence', 'csv_inferred')
+               AND LOWER(firm_name) != ALL(%s)
             """,
-            (affected_ids,),
+            (affected_ids, _excl_list),
         )
 
         notice_rows = db.fetchall(
