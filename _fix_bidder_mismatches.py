@@ -8,6 +8,7 @@ score_bidders_for_notice() with the corrected exclusion logic so the records
 are replaced with clean data.
 
 ACH (ach_analysis) rows are NOT touched.
+Firms in _EXCLUDED_FIRMS are never purged — they must be reviewed individually.
 
 Run:
     railway run python3 _fix_bidder_mismatches.py          # dry run (report only)
@@ -39,6 +40,12 @@ _SERVICES_SIGNALS = {
     "software", "ict", "it services", "digital", "technology",
     "platform", "system development", "application", "data", "cyber",
     "recruitment", "legal services", "financial services",
+}
+# Engineering consultancies / environmental firms that legitimately span sector
+# types. Never purged wholesale — reclassify individually via FIRM_SECTOR_OVERRIDES.
+_EXCLUDED_FIRMS = {
+    "beca", "beca limited", "stantec nz", "stantec new zealand",
+    "morphum environmental",
 }
 
 
@@ -105,6 +112,9 @@ flagged_notices: dict[str, dict] = {}
 
 for row in rows:
     nid = row["notice_id"]
+    firm_lower = (row["firm_name"] or "").lower().strip()
+    if firm_lower in _EXCLUDED_FIRMS:
+        continue
     if _is_mismatch(
         row.get("firm_sector"),
         row.get("notice_sector"),
@@ -122,7 +132,7 @@ for row in rows:
             f"{row['firm_name']} (firm sector: {row.get('firm_sector') or 'unknown'})"
         )
 
-print(f"\nFlagged: {len(flagged_notices)} notices with sector-mismatched bidders\n")
+print(f"\nFlagged (excluding protected firms): {len(flagged_notices)} notices with sector-mismatched bidders\n")
 
 if not flagged_notices:
     print("Nothing to fix.")
@@ -147,19 +157,22 @@ if not FIX_MODE:
 
 print("=" * 70)
 print("STEP 3 — Delete mbie_evidence/csv_inferred records for flagged notices")
+print("         (Beca, Stantec NZ/NZ, Morphum Environmental are protected)")
 print("=" * 70)
 
 affected_ids = list(flagged_notices.keys())
+excl_list = list(_EXCLUDED_FIRMS)
 
-deleted = db.execute(
+db.execute(
     """
     DELETE FROM bidder_pool
      WHERE notice_id = ANY(%s)
        AND match_type IN ('mbie_evidence', 'csv_inferred')
+       AND LOWER(firm_name) != ALL(%s)
     """,
-    (affected_ids,),
+    (affected_ids, excl_list),
 )
-print(f"Deleted non-ACH bidder records for {len(affected_ids)} notices.\n")
+print(f"Deleted non-ACH, non-protected bidder records for {len(affected_ids)} notices.\n")
 
 print("=" * 70)
 print("STEP 4 — Re-run bidder inference with corrected exclusion logic")
