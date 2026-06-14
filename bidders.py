@@ -106,9 +106,24 @@ SECTOR_EXCLUSION_MATRIX: dict[str, set[str]] = {
 # Add entries here for any known misclassifications discovered via _audit_firm_sectors.py.
 
 FIRM_SECTOR_OVERRIDES: dict[str, str] = {
-    "fusion5":        "ICT",   # ERP/Microsoft Dynamics — miscoded as infrastructure
-    "empired":        "ICT",   # IT managed services — now Revolent Group
-    "revolent group": "ICT",   # Formerly Empired; IT services
+    # ── Already present ───────────────────────────────────────────────────────
+    "fusion5":              "ICT",   # ERP/Microsoft Dynamics — miscoded as infrastructure
+    "empired":              "ICT",   # IT managed services — now Revolent Group
+    "revolent group":       "ICT",   # Formerly Empired; IT services
+    # ── Added from firm sector audit (infrastructure → ICT) ──────────────────
+    "asap contracting":     "ICT",   # ASAP Contracting Ltd — ICT services provider
+    "fujitsu nz":           "ICT",   # Fujitsu / FUJITSU NEW ZEALAND LIMITED
+    "dimension data":       "ICT",   # Dimension Data NZ — managed IT/networking
+    "accenture nz":         "ICT",   # Accenture — technology consulting (all NZ variants)
+    "accenture limitedc":   "ICT",   # ACCENTURE NZ LIMITEDc — DB entry with suffix typo
+    "hewlett packard":      "ICT",   # Hewlett Packard New Zealand — IT hardware/services
+    "datacom":              "ICT",   # DATACOM GROUP LIMITED — IT managed services
+    "datacom systems":      "ICT",   # Datacom Systems Limited — IT services
+    "spark nz":             "ICT",   # Spark NZ Limited — telco/ICT
+    "thp":                  "ICT",   # THP INC Ltd — ICT services
+    "assurity consulting":  "ICT",   # Assurity Consulting — software quality/testing
+    "dxc technology":       "ICT",   # DXC Technology NZ — IT services (standard variants)
+    "dxc technology limit": "ICT",   # DXC TECHNOLOGY NZ LIMIT — truncated DB entry
 }
 
 # ── Title-keyword exclusion triggers ──────────────────────────────────────────
