@@ -206,6 +206,258 @@ def _run_layer1() -> None:
             _notify_watchlist_ready(notice_count)
         except Exception as exc:
             logger.error("SCHEDULER: _notify_watchlist_ready raised: %s", exc)
+        try:
+            _run_backfill_overview()
+        except Exception as exc:
+            logger.error("SCHEDULER: _run_backfill_overview raised: %s", exc)
+
+
+def _run_backfill_overview() -> None:
+    """
+    Nightly backfill of overview_text for active watchlist notices where it is null.
+    Called automatically at the end of _run_layer1() after the scrape completes.
+    Fetches GETS detail pages at 1.5 s/request and updates raw_notices + parsed_notices.
+    Logs progress to pipeline_runs (stage='backfill_overview').
+    """
+    logger.info("SCHEDULER: backfill_overview starting at %s", datetime.utcnow().isoformat())
+    run_id = None
+    try:
+        import db as _db
+        row = _db.fetchone(
+            "INSERT INTO pipeline_runs (stage, triggered_by, status) "
+            "VALUES ('backfill_overview', 'scheduler', 'running') RETURNING id",
+        )
+        run_id = row["id"] if row else None
+    except Exception as _e:
+        logger.warning("SCHEDULER: pipeline_runs INSERT failed (backfill_overview): %s", _e)
+
+    ok = False
+    summary = ""
+    try:
+        import time as _time
+        import db as _db
+        import config as _cfg
+        from ingestion import _fetch_notice_detail
+        from parsing import extract_key_dates
+
+        rows = _db.fetchall(
+            """
+            SELECT r.notice_id, r.source_url, r.title, r.agency,
+                   r.category_raw, r.description, r.close_date
+              FROM raw_notices r
+              JOIN parsed_notices p ON p.notice_id = r.notice_id
+              JOIN scored_notices s ON s.notice_id = r.notice_id
+             WHERE (r.overview_text IS NULL OR r.overview_text = '')
+               AND (r.close_date IS NULL OR r.close_date >= CURRENT_DATE)
+               AND (s.composite_score >= %s OR r.category_raw ILIKE '%%advance%%')
+             ORDER BY r.close_date ASC NULLS LAST
+            """,
+            (_cfg.PRIORITY_THRESHOLD,),
+        )
+
+        if not rows:
+            logger.info("SCHEDULER: backfill_overview — nothing to backfill")
+            ok = True
+            summary = "0 notices needed backfill"
+        else:
+            done = errors = 0
+            for notice in rows:
+                nid = notice["notice_id"]
+                try:
+                    nd = dict(notice)
+                    nd = _fetch_notice_detail(nd)
+                    overview = nd.get("overview_text") or ""
+                    _db.execute(
+                        """
+                        UPDATE raw_notices
+                           SET overview_text = %s,
+                               description   = COALESCE(NULLIF(%s,''), description)
+                         WHERE notice_id = %s
+                        """,
+                        (overview or None, overview or None, nid),
+                    )
+                    if overview:
+                        kd = extract_key_dates(overview)
+                        if any(v for v in kd.values()):
+                            _db.execute(
+                                """
+                                UPDATE parsed_notices
+                                   SET briefing_date         = COALESCE(%s, briefing_date),
+                                       questions_deadline    = COALESCE(%s, questions_deadline),
+                                       registration_deadline = COALESCE(%s, registration_deadline),
+                                       parsed_at             = NOW()
+                                 WHERE notice_id = %s
+                                """,
+                                (kd.get("briefing_date"), kd.get("questions_deadline"),
+                                 kd.get("registration_deadline"), nid),
+                            )
+                    done += 1
+                    _time.sleep(1.5)
+                except Exception as _e:
+                    logger.warning("SCHEDULER: backfill_overview %s — %s", nid, _e)
+                    errors += 1
+                    _time.sleep(1.5)
+            ok = True
+            summary = f"{done} notices backfilled, {errors} errors"
+            logger.info("SCHEDULER: backfill_overview complete — %s", summary)
+    except Exception as exc:
+        logger.exception("SCHEDULER: backfill_overview error: %s", exc)
+        summary = f"error: {str(exc)[:200]}"
+    finally:
+        if run_id is not None:
+            try:
+                import db as _db2
+                _db2.execute(
+                    "UPDATE pipeline_runs SET status=%s, summary=%s, finished_at=NOW() WHERE id=%s",
+                    ("complete" if ok else "failed", summary, run_id),
+                )
+            except Exception as _e:
+                logger.warning("SCHEDULER: pipeline_runs UPDATE failed (backfill_overview): %s", _e)
+
+
+def _run_fix_bidder_mismatches() -> None:
+    """
+    Post-enrichment bidder mismatch cleanup — deletes sector-excluded mbie_evidence/
+    csv_inferred records from bidder_pool and re-runs bidder inference for the
+    affected notices.  Called automatically after _run_layer2().
+    Logs to pipeline_runs (stage='fix_bidder_mismatches').
+    """
+    logger.info("SCHEDULER: fix_bidder_mismatches starting at %s", datetime.utcnow().isoformat())
+    run_id = None
+    try:
+        import db as _db
+        row = _db.fetchone(
+            "INSERT INTO pipeline_runs (stage, triggered_by, status) "
+            "VALUES ('fix_bidder_mismatches', 'scheduler', 'running') RETURNING id",
+        )
+        run_id = row["id"] if row else None
+    except Exception as _e:
+        logger.warning("SCHEDULER: pipeline_runs INSERT failed (fix_bidder_mismatches): %s", _e)
+
+    ok = False
+    summary = ""
+    try:
+        import db as _db
+        import config as _cfg
+        from bidders import (SECTOR_EXCLUSION_MATRIX as _SEM,
+                             score_bidders_for_notice as _sbfn,
+                             _store_bidders, load_bidders)
+
+        _PHYS_W = {"construction", "roading", "civil", "infrastructure", "fm"}
+        _PHYS_S = {
+            "building", "construct", "infrastructure", "roading", "maintenance",
+            "civil", "facility", "upgrade", "installation", "earthworks", "structural",
+            "bridge", "pavement", "drainage", "demolition", "fitout",
+        }
+        _SVC_S = {
+            "advisory", "consulting", "professional services", "management services",
+            "strategy", "research", "analysis", "training", "audit",
+            "software", "ict", "it services", "digital", "technology",
+            "platform", "system development", "application", "data", "cyber",
+            "recruitment", "legal services", "financial services",
+        }
+
+        def _is_mismatch(firm_sector, notice_sector, notice_text):
+            fs  = (firm_sector  or "").lower().strip()
+            ns  = (notice_sector or "other").lower().strip()
+            txt = notice_text.lower()
+            if not fs:
+                return False
+            excluded = {e.lower() for e in _SEM.get(ns, set())}
+            if fs in excluded:
+                return True
+            is_phys = any(sig in txt for sig in _PHYS_S)
+            is_svc  = not is_phys and any(sig in txt for sig in _SVC_S)
+            if fs in _PHYS_W and is_svc:
+                return True
+            if ns in ("other", "unknown", "") and fs in _PHYS_W and not is_phys:
+                return True
+            return False
+
+        rows = _db.fetchall(
+            """
+            SELECT bp.notice_id, p.sector_tag AS notice_sector,
+                   r.title || ' ' || COALESCE(r.description,'') AS combined_text,
+                   bp.firm_name, wh.primary_sector AS firm_sector
+              FROM bidder_pool bp
+              JOIN parsed_notices p  ON p.notice_id = bp.notice_id
+              JOIN raw_notices r     ON r.notice_id = bp.notice_id
+              LEFT JOIN supplier_win_history wh ON wh.supplier_name = bp.firm_name
+             WHERE bp.match_type IN ('mbie_evidence', 'csv_inferred')
+               AND (r.close_date IS NULL OR r.close_date >= CURRENT_DATE)
+               AND EXISTS (
+                   SELECT 1 FROM scored_notices s
+                    WHERE s.notice_id = bp.notice_id
+                      AND (s.composite_score >= %s OR r.category_raw ILIKE '%%advance%%')
+               )
+            """,
+            (_cfg.PRIORITY_THRESHOLD,),
+        )
+
+        flagged: set = set()
+        for row in rows:
+            if _is_mismatch(row.get("firm_sector"), row.get("notice_sector"),
+                            row.get("combined_text") or ""):
+                flagged.add(row["notice_id"])
+
+        if not flagged:
+            ok = True
+            summary = "0 mismatch records — nothing to fix"
+            logger.info("SCHEDULER: fix_bidder_mismatches — %s", summary)
+        else:
+            affected_ids = list(flagged)
+            _db.execute(
+                """
+                DELETE FROM bidder_pool
+                 WHERE notice_id = ANY(%s)
+                   AND match_type IN ('mbie_evidence', 'csv_inferred')
+                """,
+                (affected_ids,),
+            )
+            notice_rows = _db.fetchall(
+                """
+                SELECT s.notice_id, p.sector_tag, p.value_band, p.geographic_scope,
+                       r.title, r.description, r.agency, r.category_raw
+                  FROM scored_notices s
+                  JOIN parsed_notices p ON p.notice_id = s.notice_id
+                  JOIN raw_notices r    ON r.notice_id = s.notice_id
+                 WHERE s.notice_id = ANY(%s)
+                """,
+                (affected_ids,),
+            )
+            all_bidders = load_bidders()
+            stored = empty = failed = 0
+            for notice in notice_rows:
+                nid2 = notice["notice_id"]
+                try:
+                    bidders = _sbfn(notice, all_bidders)
+                    if bidders:
+                        _store_bidders(nid2, bidders)
+                        stored += 1
+                    else:
+                        empty += 1
+                except Exception as _e:
+                    logger.warning("SCHEDULER: fix_bidder_mismatches %s — %s", nid2, _e)
+                    failed += 1
+            ok = True
+            summary = (
+                f"{len(affected_ids)} notices: "
+                f"{stored} re-inferred, {empty} no bidders, {failed} errors"
+            )
+            logger.info("SCHEDULER: fix_bidder_mismatches complete — %s", summary)
+    except Exception as exc:
+        logger.exception("SCHEDULER: fix_bidder_mismatches error: %s", exc)
+        summary = f"error: {str(exc)[:200]}"
+    finally:
+        if run_id is not None:
+            try:
+                import db as _db2
+                _db2.execute(
+                    "UPDATE pipeline_runs SET status=%s, summary=%s, finished_at=NOW() WHERE id=%s",
+                    ("complete" if ok else "failed", summary, run_id),
+                )
+            except Exception as _e:
+                logger.warning("SCHEDULER: pipeline_runs UPDATE failed (fix_bidder_mismatches): %s", _e)
 
 
 def _run_layer2() -> None:
@@ -213,9 +465,22 @@ def _run_layer2() -> None:
     logger.info("=" * 60)
     logger.info("SCHEDULER: Layer 2 pipeline starting at %s", datetime.utcnow().isoformat())
     logger.info("=" * 60)
+    run_id = None
+    layer2_ok = False
+    try:
+        import db as _db
+        row = _db.fetchone(
+            "INSERT INTO pipeline_runs (stage, triggered_by, status) "
+            "VALUES ('layer2', 'scheduler', 'running') RETURNING id",
+        )
+        run_id = row["id"] if row else None
+    except Exception as _e:
+        logger.warning("SCHEDULER: pipeline_runs INSERT failed (layer2): %s", _e)
+
     try:
         import layer2_pipeline
         layer2_pipeline.main()
+        layer2_ok = True
     except Exception as exc:
         logger.exception("SCHEDULER: Layer 2 pipeline error: %s", exc)
         try:
@@ -228,6 +493,21 @@ def _run_layer2() -> None:
             pass
     finally:
         logger.info("SCHEDULER: Layer 2 pipeline finished at %s", datetime.utcnow().isoformat())
+        if run_id is not None:
+            try:
+                import db as _db2
+                _db2.execute(
+                    "UPDATE pipeline_runs SET status=%s, finished_at=NOW() WHERE id=%s",
+                    ("complete" if layer2_ok else "failed", run_id),
+                )
+            except Exception as _e:
+                logger.warning("SCHEDULER: pipeline_runs UPDATE failed (layer2): %s", _e)
+
+    if layer2_ok:
+        try:
+            _run_fix_bidder_mismatches()
+        except Exception as exc:
+            logger.error("SCHEDULER: _run_fix_bidder_mismatches raised: %s", exc)
 
 
 def _run_watch_brief() -> dict:
@@ -243,6 +523,17 @@ def _run_watch_brief() -> dict:
     logger.info("=" * 60)
     logger.info("SCHEDULER: Watch brief starting at %s", datetime.utcnow().isoformat())
     logger.info("=" * 60)
+    run_id = None
+    try:
+        import db as _db
+        row = _db.fetchone(
+            "INSERT INTO pipeline_runs (stage, triggered_by, status) "
+            "VALUES ('watch_brief', 'scheduler', 'running') RETURNING id",
+        )
+        run_id = row["id"] if row else None
+    except Exception as _e:
+        logger.warning("SCHEDULER: pipeline_runs INSERT failed (watch_brief): %s", _e)
+
     try:
         from pursuit_worker import send_all_watch_briefs
         stats = send_all_watch_briefs()
@@ -254,9 +545,32 @@ def _run_watch_brief() -> dict:
         if stats.get("errors"):
             for err in stats["errors"]:
                 logger.warning("SCHEDULER: Watch brief issue: %s", err)
+        brief_ok = not stats.get("error")
+        brief_summary = (
+            f"generated={stats.get('generated',0)} sent={stats.get('sent',0)} "
+            f"failed={stats.get('failed',0)} skipped={stats.get('skipped',0)}"
+        )
+        if run_id is not None:
+            try:
+                import db as _db2
+                _db2.execute(
+                    "UPDATE pipeline_runs SET status=%s, summary=%s, finished_at=NOW() WHERE id=%s",
+                    ("complete" if brief_ok else "failed", brief_summary, run_id),
+                )
+            except Exception as _e:
+                logger.warning("SCHEDULER: pipeline_runs UPDATE failed (watch_brief): %s", _e)
         return stats
     except Exception as exc:
         logger.exception("SCHEDULER: Watch brief job error: %s", exc)
+        if run_id is not None:
+            try:
+                import db as _db2
+                _db2.execute(
+                    "UPDATE pipeline_runs SET status=%s, summary=%s, finished_at=NOW() WHERE id=%s",
+                    ("failed", f"error: {str(exc)[:200]}", run_id),
+                )
+            except Exception:
+                pass
         try:
             import mailer
             mailer.send_admin_only(

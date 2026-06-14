@@ -4284,44 +4284,6 @@ function _escHtml(s) {
 
 _FIX_OPS_JS = """
 <script>
-// ── Fix Bidder Mismatches ─────────────────────────────────────────────────────
-function previewBidderMismatches() {
-  var btn=document.getElementById('fbm-btn'),box=document.getElementById('fbm-results');
-  btn.disabled=true;btn.textContent='Scanning…';
-  box.innerHTML='<p style="color:var(--muted);font-size:.83rem;">Scanning bidder pool…</p>';
-  fetch('/admin/fix-bidder-mismatches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'preview'})})
-    .then(function(r){return r.json();}).then(renderBidderMismatches)
-    .catch(function(e){box.innerHTML='<div class="al al-er">Error: '+e+'</div>';})
-    .finally(function(){btn.disabled=false;btn.textContent='Preview Mismatches';});
-}
-function applyBidderMismatches() {
-  var btn=document.getElementById('fbm-apply-btn'),box=document.getElementById('fbm-results');
-  if(!confirm('Delete mismatch records and re-run bidder inference for all flagged notices?'))return;
-  btn.disabled=true;btn.textContent='Fixing…';
-  box.innerHTML+='<p style="color:var(--muted);font-size:.83rem;margin-top:.5rem;">Applying fixes — this may take 20–40 seconds…</p>';
-  fetch('/admin/fix-bidder-mismatches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'fix'})})
-    .then(function(r){return r.json();}).then(function(d){
-      if(d.ok){box.innerHTML='<div class="al al-ok">Fixed: deleted bidder records for '+d.deleted+' notices, re-ran inference ('+d.stored+' stored, '+d.empty+' empty, '+d.failed+' errors).</div>';}
-      else{box.innerHTML='<div class="al al-er">Error: '+(d.error||'unknown')+'</div>';}
-    }).catch(function(e){box.innerHTML='<div class="al al-er">Error: '+e+'</div>';});
-}
-function renderBidderMismatches(d) {
-  var box=document.getElementById('fbm-results');
-  if(!d.ok){box.innerHTML='<div class="al al-er">'+(d.error||'Error')+'</div>';return;}
-  if(d.count===0){box.innerHTML='<div class="al al-ok">&#10003; No mismatch records found.</div>';return;}
-  var html='<div style="font-size:.78rem;font-weight:700;color:#e05555;margin-bottom:.75rem;">'+d.count+' notices with '+d.total_records+' mismatch records</div>';
-  html+='<table style="width:100%;border-collapse:collapse;font-size:.8rem;margin-bottom:1rem;"><thead><tr style="color:var(--muted);font-size:.73rem;border-bottom:1px solid var(--border);">';
-  html+='<th style="text-align:left;padding:.25rem .5rem;">Notice ID</th><th style="text-align:left;padding:.25rem .5rem;">Title</th><th style="text-align:left;padding:.25rem .5rem;">Bad firms</th></tr></thead><tbody>';
-  var items=d.notices.slice(0,20);
-  for(var i=0;i<items.length;i++){
-    var it=items[i];
-    html+='<tr style="border-bottom:1px solid var(--border);"><td style="padding:.3rem .5rem;font-family:monospace;font-size:.74rem;color:var(--muted);">'+_escHtml(it.notice_id)+'</td><td style="padding:.3rem .5rem;">'+_escHtml((it.title||'').substring(0,50))+'</td><td style="padding:.3rem .5rem;color:var(--muted);">'+_escHtml((it.bad_firms||[]).join('; ').substring(0,80))+'</td></tr>';
-  }
-  if(d.notices.length>20){html+='<tr><td colspan="3" style="padding:.5rem;color:var(--muted);">…and '+(d.notices.length-20)+' more</td></tr>';}
-  html+='</tbody></table><button id="fbm-apply-btn" class="btn bg-gold sm" onclick="applyBidderMismatches()">Fix All ('+d.total_records+' records)</button>';
-  box.innerHTML=html;
-}
-
 // ── Audit Firm Sectors ────────────────────────────────────────────────────────
 function runFirmAudit() {
   var btn=document.getElementById('afs-btn'),box=document.getElementById('afs-results');
@@ -4353,41 +4315,6 @@ function renderFirmAudit(d) {
     }
     html+='<p style="font-size:.78rem;color:var(--muted);">Add overrides to FIRM_SECTOR_OVERRIDES in bidders.py for any firm that should be reclassified.</p>';
   }
-  box.innerHTML=html;
-}
-
-// ── Backfill Overview Text ────────────────────────────────────────────────────
-function previewBackfill() {
-  var btn=document.getElementById('bot-preview-btn'),box=document.getElementById('bot-results');
-  btn.disabled=true;btn.textContent='Loading…';
-  box.innerHTML='<p style="color:var(--muted);font-size:.83rem;">Checking for notices with missing overview_text…</p>';
-  fetch('/admin/backfill-overview-text',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'preview'})})
-    .then(function(r){return r.json();}).then(renderBackfillPreview)
-    .catch(function(e){box.innerHTML='<div class="al al-er">Error: '+e+'</div>';})
-    .finally(function(){btn.disabled=false;btn.textContent='Preview';});
-}
-function startBackfill() {
-  var btn=document.getElementById('bot-run-btn'),box=document.getElementById('bot-results');
-  if(!confirm('Start background scrape of GETS pages to populate missing overview_text? Rate-limited at 1.5s per request.'))return;
-  btn.disabled=true;btn.textContent='Starting…';
-  fetch('/admin/backfill-overview-text',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'run'})})
-    .then(function(r){return r.json();}).then(function(d){
-      if(d.ok){box.innerHTML='<div class="al al-ok">'+_escHtml(d.message||('Started for '+d.started+' notices.'))+'</div>';}
-      else{box.innerHTML='<div class="al al-er">Error: '+(d.error||'unknown')+'</div>';}
-      btn.disabled=false;btn.textContent='Start Backfill';
-    }).catch(function(e){box.innerHTML='<div class="al al-er">Error: '+e+'</div>';btn.disabled=false;btn.textContent='Start Backfill';});
-}
-function renderBackfillPreview(d) {
-  var box=document.getElementById('bot-results');
-  if(!d.ok){box.innerHTML='<div class="al al-er">'+(d.error||'Error')+'</div>';return;}
-  if(d.count===0){box.innerHTML='<div class="al al-ok">&#10003; All active notices have overview_text — nothing to backfill.</div>';return;}
-  var st=d.status||{},html='<div style="font-size:.78rem;font-weight:700;color:#e07b39;margin-bottom:.5rem;">'+d.count+' active notices missing overview_text</div>';
-  if(st.running){html+='<div class="al" style="margin-bottom:.75rem;background:rgba(42,157,143,.1);border:1px solid rgba(42,157,143,.3);border-radius:5px;padding:.5rem .75rem;color:var(--gold);font-size:.82rem;">Backfill running — started '+_escHtml(st.started||'')+', '+st.done+'/'+st.total+' done, '+st.errors+' errors.</div>';}
-  html+='<table style="width:100%;border-collapse:collapse;font-size:.8rem;margin-bottom:1rem;"><thead><tr style="color:var(--muted);font-size:.73rem;border-bottom:1px solid var(--border);"><th style="text-align:left;padding:.25rem .5rem;">Notice ID</th><th style="text-align:left;padding:.25rem .5rem;">Title</th><th style="text-align:left;padding:.25rem .5rem;">Close date</th></tr></thead><tbody>';
-  for(var i=0;i<d.preview.length;i++){var r=d.preview[i];html+='<tr style="border-bottom:1px solid var(--border);"><td style="padding:.3rem .5rem;font-family:monospace;font-size:.74rem;color:var(--muted);">'+_escHtml(r.notice_id)+'</td><td style="padding:.3rem .5rem;">'+_escHtml(r.title)+'</td><td style="padding:.3rem .5rem;color:var(--muted);">'+_escHtml(r.close_date||'—')+'</td></tr>';}
-  if(d.count>30){html+='<tr><td colspan="3" style="padding:.5rem;color:var(--muted);">…and '+(d.count-30)+' more</td></tr>';}
-  html+='</tbody></table>';
-  if(!st.running){html+='<button id="bot-run-btn" class="btn bg-gold sm" onclick="startBackfill()">Start Backfill ('+d.count+' notices)</button>';}
   box.innerHTML=html;
 }
 
@@ -6123,6 +6050,54 @@ def admin_dash():
     except Exception:
         n_pending = "—"
 
+    # Scheduler status — latest run per stage
+    _SCHED_STAGES = [
+        ("layer1",               "Layer 1 Pipeline"),
+        ("backfill_overview",    "Overview Text Backfill"),
+        ("layer2",               "Layer 2 Intelligence"),
+        ("fix_bidder_mismatches","Bidder Mismatch Fix"),
+        ("watch_brief",          "Watch Brief"),
+    ]
+    try:
+        _sched_rows = db.fetchall(
+            "SELECT DISTINCT ON (stage) stage, status, started_at, finished_at, summary "
+            "FROM pipeline_runs "
+            "WHERE stage = ANY(%s) "
+            "ORDER BY stage, started_at DESC",
+            ([s for s, _ in _SCHED_STAGES],),
+        )
+        sched_map = {r["stage"]: r for r in _sched_rows}
+    except Exception:
+        sched_map = {}
+
+    _STATUS_DOT = {
+        "complete": ('<span style="color:#4ade80;font-size:.9rem;">&#9679;</span>', "Complete"),
+        "running":  ('<span style="color:#60a5fa;font-size:.9rem;">&#9679;</span>', "Running"),
+        "failed":   ('<span style="color:#f87171;font-size:.9rem;">&#9679;</span>', "Failed"),
+    }
+    sched_rows_html = ""
+    for stage_key, stage_label in _SCHED_STAGES:
+        r = sched_map.get(stage_key)
+        if r:
+            dot, status_text = _STATUS_DOT.get(r.get("status", ""), ('<span style="color:var(--muted);font-size:.9rem;">&#9679;</span>', r.get("status","?")))
+            ts = str(r.get("started_at") or "")[:16].replace("T", " ")
+            ft = str(r.get("finished_at") or "")[:16].replace("T", " ") or "—"
+            summ = (r.get("summary") or "")[:120]
+        else:
+            dot, status_text = '<span style="color:var(--muted);font-size:.9rem;">&#9711;</span>', "Never run"
+            ts = "—"
+            ft = "—"
+            summ = ""
+        sched_rows_html += (
+            f'<tr style="border-bottom:1px solid var(--border);">'
+            f'<td style="padding:.45rem .75rem;font-size:.82rem;">{stage_label}</td>'
+            f'<td style="padding:.45rem .75rem;font-size:.82rem;">{dot} {status_text}</td>'
+            f'<td style="padding:.45rem .75rem;font-size:.78rem;color:var(--muted);">{ts}</td>'
+            f'<td style="padding:.45rem .75rem;font-size:.78rem;color:var(--muted);">{ft}</td>'
+            f'<td style="padding:.45rem .75rem;font-size:.75rem;color:var(--muted);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{summ}">{summ}</td>'
+            f'</tr>'
+        )
+
     rows = ""
     for username, data in clients.items():
         slug = data.get("artefact_slug") or _slug(data.get("display_name", username))
@@ -6174,25 +6149,26 @@ def admin_dash():
             f'</div>'
             f'</div>'
             f'<div class="card" style="margin-top:1.5rem;">'
-            f'<div class="ch"><span class="ct">Data Fix Operations</span></div>'
-            f'<div style="padding:1rem 1.25rem;border-bottom:1px solid var(--border);">'
-            f'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;">'
-            f'<div><strong style="font-size:.88rem;">Fix Bidder Mismatches</strong>'
-            f'<div style="font-size:.78rem;color:var(--muted);margin-top:.2rem;">Remove sector-mismatched mbie_evidence/csv_inferred records and re-run bidder inference</div></div>'
-            f'<button id="fbm-btn" class="btn bg-out sm" style="white-space:nowrap;flex-shrink:0;" onclick="previewBidderMismatches()">Preview Mismatches</button></div>'
-            f'<div id="fbm-results" style="margin-top:.75rem;"></div></div>'
+            f'<div class="ch"><span class="ct">Scheduler Status</span>'
+            f'<a href="{url_for("admin_pipeline")}" class="btn bg-out sm">Pipeline control &rarr;</a></div>'
+            f'<table style="width:100%;border-collapse:collapse;">'
+            f'<thead><tr style="color:var(--muted);font-size:.73rem;border-bottom:1px solid var(--border);">'
+            f'<th style="text-align:left;padding:.4rem .75rem;">Job</th>'
+            f'<th style="text-align:left;padding:.4rem .75rem;">Status</th>'
+            f'<th style="text-align:left;padding:.4rem .75rem;">Started</th>'
+            f'<th style="text-align:left;padding:.4rem .75rem;">Finished</th>'
+            f'<th style="text-align:left;padding:.4rem .75rem;">Summary</th>'
+            f'</tr></thead>'
+            f'<tbody>{sched_rows_html}</tbody>'
+            f'</table></div>'
+            f'<div class="card" style="margin-top:1.5rem;">'
+            f'<div class="ch"><span class="ct">On-Demand Operations</span></div>'
             f'<div style="padding:1rem 1.25rem;border-bottom:1px solid var(--border);">'
             f'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;">'
             f'<div><strong style="font-size:.88rem;">Audit Firm Sectors</strong>'
             f'<div style="font-size:.78rem;color:var(--muted);margin-top:.2rem;">Check supplier_win_history for known IT or construction firm misclassifications</div></div>'
             f'<button id="afs-btn" class="btn bg-out sm" style="white-space:nowrap;flex-shrink:0;" onclick="runFirmAudit()">Run Audit</button></div>'
             f'<div id="afs-results" style="margin-top:.75rem;"></div></div>'
-            f'<div style="padding:1rem 1.25rem;border-bottom:1px solid var(--border);">'
-            f'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;">'
-            f'<div><strong style="font-size:.88rem;">Backfill Overview Text</strong>'
-            f'<div style="font-size:.78rem;color:var(--muted);margin-top:.2rem;">Re-scrape GETS pages for active watchlist notices with null overview_text (background, rate-limited)</div></div>'
-            f'<button id="bot-preview-btn" class="btn bg-out sm" style="white-space:nowrap;flex-shrink:0;" onclick="previewBackfill()">Preview</button></div>'
-            f'<div id="bot-results" style="margin-top:.75rem;"></div></div>'
             f'<div style="padding:1rem 1.25rem;">'
             f'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;">'
             f'<div><strong style="font-size:.88rem;">Delete Bad Packages</strong>'
