@@ -4282,6 +4282,156 @@ function _escHtml(s) {
 </script>"""
 
 
+_FIX_OPS_JS = """
+<script>
+// ── Fix Bidder Mismatches ─────────────────────────────────────────────────────
+function previewBidderMismatches() {
+  var btn=document.getElementById('fbm-btn'),box=document.getElementById('fbm-results');
+  btn.disabled=true;btn.textContent='Scanning…';
+  box.innerHTML='<p style="color:var(--muted);font-size:.83rem;">Scanning bidder pool…</p>';
+  fetch('/admin/fix-bidder-mismatches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'preview'})})
+    .then(function(r){return r.json();}).then(renderBidderMismatches)
+    .catch(function(e){box.innerHTML='<div class="al al-er">Error: '+e+'</div>';})
+    .finally(function(){btn.disabled=false;btn.textContent='Preview Mismatches';});
+}
+function applyBidderMismatches() {
+  var btn=document.getElementById('fbm-apply-btn'),box=document.getElementById('fbm-results');
+  if(!confirm('Delete mismatch records and re-run bidder inference for all flagged notices?'))return;
+  btn.disabled=true;btn.textContent='Fixing…';
+  box.innerHTML+='<p style="color:var(--muted);font-size:.83rem;margin-top:.5rem;">Applying fixes — this may take 20–40 seconds…</p>';
+  fetch('/admin/fix-bidder-mismatches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'fix'})})
+    .then(function(r){return r.json();}).then(function(d){
+      if(d.ok){box.innerHTML='<div class="al al-ok">Fixed: deleted bidder records for '+d.deleted+' notices, re-ran inference ('+d.stored+' stored, '+d.empty+' empty, '+d.failed+' errors).</div>';}
+      else{box.innerHTML='<div class="al al-er">Error: '+(d.error||'unknown')+'</div>';}
+    }).catch(function(e){box.innerHTML='<div class="al al-er">Error: '+e+'</div>';});
+}
+function renderBidderMismatches(d) {
+  var box=document.getElementById('fbm-results');
+  if(!d.ok){box.innerHTML='<div class="al al-er">'+(d.error||'Error')+'</div>';return;}
+  if(d.count===0){box.innerHTML='<div class="al al-ok">&#10003; No mismatch records found.</div>';return;}
+  var html='<div style="font-size:.78rem;font-weight:700;color:#e05555;margin-bottom:.75rem;">'+d.count+' notices with '+d.total_records+' mismatch records</div>';
+  html+='<table style="width:100%;border-collapse:collapse;font-size:.8rem;margin-bottom:1rem;"><thead><tr style="color:var(--muted);font-size:.73rem;border-bottom:1px solid var(--border);">';
+  html+='<th style="text-align:left;padding:.25rem .5rem;">Notice ID</th><th style="text-align:left;padding:.25rem .5rem;">Title</th><th style="text-align:left;padding:.25rem .5rem;">Bad firms</th></tr></thead><tbody>';
+  var items=d.notices.slice(0,20);
+  for(var i=0;i<items.length;i++){
+    var it=items[i];
+    html+='<tr style="border-bottom:1px solid var(--border);"><td style="padding:.3rem .5rem;font-family:monospace;font-size:.74rem;color:var(--muted);">'+_escHtml(it.notice_id)+'</td><td style="padding:.3rem .5rem;">'+_escHtml((it.title||'').substring(0,50))+'</td><td style="padding:.3rem .5rem;color:var(--muted);">'+_escHtml((it.bad_firms||[]).join('; ').substring(0,80))+'</td></tr>';
+  }
+  if(d.notices.length>20){html+='<tr><td colspan="3" style="padding:.5rem;color:var(--muted);">…and '+(d.notices.length-20)+' more</td></tr>';}
+  html+='</tbody></table><button id="fbm-apply-btn" class="btn bg-gold sm" onclick="applyBidderMismatches()">Fix All ('+d.total_records+' records)</button>';
+  box.innerHTML=html;
+}
+
+// ── Audit Firm Sectors ────────────────────────────────────────────────────────
+function runFirmAudit() {
+  var btn=document.getElementById('afs-btn'),box=document.getElementById('afs-results');
+  btn.disabled=true;btn.textContent='Auditing…';
+  box.innerHTML='<p style="color:var(--muted);font-size:.83rem;">Running firm sector audit…</p>';
+  fetch('/admin/audit-firm-sectors',{method:'POST',headers:{'Content-Type':'application/json'}})
+    .then(function(r){return r.json();}).then(renderFirmAudit)
+    .catch(function(e){box.innerHTML='<div class="al al-er">Error: '+e+'</div>';})
+    .finally(function(){btn.disabled=false;btn.textContent='Run Audit';});
+}
+function renderFirmAudit(d) {
+  var box=document.getElementById('afs-results');
+  if(!d.ok){box.innerHTML='<div class="al al-er">'+(d.error||'Error')+'</div>';return;}
+  var html='';
+  if(d.misclassified_ict.length===0&&d.misclassified_physical.length===0){
+    html='<div class="al al-ok">&#10003; No obvious misclassifications found.</div>';
+  } else {
+    if(d.misclassified_ict.length>0){
+      html+='<div style="font-size:.78rem;font-weight:700;color:#e07b39;margin:.75rem 0 .4rem;">'+d.misclassified_ict.length+' known IT firms with non-ICT sector:</div>';
+      html+='<table style="width:100%;border-collapse:collapse;font-size:.8rem;margin-bottom:1rem;"><thead><tr style="color:var(--muted);font-size:.73rem;border-bottom:1px solid var(--border);"><th style="text-align:left;padding:.25rem .5rem;">Firm</th><th style="text-align:left;padding:.25rem .5rem;">Sector</th><th style="text-align:left;padding:.25rem .5rem;">Wins</th></tr></thead><tbody>';
+      for(var i=0;i<d.misclassified_ict.length;i++){var r=d.misclassified_ict[i];html+='<tr style="border-bottom:1px solid var(--border);"><td style="padding:.3rem .5rem;">'+_escHtml(r.name)+'</td><td style="padding:.3rem .5rem;color:#e07b39;">'+_escHtml(r.sector)+'</td><td style="padding:.3rem .5rem;color:var(--muted);">'+r.wins+'</td></tr>';}
+      html+='</tbody></table>';
+    }
+    if(d.misclassified_physical.length>0){
+      html+='<div style="font-size:.78rem;font-weight:700;color:#e05555;margin:.75rem 0 .4rem;">'+d.misclassified_physical.length+' known construction firms classified as ICT/advisory:</div>';
+      html+='<table style="width:100%;border-collapse:collapse;font-size:.8rem;margin-bottom:1rem;"><thead><tr style="color:var(--muted);font-size:.73rem;border-bottom:1px solid var(--border);"><th style="text-align:left;padding:.25rem .5rem;">Firm</th><th style="text-align:left;padding:.25rem .5rem;">Sector</th><th style="text-align:left;padding:.25rem .5rem;">Wins</th></tr></thead><tbody>';
+      for(var i=0;i<d.misclassified_physical.length;i++){var r=d.misclassified_physical[i];html+='<tr style="border-bottom:1px solid var(--border);"><td style="padding:.3rem .5rem;">'+_escHtml(r.name)+'</td><td style="padding:.3rem .5rem;color:#e05555;">'+_escHtml(r.sector)+'</td><td style="padding:.3rem .5rem;color:var(--muted);">'+r.wins+'</td></tr>';}
+      html+='</tbody></table>';
+    }
+    html+='<p style="font-size:.78rem;color:var(--muted);">Add overrides to FIRM_SECTOR_OVERRIDES in bidders.py for any firm that should be reclassified.</p>';
+  }
+  box.innerHTML=html;
+}
+
+// ── Backfill Overview Text ────────────────────────────────────────────────────
+function previewBackfill() {
+  var btn=document.getElementById('bot-preview-btn'),box=document.getElementById('bot-results');
+  btn.disabled=true;btn.textContent='Loading…';
+  box.innerHTML='<p style="color:var(--muted);font-size:.83rem;">Checking for notices with missing overview_text…</p>';
+  fetch('/admin/backfill-overview-text',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'preview'})})
+    .then(function(r){return r.json();}).then(renderBackfillPreview)
+    .catch(function(e){box.innerHTML='<div class="al al-er">Error: '+e+'</div>';})
+    .finally(function(){btn.disabled=false;btn.textContent='Preview';});
+}
+function startBackfill() {
+  var btn=document.getElementById('bot-run-btn'),box=document.getElementById('bot-results');
+  if(!confirm('Start background scrape of GETS pages to populate missing overview_text? Rate-limited at 1.5s per request.'))return;
+  btn.disabled=true;btn.textContent='Starting…';
+  fetch('/admin/backfill-overview-text',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'run'})})
+    .then(function(r){return r.json();}).then(function(d){
+      if(d.ok){box.innerHTML='<div class="al al-ok">'+_escHtml(d.message||('Started for '+d.started+' notices.'))+'</div>';}
+      else{box.innerHTML='<div class="al al-er">Error: '+(d.error||'unknown')+'</div>';}
+      btn.disabled=false;btn.textContent='Start Backfill';
+    }).catch(function(e){box.innerHTML='<div class="al al-er">Error: '+e+'</div>';btn.disabled=false;btn.textContent='Start Backfill';});
+}
+function renderBackfillPreview(d) {
+  var box=document.getElementById('bot-results');
+  if(!d.ok){box.innerHTML='<div class="al al-er">'+(d.error||'Error')+'</div>';return;}
+  if(d.count===0){box.innerHTML='<div class="al al-ok">&#10003; All active notices have overview_text — nothing to backfill.</div>';return;}
+  var st=d.status||{},html='<div style="font-size:.78rem;font-weight:700;color:#e07b39;margin-bottom:.5rem;">'+d.count+' active notices missing overview_text</div>';
+  if(st.running){html+='<div class="al" style="margin-bottom:.75rem;background:rgba(42,157,143,.1);border:1px solid rgba(42,157,143,.3);border-radius:5px;padding:.5rem .75rem;color:var(--gold);font-size:.82rem;">Backfill running — started '+_escHtml(st.started||'')+', '+st.done+'/'+st.total+' done, '+st.errors+' errors.</div>';}
+  html+='<table style="width:100%;border-collapse:collapse;font-size:.8rem;margin-bottom:1rem;"><thead><tr style="color:var(--muted);font-size:.73rem;border-bottom:1px solid var(--border);"><th style="text-align:left;padding:.25rem .5rem;">Notice ID</th><th style="text-align:left;padding:.25rem .5rem;">Title</th><th style="text-align:left;padding:.25rem .5rem;">Close date</th></tr></thead><tbody>';
+  for(var i=0;i<d.preview.length;i++){var r=d.preview[i];html+='<tr style="border-bottom:1px solid var(--border);"><td style="padding:.3rem .5rem;font-family:monospace;font-size:.74rem;color:var(--muted);">'+_escHtml(r.notice_id)+'</td><td style="padding:.3rem .5rem;">'+_escHtml(r.title)+'</td><td style="padding:.3rem .5rem;color:var(--muted);">'+_escHtml(r.close_date||'—')+'</td></tr>';}
+  if(d.count>30){html+='<tr><td colspan="3" style="padding:.5rem;color:var(--muted);">…and '+(d.count-30)+' more</td></tr>';}
+  html+='</tbody></table>';
+  if(!st.running){html+='<button id="bot-run-btn" class="btn bg-gold sm" onclick="startBackfill()">Start Backfill ('+d.count+' notices)</button>';}
+  box.innerHTML=html;
+}
+
+// ── Delete Bad Packages ───────────────────────────────────────────────────────
+function previewBadPackages() {
+  var btn=document.getElementById('dbp-btn'),box=document.getElementById('dbp-results');
+  btn.disabled=true;btn.textContent='Loading…';
+  box.innerHTML='<p style="color:var(--muted);font-size:.83rem;">Checking pipeline_outputs…</p>';
+  fetch('/admin/delete-bad-packages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'preview'})})
+    .then(function(r){return r.json();}).then(renderBadPackages)
+    .catch(function(e){box.innerHTML='<div class="al al-er">Error: '+e+'</div>';})
+    .finally(function(){btn.disabled=false;btn.textContent='Preview';});
+}
+function deleteBadPackages() {
+  var btn=document.getElementById('dbp-delete-btn'),box=document.getElementById('dbp-results');
+  if(!confirm('Permanently delete all packages with bad client names? This cannot be undone.'))return;
+  btn.disabled=true;btn.textContent='Deleting…';
+  fetch('/admin/delete-bad-packages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete'})})
+    .then(function(r){return r.json();}).then(function(d){
+      if(d.ok){box.innerHTML='<div class="al al-ok">Deleted '+d.deleted+' package'+(d.deleted!==1?'s':'')+' with bad client names.</div>';}
+      else{box.innerHTML='<div class="al al-er">Error: '+(d.error||'unknown')+'</div>';}
+    }).catch(function(e){box.innerHTML='<div class="al al-er">Error: '+e+'</div>';});
+}
+function renderBadPackages(d) {
+  var box=document.getElementById('dbp-results');
+  if(!d.ok){box.innerHTML='<div class="al al-er">'+(d.error||'Error')+'</div>';return;}
+  if(d.count===0){box.innerHTML='<div class="al al-ok">&#10003; No packages with bad client names found.</div>';return;}
+  var html='<div style="font-size:.78rem;font-weight:700;color:#e05555;margin-bottom:.5rem;">'+d.count+' packages with bad client names</div>';
+  html+='<table style="width:100%;border-collapse:collapse;font-size:.8rem;margin-bottom:1rem;"><thead><tr style="color:var(--muted);font-size:.73rem;border-bottom:1px solid var(--border);"><th style="text-align:left;padding:.25rem .5rem;">ID</th><th style="text-align:left;padding:.25rem .5rem;">Type</th><th style="text-align:left;padding:.25rem .5rem;">Client</th><th style="text-align:left;padding:.25rem .5rem;">Notice</th><th style="text-align:left;padding:.25rem .5rem;">Date</th></tr></thead><tbody>';
+  for(var i=0;i<d.packages.length;i++){
+    var p=d.packages[i];
+    html+='<tr style="border-bottom:1px solid var(--border);"><td style="padding:.3rem .5rem;color:var(--muted);">'+p.id+'</td><td style="padding:.3rem .5rem;">'+_escHtml(p.output_type)+'</td><td style="padding:.3rem .5rem;color:#e05555;">'+_escHtml(p.client_name)+'</td><td style="padding:.3rem .5rem;font-family:monospace;font-size:.73rem;color:var(--muted);">'+_escHtml(p.notice_id)+'</td><td style="padding:.3rem .5rem;color:var(--muted);">'+_escHtml(p.run_date)+'</td></tr>';
+  }
+  html+='</tbody></table>';
+  html+='<button id="dbp-delete-btn" class="btn" style="background:#e05555;color:#fff;border:none;padding:.35rem .9rem;border-radius:5px;font-size:.8rem;cursor:pointer;" onclick="deleteBadPackages()">Delete All ('+d.count+')</button>';
+  box.innerHTML=html;
+}
+</script>"""
+
+_BACKFILL_OVERVIEW_STATUS: dict = {
+    "running": False, "done": 0, "total": 0, "errors": 0, "started": None,
+}
+
+
 def _artefact_page(
     title: str,
     pattern: str,
@@ -6023,7 +6173,34 @@ def admin_dash():
             f'all watchlist notices and pursuit packages for data quality issues.</p>'
             f'</div>'
             f'</div>'
-            + _QA_AUDIT_JS)
+            f'<div class="card" style="margin-top:1.5rem;">'
+            f'<div class="ch"><span class="ct">Data Fix Operations</span></div>'
+            f'<div style="padding:1rem 1.25rem;border-bottom:1px solid var(--border);">'
+            f'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;">'
+            f'<div><strong style="font-size:.88rem;">Fix Bidder Mismatches</strong>'
+            f'<div style="font-size:.78rem;color:var(--muted);margin-top:.2rem;">Remove sector-mismatched mbie_evidence/csv_inferred records and re-run bidder inference</div></div>'
+            f'<button id="fbm-btn" class="btn bg-out sm" style="white-space:nowrap;flex-shrink:0;" onclick="previewBidderMismatches()">Preview Mismatches</button></div>'
+            f'<div id="fbm-results" style="margin-top:.75rem;"></div></div>'
+            f'<div style="padding:1rem 1.25rem;border-bottom:1px solid var(--border);">'
+            f'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;">'
+            f'<div><strong style="font-size:.88rem;">Audit Firm Sectors</strong>'
+            f'<div style="font-size:.78rem;color:var(--muted);margin-top:.2rem;">Check supplier_win_history for known IT or construction firm misclassifications</div></div>'
+            f'<button id="afs-btn" class="btn bg-out sm" style="white-space:nowrap;flex-shrink:0;" onclick="runFirmAudit()">Run Audit</button></div>'
+            f'<div id="afs-results" style="margin-top:.75rem;"></div></div>'
+            f'<div style="padding:1rem 1.25rem;border-bottom:1px solid var(--border);">'
+            f'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;">'
+            f'<div><strong style="font-size:.88rem;">Backfill Overview Text</strong>'
+            f'<div style="font-size:.78rem;color:var(--muted);margin-top:.2rem;">Re-scrape GETS pages for active watchlist notices with null overview_text (background, rate-limited)</div></div>'
+            f'<button id="bot-preview-btn" class="btn bg-out sm" style="white-space:nowrap;flex-shrink:0;" onclick="previewBackfill()">Preview</button></div>'
+            f'<div id="bot-results" style="margin-top:.75rem;"></div></div>'
+            f'<div style="padding:1rem 1.25rem;">'
+            f'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;">'
+            f'<div><strong style="font-size:.88rem;">Delete Bad Packages</strong>'
+            f'<div style="font-size:.78rem;color:var(--muted);margin-top:.2rem;">Remove pipeline_outputs entries with null, empty, or placeholder client names</div></div>'
+            f'<button id="dbp-btn" class="btn bg-out sm" style="white-space:nowrap;flex-shrink:0;" onclick="previewBadPackages()">Preview</button></div>'
+            f'<div id="dbp-results" style="margin-top:.75rem;"></div></div>'
+            f'</div>'
+            + _QA_AUDIT_JS + _FIX_OPS_JS)
     return _page("Admin — Groundwork", body, "admin")
 
 
@@ -6367,6 +6544,391 @@ def admin_qa_audit():
         "grouped": grouped,
         "summary": summary,
     })
+
+
+@app.route("/admin/fix-bidder-mismatches", methods=["POST"])
+@login_required
+@admin_required
+def admin_fix_bidder_mismatches():
+    """Preview or apply deletion + re-inference of sector-mismatched bidder records."""
+    from flask import jsonify as _jfy
+
+    payload = request.get_json(silent=True) or {}
+    action  = payload.get("action", "preview")
+
+    _PHYS_W = {"construction", "roading", "civil", "infrastructure", "fm"}
+    _PHYS_S = {
+        "building", "construct", "infrastructure", "roading", "maintenance",
+        "civil", "facility", "upgrade", "installation", "earthworks", "structural",
+        "bridge", "pavement", "drainage", "demolition", "fitout",
+    }
+    _SVC_S = {
+        "advisory", "consulting", "professional services", "management services",
+        "strategy", "research", "analysis", "training", "audit",
+        "software", "ict", "it services", "digital", "technology",
+        "platform", "system development", "application", "data", "cyber",
+        "recruitment", "legal services", "financial services",
+    }
+
+    try:
+        from bidders import SECTOR_EXCLUSION_MATRIX as _SEM
+    except Exception:
+        _SEM = {}
+
+    def _is_mismatch(firm_sector, notice_sector, notice_text):
+        fs   = (firm_sector  or "").lower().strip()
+        ns   = (notice_sector or "other").lower().strip()
+        txt  = notice_text.lower()
+        if not fs:
+            return False
+        excluded = {e.lower() for e in _SEM.get(ns, set())}
+        if fs in excluded:
+            return True
+        is_phys = any(sig in txt for sig in _PHYS_S)
+        is_svc  = not is_phys and any(sig in txt for sig in _SVC_S)
+        if fs in _PHYS_W and is_svc:
+            return True
+        if ns in ("other", "unknown", "") and fs in _PHYS_W and not is_phys:
+            return True
+        return False
+
+    try:
+        rows = db.fetchall(
+            """
+            SELECT bp.notice_id, r.title AS notice_title,
+                   p.sector_tag AS notice_sector,
+                   r.title || ' ' || COALESCE(r.description,'') AS combined_text,
+                   bp.firm_name, wh.primary_sector AS firm_sector
+              FROM bidder_pool bp
+              JOIN parsed_notices p  ON p.notice_id = bp.notice_id
+              JOIN raw_notices r     ON r.notice_id = bp.notice_id
+              LEFT JOIN supplier_win_history wh ON wh.supplier_name = bp.firm_name
+             WHERE bp.match_type IN ('mbie_evidence', 'csv_inferred')
+               AND (r.close_date IS NULL OR r.close_date >= CURRENT_DATE)
+               AND EXISTS (
+                   SELECT 1 FROM scored_notices s
+                    WHERE s.notice_id = bp.notice_id
+                      AND (s.composite_score >= %s OR r.category_raw ILIKE '%%advance%%')
+               )
+             ORDER BY bp.notice_id, bp.firm_name
+            """,
+            (config.PRIORITY_THRESHOLD,),
+        )
+
+        flagged: dict = {}
+        for row in rows:
+            nid = row["notice_id"]
+            if _is_mismatch(row.get("firm_sector"), row.get("notice_sector"),
+                            row.get("combined_text") or ""):
+                if nid not in flagged:
+                    flagged[nid] = {"notice_id": nid, "title": row.get("notice_title") or "",
+                                    "bad_firms": []}
+                firm_info = (row["firm_name"] + " (sector: "
+                             + str(row.get("firm_sector") or "unknown") + ")")
+                flagged[nid]["bad_firms"].append(firm_info)
+
+        if action == "preview":
+            notices = list(flagged.values())
+            total_records = sum(len(v["bad_firms"]) for v in notices)
+            return _jfy({"ok": True, "count": len(notices),
+                         "total_records": total_records, "notices": notices})
+
+        # action == "fix"
+        affected_ids = list(flagged.keys())
+        if not affected_ids:
+            return _jfy({"ok": True, "deleted": 0, "stored": 0, "empty": 0, "failed": 0})
+
+        db.execute(
+            """
+            DELETE FROM bidder_pool
+             WHERE notice_id = ANY(%s)
+               AND match_type IN ('mbie_evidence', 'csv_inferred')
+            """,
+            (affected_ids,),
+        )
+
+        notice_rows = db.fetchall(
+            """
+            SELECT s.notice_id, p.sector_tag, p.value_band, p.geographic_scope,
+                   r.title, r.description, r.agency, r.category_raw
+              FROM scored_notices s
+              JOIN parsed_notices p ON p.notice_id = s.notice_id
+              JOIN raw_notices r    ON r.notice_id = s.notice_id
+             WHERE s.notice_id = ANY(%s)
+            """,
+            (affected_ids,),
+        )
+
+        from bidders import score_bidders_for_notice as _sbfn, _store_bidders, load_bidders
+        all_bidders = load_bidders()
+        stored = empty = failed = 0
+        for notice in notice_rows:
+            nid2 = notice["notice_id"]
+            try:
+                bidders = _sbfn(notice, all_bidders)
+                if bidders:
+                    _store_bidders(nid2, bidders)
+                    stored += 1
+                else:
+                    empty += 1
+            except Exception as exc:
+                logger.warning("admin_fix_bidder_mismatches: %s — %s", nid2, exc)
+                failed += 1
+
+        return _jfy({"ok": True, "deleted": len(affected_ids),
+                     "stored": stored, "empty": empty, "failed": failed})
+
+    except Exception as exc:
+        logger.exception("admin_fix_bidder_mismatches: %s", exc)
+        return _jfy({"ok": False, "error": str(exc)})
+
+
+@app.route("/admin/audit-firm-sectors", methods=["POST"])
+@login_required
+@admin_required
+def admin_audit_firm_sectors():
+    """Read-only check for known IT/construction firms misclassified in supplier_win_history."""
+    from flask import jsonify as _jfy
+
+    _KNOWN_ICT = {
+        "fusion5", "empired", "revolent", "datacom", "spark nz", "gen-i",
+        "unisys", "hewlett packard", "hp", "microsoft", "ibm nz", "ibm",
+        "cisco", "oracle", "sap", "accenture", "wipro", "infosys",
+        "theta", "provoke", "solnet", "jade software", "intergen",
+        "dimension data", "ntt", "computacenter", "logicalis",
+        "axon networks", "psi", "tait communications",
+        "dxc", "dxc technology", "fujitsu", "tata",
+        "assurity", "beca ict", "pricewaterhousecoopers ict",
+        "kpmg ict", "deloitte digital",
+    }
+    _KNOWN_PHYS = {
+        "fulton hogan", "downer", "heb construction", "higgins",
+        "mcconnell dowell", "fletcher construction", "cpb contractors",
+        "laing o'rourke", "naylor love", "arrow international",
+        "hawkins", "leighs construction", "citycare", "mwh",
+        "jacobs", "beca infrastructure", "stantec", "aecom",
+    }
+
+    try:
+        ict_rows = db.fetchall(
+            """
+            SELECT supplier_name, primary_sector, total_wins
+              FROM supplier_win_history
+             WHERE primary_sector NOT IN ('ICT','cybersecurity','advisory','other')
+               AND total_wins >= 1
+             ORDER BY total_wins DESC
+            """
+        )
+        misclassified_ict = []
+        for r in ict_rows:
+            nl = (r["supplier_name"] or "").lower()
+            if any(k in nl for k in _KNOWN_ICT):
+                misclassified_ict.append({
+                    "name": r["supplier_name"],
+                    "sector": r["primary_sector"],
+                    "wins": r["total_wins"],
+                })
+
+        phys_rows = db.fetchall(
+            """
+            SELECT supplier_name, primary_sector, total_wins
+              FROM supplier_win_history
+             WHERE primary_sector IN ('ICT','cybersecurity','advisory','health')
+               AND total_wins >= 2
+             ORDER BY total_wins DESC
+             LIMIT 100
+            """
+        )
+        misclassified_physical = []
+        for r in phys_rows:
+            nl = (r["supplier_name"] or "").lower()
+            if any(k in nl for k in _KNOWN_PHYS):
+                misclassified_physical.append({
+                    "name": r["supplier_name"],
+                    "sector": r["primary_sector"],
+                    "wins": r["total_wins"],
+                })
+
+        return _jfy({
+            "ok": True,
+            "misclassified_ict": misclassified_ict,
+            "misclassified_physical": misclassified_physical,
+        })
+
+    except Exception as exc:
+        logger.exception("admin_audit_firm_sectors: %s", exc)
+        return _jfy({"ok": False, "error": str(exc)})
+
+
+@app.route("/admin/backfill-overview-text", methods=["POST"])
+@login_required
+@admin_required
+def admin_backfill_overview_text():
+    """Preview or start background GETS re-scrape to populate null overview_text."""
+    import threading as _thr
+    from flask import jsonify as _jfy
+
+    payload = request.get_json(silent=True) or {}
+    action  = payload.get("action", "preview")
+
+    try:
+        rows = db.fetchall(
+            """
+            SELECT r.notice_id, r.source_url, r.title, r.agency,
+                   r.category_raw, r.description, r.close_date
+              FROM raw_notices r
+              JOIN parsed_notices p ON p.notice_id = r.notice_id
+              JOIN scored_notices s ON s.notice_id = r.notice_id
+             WHERE (r.overview_text IS NULL OR r.overview_text = '')
+               AND (r.close_date IS NULL OR r.close_date >= CURRENT_DATE)
+               AND (s.composite_score >= %s OR r.category_raw ILIKE '%%advance%%')
+             ORDER BY r.close_date ASC NULLS LAST
+            """,
+            (config.PRIORITY_THRESHOLD,),
+        )
+
+        if action == "preview":
+            preview = [
+                {
+                    "notice_id": r["notice_id"],
+                    "title": (r["title"] or "")[:70],
+                    "close_date": str(r.get("close_date") or ""),
+                }
+                for r in rows[:30]
+            ]
+            return _jfy({
+                "ok": True, "count": len(rows), "preview": preview,
+                "status": dict(_BACKFILL_OVERVIEW_STATUS),
+            })
+
+        # action == "run"
+        if _BACKFILL_OVERVIEW_STATUS.get("running"):
+            return _jfy({"ok": False,
+                         "error": "Backfill already running — check Railway logs for progress."})
+
+        if not rows:
+            return _jfy({"ok": True,
+                         "message": "Nothing to backfill — all active notices have overview_text."})
+
+        _BACKFILL_OVERVIEW_STATUS.update({
+            "running": True, "done": 0, "total": len(rows), "errors": 0,
+            "started": datetime.now().strftime("%H:%M:%S"),
+        })
+
+        def _run_backfill(notice_rows):
+            import time as _time
+            try:
+                from ingestion import _fetch_notice_detail
+                from parsing import extract_key_dates
+                for i, row in enumerate(notice_rows, 1):
+                    nid = row["notice_id"]
+                    try:
+                        nd = dict(row)
+                        nd = _fetch_notice_detail(nd)
+                        overview = nd.get("overview_text") or ""
+                        db.execute(
+                            """
+                            UPDATE raw_notices
+                               SET overview_text = %s,
+                                   description   = COALESCE(NULLIF(%s,''), description)
+                             WHERE notice_id = %s
+                            """,
+                            (overview or None, overview or None, nid),
+                        )
+                        if overview:
+                            kd = extract_key_dates(overview)
+                            if any(v for v in kd.values()):
+                                db.execute(
+                                    """
+                                    UPDATE parsed_notices
+                                       SET briefing_date         = COALESCE(%s, briefing_date),
+                                           questions_deadline    = COALESCE(%s, questions_deadline),
+                                           registration_deadline = COALESCE(%s, registration_deadline),
+                                           parsed_at             = NOW()
+                                     WHERE notice_id = %s
+                                    """,
+                                    (kd.get("briefing_date"), kd.get("questions_deadline"),
+                                     kd.get("registration_deadline"), nid),
+                                )
+                        _BACKFILL_OVERVIEW_STATUS["done"] = i
+                        _time.sleep(1.5)
+                    except Exception as exc:
+                        logger.warning("backfill_overview: %s — %s", nid, exc)
+                        _BACKFILL_OVERVIEW_STATUS["errors"] += 1
+                        _BACKFILL_OVERVIEW_STATUS["done"] = i
+            finally:
+                _BACKFILL_OVERVIEW_STATUS["running"] = False
+                logger.info(
+                    "backfill_overview: complete — %d done, %d errors",
+                    _BACKFILL_OVERVIEW_STATUS["done"],
+                    _BACKFILL_OVERVIEW_STATUS["errors"],
+                )
+
+        _thr.Thread(
+            target=_run_backfill, args=(rows,), daemon=True, name="backfill-overview"
+        ).start()
+
+        n = len(rows)
+        return _jfy({
+            "ok": True, "started": n,
+            "message": ("Backfill started for " + str(n) + " notices. "
+                        "Check Railway logs for progress. "
+                        "Re-run Preview to see remaining count."),
+        })
+
+    except Exception as exc:
+        logger.exception("admin_backfill_overview_text: %s", exc)
+        _BACKFILL_OVERVIEW_STATUS["running"] = False
+        return _jfy({"ok": False, "error": str(exc)})
+
+
+@app.route("/admin/delete-bad-packages", methods=["POST"])
+@login_required
+@admin_required
+def admin_delete_bad_packages():
+    """Preview or delete pipeline_outputs with null/placeholder client names."""
+    from flask import jsonify as _jfy
+
+    _BAD = {"bidedge admin", "admin", "test", "demo", "placeholder", ""}
+    payload = request.get_json(silent=True) or {}
+    action  = payload.get("action", "preview")
+
+    try:
+        rows = db.fetchall(
+            """
+            SELECT id, output_type, client_name, client_slug, notice_id, run_date
+              FROM pipeline_outputs
+             WHERE client_name IS NULL
+                OR TRIM(LOWER(client_name)) = ANY(%s)
+             ORDER BY run_date DESC NULLS LAST
+            """,
+            (list(_BAD),),
+        )
+
+        if action == "preview":
+            packages = [
+                {
+                    "id":          r["id"],
+                    "output_type": (r.get("output_type") or "")[:30],
+                    "client_name": repr(r.get("client_name")),
+                    "notice_id":   (r.get("notice_id") or "")[:20],
+                    "run_date":    str(r.get("run_date") or "")[:10],
+                }
+                for r in rows
+            ]
+            return _jfy({"ok": True, "count": len(rows), "packages": packages})
+
+        # action == "delete"
+        if not rows:
+            return _jfy({"ok": True, "deleted": 0})
+
+        ids_to_delete = [r["id"] for r in rows]
+        db.execute("DELETE FROM pipeline_outputs WHERE id = ANY(%s)", (ids_to_delete,))
+        return _jfy({"ok": True, "deleted": len(ids_to_delete)})
+
+    except Exception as exc:
+        logger.exception("admin_delete_bad_packages: %s", exc)
+        return _jfy({"ok": False, "error": str(exc)})
 
 
 @app.route("/admin/clients/<username>")
