@@ -97,6 +97,10 @@ SECTOR_EXCLUSION_MATRIX: dict[str, set[str]] = {
         "roading", "construction", "civil", "aerospace",
         "health", "ICT",
     },
+    "defence": {
+        "FM", "roading", "construction", "civil",
+        "health", "ICT", "cybersecurity", "advisory",
+    },
 }
 
 # ── Firm-level sector overrides ───────────────────────────────────────────────
@@ -124,6 +128,20 @@ FIRM_SECTOR_OVERRIDES: dict[str, str] = {
     "assurity consulting":  "ICT",   # Assurity Consulting — software quality/testing
     "dxc technology":       "ICT",   # DXC Technology NZ — IT services (standard variants)
     "dxc technology limit": "ICT",   # DXC TECHNOLOGY NZ LIMIT — truncated DB entry
+}
+
+# ── Firm-level exclusion sector pins ─────────────────────────────────────────
+# Hard-pins effective sector(s) for bidder EXCLUSION purposes regardless of
+# what their bidders.csv entry says.  Use when MBIE award history or broad CSV
+# sector tagging causes a firm to appear in notices outside their core market.
+#
+# Key: lowercase firm name exactly as it appears in bidder_pool.firm_name
+# Value: set of sector strings used against SECTOR_EXCLUSION_MATRIX
+
+FIRM_EXCLUSION_SECTORS: dict[str, set[str]] = {
+    # Civil construction only — must never appear in ICT, defence, health,
+    # advisory, cybersecurity, or psychometric notices.
+    "heb construction": {"construction", "civil", "infrastructure"},
 }
 
 # ── Title-keyword exclusion triggers ──────────────────────────────────────────
@@ -527,15 +545,24 @@ def _maturity_from_wins(total_wins: int, years_since: float) -> str:
 
 # ── Shared exclusion helper ───────────────────────────────────────────────────
 
-def _firm_is_excluded(firm_sectors: list[str], notice: dict) -> bool:
+def _firm_is_excluded(firm_sectors: list[str], notice: dict,
+                      firm_name: str = "") -> bool:
     """
     Return True if this firm should be excluded from bidder results for this notice.
 
-    Two-pass check:
+    Three-pass check:
+    0. Firm-level sector override — FIRM_EXCLUSION_SECTORS pins effective sectors
+       for specific firms regardless of CSV/MBIE data.
     1. Sector exclusion matrix — based on notice sector_tag.
     2. Title keyword triggers — catches misclassified notices (e.g. aerospace
        notice tagged 'infrastructure' because GETS has no aerospace category).
     """
+    # Pass 0: firm-level override
+    if firm_name:
+        override = FIRM_EXCLUSION_SECTORS.get(firm_name.strip().lower())
+        if override is not None:
+            firm_sectors = list(override)
+
     notice_sector = (notice.get("sector_tag") or "other").lower()
     title = (notice.get("title") or "").lower()
 
@@ -636,7 +663,7 @@ def _csv_bidders_for_notice(
             exact = True  # used in reasoning bullet below
         else:
             # Hard sector exclusion matrix + title keyword check
-            if _firm_is_excluded(firm_sectors, notice):
+            if _firm_is_excluded(firm_sectors, notice, firm.get("firm_name", "")):
                 continue
 
             # Explicit exclude_keywords on the firm (notice-text trigger)
@@ -763,9 +790,15 @@ def score_bidders_for_notice(
             # We use the sector stored on the result row
             r_sectors = [s.strip() for s in (r.get("sector") or "").split("|") if s.strip()]
             if not r_sectors and r.get("firm_name"):
-                # If no sector on MBIE row, skip exclusion — trust MBIE
-                filtered_mbie.append(r)
-            elif not _firm_is_excluded(r_sectors, notice):
+                # If no sector on MBIE row, check firm override before trusting MBIE
+                if _firm_is_excluded([], notice, r.get("firm_name", "")):
+                    logger.debug(
+                        "Excluded MBIE result %s from notice %s (firm override)",
+                        r.get("firm_name"), notice.get("notice_id"),
+                    )
+                else:
+                    filtered_mbie.append(r)
+            elif not _firm_is_excluded(r_sectors, notice, r.get("firm_name", "")):
                 filtered_mbie.append(r)
             else:
                 logger.debug(

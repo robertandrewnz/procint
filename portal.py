@@ -3906,7 +3906,7 @@ function wlClearSearch(){
                     r_sectors = [row.get("sector") or ""]
                     if is_specialist and row.get("match_type") == "csv_inferred":
                         continue
-                    if _firm_is_excluded(r_sectors, ctx):
+                    if _firm_is_excluded(r_sectors, ctx, row.get("firm_name", "")):
                         continue
                     filtered.append(row)
                 deduped = deduplicate_bidders(filtered)

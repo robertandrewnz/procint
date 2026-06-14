@@ -201,10 +201,10 @@ def _fetch_top_bidders(notice_id: str) -> list[dict]:
             if specialist_flag:
                 if row.get("match_type") == "csv_inferred":
                     continue
-                if _firm_is_excluded(r_sectors, notice_ctx):
+                if _firm_is_excluded(r_sectors, notice_ctx, row.get("firm_name", "")):
                     continue
             else:
-                if _firm_is_excluded(r_sectors, notice_ctx):
+                if _firm_is_excluded(r_sectors, notice_ctx, row.get("firm_name", "")):
                     continue
         filtered.append(row)
 
