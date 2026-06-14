@@ -268,6 +268,20 @@ def send_all_watch_briefs(portal_base_url: str = "") -> dict:
                 or None
             )
 
+        # Guard against double-sends: skip if this client already received a brief today.
+        # Protects against multiple Gunicorn workers or admin re-triggers running concurrently.
+        try:
+            already_sent = db.fetchone(
+                "SELECT id FROM brief_sends WHERE client_id = %s AND sent_at::date = CURRENT_DATE AND status = 'sent'",
+                (username,),
+            )
+            if already_sent:
+                logger.info("BRIEFS: %s already received a brief today — skipping duplicate send", username)
+                stats["skipped"] += 1
+                continue
+        except Exception as _chk_exc:
+            logger.warning("BRIEFS: Could not check brief_sends for %s: %s — proceeding", username, _chk_exc)
+
         logger.info("BRIEFS: Generating brief for %s (%s) sectors=%s",
                     username, email, sectors)
         try:
@@ -275,6 +289,7 @@ def send_all_watch_briefs(portal_base_url: str = "") -> dict:
             brief_path = generate_watch_brief(
                 client_name=display_name,
                 sectors=sectors,
+                user_id=username,
             )
             stats["generated"] += 1
             brief_html = brief_path.read_text(encoding="utf-8")

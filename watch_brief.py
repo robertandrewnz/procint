@@ -113,8 +113,34 @@ def _top_opportunities(
     return rows[:limit]
 
 
-def _market_signals(sectors: Optional[list[str]] = None) -> list[dict]:
-    """Pattern flags of type sector_spike or procurement_surge, filtered by sector when provided."""
+def _market_signals_for_user(user_id: str, sectors: Optional[list[str]] = None) -> list[dict]:
+    """
+    Claude-generated market signals from market_signals table for a specific user.
+    Returns dicts with keys: signal, priority, action.
+    Falls back to pattern_flags if the market_intelligence module is unavailable.
+    Deduplicates on signal text so duplicate DB rows are never rendered twice.
+    """
+    try:
+        from market_intelligence import get_stored_signals
+        raw = get_stored_signals(user_id)
+        seen: set = set()
+        result = []
+        for s in raw:
+            text = (s.get("signal") or "").strip()
+            if text and text not in seen:
+                seen.add(text)
+                result.append(s)
+        return result[:5]
+    except Exception as exc:
+        logger.warning("_market_signals_for_user(%s) failed: %s — falling back to pattern_flags", user_id, exc)
+        return _market_signals_legacy(sectors)
+
+
+def _market_signals_legacy(sectors: Optional[list[str]] = None) -> list[dict]:
+    """
+    Pattern flags fallback — used for demo briefs (no user_id) and when
+    market_intelligence is unavailable.  Returns dicts with keys: description, severity.
+    """
     if sectors:
         placeholders = ",".join(["%s"] * len(sectors))
         return db.fetchall(
@@ -264,9 +290,11 @@ def _generate_insight(opportunities: list[dict], signals: list[dict],
         for r in (renewals or [])[:5]
     ) or "  No contracts with recorded durations approaching renewal in next 12 months."
 
-    # Pattern signals
+    # Pattern signals — handle both market_signals shape (signal/priority/action)
+    # and legacy pattern_flags shape (description/severity).
     signal_lines = "\n".join(
-        f"  [{(s.get('severity') or 'medium').upper()}] {s.get('description', '')[:120]}"
+        "  [" + (s.get("priority") or s.get("severity") or "medium").upper() + "] "
+        + (s.get("signal") or s.get("description") or "")[:120]
         for s in signals[:3]
     ) or "  No unusual market signals detected."
 
@@ -406,6 +434,7 @@ def _render_brief_html(
     competitor_moves: list[dict],
     renewals: list[dict],
     insight: str,
+    notice_count: int = 0,
 ) -> str:
 
     # Opportunity cards
@@ -454,14 +483,26 @@ def _render_brief_html(
             f'</div>'
         )
 
-    # Signals
+    # Signals — handle both market_signals shape (signal/priority/action)
+    # and legacy pattern_flags shape (description/severity).
+    # Deduplicate on text so identical rows never appear twice in one brief.
     sig_rows = ""
+    seen_sig_texts: set = set()
     for sig in signals:
-        sev = (sig.get("severity") or "medium").lower()
+        sev = (sig.get("priority") or sig.get("severity") or "medium").lower()
+        text = (sig.get("signal") or sig.get("description") or "").strip()
+        action = (sig.get("action") or "").strip()
+        if not text or text in seen_sig_texts:
+            continue
+        seen_sig_texts.add(text)
+        action_html = (
+            '<br><em style="font-size:.78rem;color:var(--muted);">' + _safe(action[:160]) + "</em>"
+            if action else ""
+        )
         sig_rows += (
             f'<div class="signal-row">'
             f'<span class="signal-sev sev-{sev}">{sev}</span>'
-            f'<span>{_safe(sig.get("description", "")[:160])}</span>'
+            f'<span>{_safe(text[:200])}{action_html}</span>'
             f'</div>'
         )
     if not sig_rows:
@@ -555,7 +596,7 @@ def _render_brief_html(
 
 <div class="doc-footer">
   <span>Procint Layer 3 &nbsp;|&nbsp; Generated {run_date.isoformat()}</span>
-  <span>Data: Layer 1 (276 notices) + MBIE (27,948 awards)</span>
+  <span>Data: Layer 1 ({notice_count} notices) + MBIE (27,948 awards)</span>
 </div>
 
 </body>
@@ -569,28 +610,53 @@ def generate_watch_brief(
     sectors: Optional[list[str]] = None,
     output_dir: Optional[Path] = None,
     demo_sector: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> Path:
     """
     Generate a weekly watch brief personalised for a client.
     Returns path to the HTML file.
 
+    user_id: portal username — when provided, signals are sourced from the
+    market_signals table (Claude-generated, user-specific).  When None (demo
+    mode or direct call without a logged-in user), falls back to pattern_flags.
+
     demo_sector: when set (e.g. 'FM'), hard-filters top opportunities to the
-    demo sector allowlist.  Market signals are also labelled with demo context.
+    demo sector allowlist.
     """
     from generate_demo_content import DEMO_SECTOR_ALLOWLIST
-    logger.info("Generating watch brief for %s (demo_sector=%s)", client_name, demo_sector)
+    logger.info(
+        "Generating watch brief for %s (user_id=%s, demo_sector=%s)",
+        client_name, user_id, demo_sector,
+    )
     run_date = date.today()
 
     hard_filter = DEMO_SECTOR_ALLOWLIST.get(demo_sector) if demo_sector else None
     sector_filter = hard_filter or sectors
     sector_context = demo_sector or (sectors[0] if sectors else None)
     opportunities = _top_opportunities(sectors, hard_sector_filter=hard_filter)
-    signals = _market_signals(sectors=sector_filter)
+
+    # Signals: use Claude-generated market_signals for real users; pattern_flags for demo/fallback
+    if user_id and not demo_sector:
+        signals = _market_signals_for_user(user_id, sectors=sector_filter)
+    else:
+        signals = _market_signals_legacy(sectors=sector_filter)
+
     comp_moves = _competitor_moves(client_name, sectors)
     renewals = _renewal_radar(sectors=sector_filter)
     insight = _generate_insight(opportunities, signals, client_name,
                                competitor_moves=comp_moves, renewals=renewals,
                                sector_context=sector_context)
+
+    # Live notice count for footer (never stale)
+    try:
+        cnt_row = db.fetchone(
+            "SELECT COUNT(*) AS n FROM scored_notices WHERE composite_score >= %s",
+            (config.PRIORITY_THRESHOLD,),
+        )
+        live_notice_count = int((cnt_row or {}).get("n") or 0)
+    except Exception as _cnt_exc:
+        logger.warning("Could not query live notice count: %s", _cnt_exc)
+        live_notice_count = 0
 
     html = _render_brief_html(
         client_name=client_name,
@@ -600,6 +666,7 @@ def generate_watch_brief(
         competitor_moves=comp_moves,
         renewals=renewals,
         insight=insight,
+        notice_count=live_notice_count,
     )
 
     if output_dir is None:
