@@ -45,6 +45,7 @@ print(f"  close_date: {notice.get('close_date')}")
 
 print("\n" + "=" * 70)
 print("STEP 2 — Run _web_search_incumbent directly (no extra_docs)")
+print(f"  sector={sector!r} → will use {'notice title' if sector.lower() in ('other','unknown','') else 'sector label'} as service anchor")
 print("=" * 70)
 print("(INCUMBENT_DIAG log lines will appear below)\n")
 
@@ -60,6 +61,8 @@ if result:
     print(f"    IMPORTANT: In competitive_narrative and incumbent_assessment, name the parent company...")
 else:
     print("  WEB SEARCH RETURNED: None")
-    print("\n  → incumbent_text in prompt would be:")
-    print('    "No current system or provider identified from uploaded documents or web research."')
-    print("\n  This means the generation prompt tells Claude there is no named incumbent.")
+    print("\n  → incumbent_text in prompt would be (Option C fallback):")
+    print('    "No incumbent contract record is publicly available. Based on the notice')
+    print('     description, the agency is migrating from or augmenting an existing system')
+    print('     — vendors with existing technology relationships at this agency should be')
+    print('     treated as structural favourites regardless of absence from public award data."')

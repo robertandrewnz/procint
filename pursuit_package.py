@@ -550,32 +550,46 @@ Return a JSON object with EXACTLY these keys:
 
 def _web_search_incumbent(agency: str, sector: str, notice_title: str) -> Optional[str]:
     """
-    Use Claude with web_search to find the current system or service provider
-    for this agency. Query format: '[agency] [service type] current system provider NZ'.
+    Use Claude with web_search to find who currently provides a service/system to this agency.
+    When sector is 'other'/'unknown', anchors on the notice title (the actual service description)
+    rather than the meaningless sector label.
     Returns a short descriptive string (max 600 chars), or None.
     """
     try:
         client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-        service_type = f"{sector} services"
-        search_query = f"{agency} {service_type} current system provider NZ"
+        # Use notice title as service anchor when sector is uncategorised
+        if sector.lower() in ("other", "unknown", ""):
+            service_desc = notice_title
+        else:
+            service_desc = f"{sector} services"
+        q1 = f"what system does {agency} currently use for {service_desc} New Zealand"
+        q2 = f"current {service_desc} provider {agency} New Zealand"
         logger.info("INCUMBENT_DIAG web_search CALLED: agency=%r sector=%r", agency, sector)
-        logger.info("INCUMBENT_DIAG web_search QUERY: %r", search_query)
+        logger.info("INCUMBENT_DIAG web_search Q1: %r", q1)
+        logger.info("INCUMBENT_DIAG web_search Q2: %r", q2)
         logger.info("INCUMBENT_DIAG web_search TITLE: %r", notice_title)
         prompt = (
-            f"Search for: {search_query}\n\n"
-            f"Find who currently provides the {sector} system or service to {agency} "
-            f"in New Zealand. The specific tender is: '{notice_title}'.\n\n"
-            f"For any system, platform, or provider you identify, state ALL of:\n"
+            f"I need to find who currently provides the {service_desc} system or service "
+            f"to {agency} in New Zealand.\n\n"
+            f"Search for:\n"
+            f"1. {q1}\n"
+            f"2. {q2}\n\n"
+            f"Look for: vendor websites, technology deployment announcements, NZ government IT "
+            f"publications, agency annual reports or technology strategies, case studies on vendor "
+            f"websites, NZ tech media coverage, and any mention of which specific products or "
+            f"suppliers are currently deployed at {agency}.\n\n"
+            f"Do NOT restrict your search to contract award records or GETS tender results — "
+            f"the existing supplier relationship may be publicly known through other means "
+            f"(e.g. vendor case studies, press releases, product references on agency websites).\n\n"
+            f"For any provider or system you identify, state ALL of:\n"
             f"(1) the specific product or system name\n"
-            f"(2) the parent company (including if acquired, "
+            f"(2) the parent company (including if foreign-owned or acquired, "
             f"e.g. 'Tyler Technologies acquired For The Record')\n"
-            f"(3) the NZ distributor, local reseller, or NZ-based delivery partner "
-            f"if the parent company is foreign\n\n"
-            f"Look for: GETS contract awards, NZ government contract registers, "
-            f"official press releases, and NZ reseller websites.\n\n"
+            f"(3) the NZ distributor, local reseller, or NZ-based delivery partner if applicable\n\n"
             f"Format: '[System/Product] by [Parent Company], NZ distributor: [NZ Partner] "
-            f"— [contract context]'.\n"
-            f"If no credible evidence is found, respond only with: 'No incumbent identified.'"
+            f"— [source and context]'.\n"
+            f"If no credible evidence is found after searching, respond only with: "
+            f"'No incumbent identified.'"
         )
         msg = client.messages.create(
             model=config.CLAUDE_MODEL_L3,
@@ -639,7 +653,12 @@ def _call_claude(context: dict) -> Optional[dict]:
             f"Do not omit corporate ownership or NZ distribution chain when the data is present."
         )
     else:
-        incumbent_text = "No current system or provider identified from uploaded documents or web research."
+        incumbent_text = (
+            "No incumbent contract record is publicly available. "
+            "Based on the notice description, the agency is migrating from or augmenting an existing "
+            "system — vendors with existing technology relationships at this agency should be treated "
+            "as structural favourites regardless of absence from public award data."
+        )
     logger.info("INCUMBENT_DIAG _call_claude incumbent_text=%r", incumbent_text[:200])
 
     # Client history note
