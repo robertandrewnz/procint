@@ -188,8 +188,8 @@ def _extract_doc_incumbent(
     extra_docs: list[dict], agency: str, notice_title: str
 ) -> Optional[str]:
     """
-    Scan uploaded tender documents for named technology vendors, platforms, or systems.
-    Returns a short descriptive string (max 600 chars), or None.
+    Scan uploaded tender documents for named technology vendors, platforms, and systems.
+    Returns ALL identified technology relationships as a structured list, or None.
     """
     if not extra_docs:
         return None
@@ -204,21 +204,28 @@ def _extract_doc_incumbent(
         docs_block = "\n\n".join(doc_parts)
         query = (
             f"Read these tender documents from {agency} (tender: '{notice_title}') "
-            f"and identify any existing technology platform, software system, or service "
-            f"provider that is currently in use or being replaced/migrated from.\n\n"
-            f"Look for: references to current systems, existing providers, platforms "
-            f"being replaced, current vendors, or systems already deployed at this agency.\n\n"
-            f"If found, state: the system/product name, who makes it (include parent company "
-            f"if it was acquired), and any NZ distributor or delivery partner mentioned.\n"
-            f"Format: '[System/Product] by [Vendor/Parent Company], NZ partner: [NZ Partner] "
-            f"— [brief context from document]'.\n"
-            f"If no current system or vendor is mentioned in the documents, respond only with: "
-            f"'No incumbent identified.'\n\n"
+            f"and identify every named technology product, software system, hardware device, "
+            f"platform, cloud service, or vendor mentioned anywhere in the documents.\n\n"
+            f"Include ALL of the following types if present:\n"
+            f"- Recording or audio management systems (e.g. For The Record, Olympus)\n"
+            f"- Transcription or dictation software (e.g. Dragon NaturallySpeaking, Nuance)\n"
+            f"- Identity or access management systems (e.g. Microsoft Entra ID, Azure AD)\n"
+            f"- Case management, court management, or document management platforms\n"
+            f"- Any other named vendor, software product, or hardware device\n\n"
+            f"Do NOT restrict to only systems being replaced. List every named technology "
+            f"relationship you find — even products mentioned in passing as existing tools.\n\n"
+            f"For each product found, state:\n"
+            f"- Product/system name\n"
+            f"- Vendor or parent company\n"
+            f"- Brief context (what it's used for at this agency)\n\n"
+            f"Format each as a bullet: '• [Product] by [Vendor] — [context]'\n\n"
+            f"Only respond with 'No incumbent identified.' if the documents contain "
+            f"ZERO named technology products or vendors.\n\n"
             f"{docs_block}"
         )
         msg = client.messages.create(
             model=config.CLAUDE_MODEL_L3,
-            max_tokens=400,
+            max_tokens=600,
             messages=[{"role": "user", "content": query}],
         )
         result_parts = [
@@ -644,10 +651,22 @@ def _call_claude(context: dict) -> Optional[dict]:
         competitors_text = "No government contract award records found for this agency/sector combination. Market data is limited."
 
     # Incumbent / current system (always from doc scan or web research — never MBIE data)
-    web_inc = context.get("incumbent_research")
-    if web_inc:
+    inc_research = context.get("incumbent_research")
+    inc_from_docs = context.get("incumbent_from_docs", False)
+    if inc_research and inc_from_docs:
         incumbent_text = (
-            f"Research result: {web_inc}\n"
+            f"Existing technology relationships identified from uploaded tender documents:\n"
+            f"{inc_research}\n\n"
+            f"IMPORTANT: These are active technology products and vendor relationships at this agency. "
+            f"In incumbent_assessment, treat each named vendor as having an existing relationship "
+            f"that confers structural competitive advantage — vendors offering compatible, integrated, "
+            f"or replacement products for any of these systems are better positioned than new entrants. "
+            f"Name all identified vendors and systems explicitly. Do not characterise this as "
+            f"'no named incumbent' — the document evidence identifies existing technology relationships."
+        )
+    elif inc_research:
+        incumbent_text = (
+            f"Research result: {inc_research}\n"
             f"IMPORTANT: In competitive_narrative and incumbent_assessment, name the parent company "
             f"and NZ distributor/reseller explicitly if they appear in the research above. "
             f"Do not omit corporate ownership or NZ distribution chain when the data is present."
@@ -1609,6 +1628,7 @@ def generate_pursuit_package(
     # MBIE award data is never used for named incumbent identification.
     incumbent = None
     incumbent_research = None
+    incumbent_from_docs = False
     logger.info("INCUMBENT_DIAG START: notice=%s agency=%r sector=%r title=%r has_extra_docs=%s",
                 notice_id, agency, sector, (notice.get("title") or "")[:80], bool(extra_docs))
     if extra_docs:
@@ -1619,6 +1639,7 @@ def generate_pursuit_package(
         logger.info("INCUMBENT_DIAG after doc extraction: incumbent_research=%r",
                     incumbent_research[:80] if incumbent_research else None)
         if incumbent_research:
+            incumbent_from_docs = True
             logger.info("Doc incumbent for %s: %s", agency, incumbent_research[:80])
     else:
         logger.info("INCUMBENT_DIAG: no extra_docs — skipping doc extraction")
@@ -1633,8 +1654,8 @@ def generate_pursuit_package(
             logger.info("Web incumbent for %s/%s: %s", agency, sector, incumbent_research[:80])
     else:
         logger.info("INCUMBENT_DIAG: incumbent_research already set from docs — skipping web search")
-    logger.info("INCUMBENT_DIAG FINAL incumbent_research=%r",
-                incumbent_research[:120] if incumbent_research else None)
+    logger.info("INCUMBENT_DIAG FINAL incumbent_research=%r from_docs=%s",
+                incumbent_research[:120] if incumbent_research else None, incumbent_from_docs)
     agency_stats = _get_agency_stats(agency, sector)
     flags = _get_relevant_flags(agency, sector)
     citation = _mbie_citation(sector, agency)
@@ -1681,6 +1702,7 @@ def generate_pursuit_package(
         "client_history": client_history,
         "incumbent": None,
         "incumbent_research": incumbent_research,
+        "incumbent_from_docs": incumbent_from_docs,
         "agency_stats": agency_stats,
         "flags": [dict(f) for f in flags],
         "mbie_citation": citation,
