@@ -1,18 +1,21 @@
 """
-Purge and re-run bidder matching for all notices with sector mismatches.
+Purge and re-run bidder matching for notices with sector mismatches.
 
-Finds every active watchlist notice whose mbie_evidence bidder records have a
-sector that is excluded from the notice's sector (same logic as QA audit check 1).
-Deletes the bad mbie_evidence and csv_inferred rows, then re-runs
-score_bidders_for_notice() with the corrected exclusion logic so the records
-are replaced with clean data.
+By default targets only active watchlist notices (open + scored above threshold).
+Use --all to cover the full historical bidder_pool regardless of close date or score.
+
+Finds notices whose mbie_evidence/csv_inferred bidder records have a sector excluded
+from the notice's sector (same logic as QA audit check 1). Deletes those rows, then
+re-runs score_bidders_for_notice() with the corrected exclusion logic.
 
 ACH (ach_analysis) rows are NOT touched.
 Firms in _EXCLUDED_FIRMS are never purged — they must be reviewed individually.
 
 Run:
-    railway run python3 _fix_bidder_mismatches.py          # dry run (report only)
-    railway run python3 _fix_bidder_mismatches.py --fix    # apply deletions + re-run
+    railway run python3 _fix_bidder_mismatches.py           # dry run — active notices
+    railway run python3 _fix_bidder_mismatches.py --fix     # apply (active notices)
+    railway run python3 _fix_bidder_mismatches.py --all     # dry run — all DB notices
+    railway run python3 _fix_bidder_mismatches.py --all --fix  # apply (all notices)
 """
 
 import sys
@@ -27,6 +30,7 @@ import config
 from bidders import SECTOR_EXCLUSION_MATRIX, score_bidders_for_notice, _store_bidders, load_bidders
 
 FIX_MODE = "--fix" in sys.argv
+ALL_MODE = "--all" in sys.argv
 
 _PHYSICAL_WORKS = {"construction", "roading", "civil", "infrastructure", "fm"}
 _PHYSICAL_TITLE_SIGNALS = {
@@ -76,37 +80,59 @@ def _is_mismatch(firm_sector: str, notice_sector: str, notice_text: str) -> bool
 
 
 print("\n" + "=" * 70)
-print("STEP 1 — Query active watchlist MBIE bidder records")
+scope = "all DB" if ALL_MODE else "active watchlist"
+print(f"STEP 1 — Query {scope} MBIE bidder records")
 print("=" * 70)
 
-rows = db.fetchall(
-    """
-    SELECT
-        bp.notice_id,
-        r.title          AS notice_title,
-        r.agency,
-        p.sector_tag     AS notice_sector,
-        r.title || ' ' || COALESCE(r.description, '') AS combined_text,
-        bp.firm_name,
-        bp.match_type,
-        wh.primary_sector AS firm_sector
-    FROM bidder_pool bp
-    JOIN parsed_notices p  ON p.notice_id = bp.notice_id
-    JOIN raw_notices r     ON r.notice_id = bp.notice_id
-    LEFT JOIN supplier_win_history wh ON wh.supplier_name = bp.firm_name
-    WHERE bp.match_type IN ('mbie_evidence', 'csv_inferred')
-      AND (r.close_date IS NULL OR r.close_date >= CURRENT_DATE)
-      AND EXISTS (
-          SELECT 1 FROM scored_notices s
-           WHERE s.notice_id = bp.notice_id
-             AND (s.composite_score >= %s OR r.category_raw ILIKE '%%advance%%')
-      )
-    ORDER BY bp.notice_id, bp.firm_name
-    """,
-    (config.PRIORITY_THRESHOLD,),
-)
+if ALL_MODE:
+    rows = db.fetchall(
+        """
+        SELECT
+            bp.notice_id,
+            r.title          AS notice_title,
+            r.agency,
+            p.sector_tag     AS notice_sector,
+            r.title || ' ' || COALESCE(r.description, '') AS combined_text,
+            bp.firm_name,
+            bp.match_type,
+            wh.primary_sector AS firm_sector
+        FROM bidder_pool bp
+        JOIN parsed_notices p  ON p.notice_id = bp.notice_id
+        JOIN raw_notices r     ON r.notice_id = bp.notice_id
+        LEFT JOIN supplier_win_history wh ON wh.supplier_name = bp.firm_name
+        WHERE bp.match_type IN ('mbie_evidence', 'csv_inferred')
+        ORDER BY bp.notice_id, bp.firm_name
+        """,
+    )
+else:
+    rows = db.fetchall(
+        """
+        SELECT
+            bp.notice_id,
+            r.title          AS notice_title,
+            r.agency,
+            p.sector_tag     AS notice_sector,
+            r.title || ' ' || COALESCE(r.description, '') AS combined_text,
+            bp.firm_name,
+            bp.match_type,
+            wh.primary_sector AS firm_sector
+        FROM bidder_pool bp
+        JOIN parsed_notices p  ON p.notice_id = bp.notice_id
+        JOIN raw_notices r     ON r.notice_id = bp.notice_id
+        LEFT JOIN supplier_win_history wh ON wh.supplier_name = bp.firm_name
+        WHERE bp.match_type IN ('mbie_evidence', 'csv_inferred')
+          AND (r.close_date IS NULL OR r.close_date >= CURRENT_DATE)
+          AND EXISTS (
+              SELECT 1 FROM scored_notices s
+               WHERE s.notice_id = bp.notice_id
+                 AND (s.composite_score >= %s OR r.category_raw ILIKE '%%advance%%')
+          )
+        ORDER BY bp.notice_id, bp.firm_name
+        """,
+        (config.PRIORITY_THRESHOLD,),
+    )
 
-print(f"Total active mbie_evidence/csv_inferred records: {len(rows)}")
+print(f"Total {scope} mbie_evidence/csv_inferred records: {len(rows)}")
 
 flagged_notices: dict[str, dict] = {}
 
@@ -132,7 +158,7 @@ for row in rows:
             f"{row['firm_name']} (firm sector: {row.get('firm_sector') or 'unknown'})"
         )
 
-print(f"\nFlagged (excluding protected firms): {len(flagged_notices)} notices with sector-mismatched bidders\n")
+print(f"\nFlagged (excluding protected firms): {len(flagged_notices)} {scope} notices with sector-mismatched bidders\n")
 
 if not flagged_notices:
     print("Nothing to fix.")
@@ -152,7 +178,8 @@ if len(flagged_notices) > 20:
     print(f"  ... and {len(flagged_notices) - 20} more notices.\n")
 
 if not FIX_MODE:
-    print("\nRun with --fix to delete bad records and re-run inference.")
+    all_flag = " --all" if ALL_MODE else ""
+    print(f"\nRun with{all_flag} --fix to delete bad records and re-run inference.")
     sys.exit(0)
 
 print("=" * 70)

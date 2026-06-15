@@ -1,13 +1,15 @@
 """
-Re-fetch overview_text for active watchlist notices where it is null.
+Re-fetch overview_text for notices where it is null.
 
 For each affected notice: fetches the GETS detail page, extracts overview_text,
 updates raw_notices, then re-parses key dates (briefing, questions, registration)
 and updates parsed_notices.
 
 Run:
-    railway run python3 _backfill_overview_text.py          # dry run (list only)
-    railway run python3 _backfill_overview_text.py --fetch  # fetch + update
+    railway run python3 _backfill_overview_text.py           # dry run — active notices only
+    railway run python3 _backfill_overview_text.py --fetch   # fetch + update (active only)
+    railway run python3 _backfill_overview_text.py --all     # dry run — all notices in DB
+    railway run python3 _backfill_overview_text.py --all --fetch  # fetch + update (all)
 """
 
 import sys
@@ -23,28 +25,41 @@ from ingestion import _fetch_notice_detail, _extract_overview_text
 from parsing import extract_key_dates
 
 FETCH_MODE = "--fetch" in sys.argv
+ALL_MODE   = "--all"   in sys.argv
 RATE_LIMIT_SECONDS = 1.5  # polite delay between GETS requests
 
 print("\n" + "=" * 70)
-print("STEP 1 — Find active notices with null overview_text")
+scope = "all DB notices" if ALL_MODE else "active watchlist notices"
+print(f"STEP 1 — Find {scope} with null overview_text")
 print("=" * 70)
 
-rows = db.fetchall(
-    """
-    SELECT r.notice_id, r.source_url, r.title, r.agency,
-           r.category_raw, r.description, r.close_date
-      FROM raw_notices r
-      JOIN parsed_notices p  ON p.notice_id = r.notice_id
-      JOIN scored_notices s  ON s.notice_id = r.notice_id
-     WHERE (r.overview_text IS NULL OR r.overview_text = '')
-       AND (r.close_date IS NULL OR r.close_date >= CURRENT_DATE)
-       AND (s.composite_score >= %s OR r.category_raw ILIKE '%%advance%%')
-     ORDER BY r.close_date ASC NULLS LAST
-    """,
-    (config.PRIORITY_THRESHOLD,),
-)
+if ALL_MODE:
+    rows = db.fetchall(
+        """
+        SELECT r.notice_id, r.source_url, r.title, r.agency,
+               r.category_raw, r.description, r.close_date
+          FROM raw_notices r
+         WHERE (r.overview_text IS NULL OR r.overview_text = '')
+         ORDER BY r.close_date DESC NULLS LAST
+        """,
+    )
+else:
+    rows = db.fetchall(
+        """
+        SELECT r.notice_id, r.source_url, r.title, r.agency,
+               r.category_raw, r.description, r.close_date
+          FROM raw_notices r
+          JOIN parsed_notices p  ON p.notice_id = r.notice_id
+          JOIN scored_notices s  ON s.notice_id = r.notice_id
+         WHERE (r.overview_text IS NULL OR r.overview_text = '')
+           AND (r.close_date IS NULL OR r.close_date >= CURRENT_DATE)
+           AND (s.composite_score >= %s OR r.category_raw ILIKE '%%advance%%')
+         ORDER BY r.close_date ASC NULLS LAST
+        """,
+        (config.PRIORITY_THRESHOLD,),
+    )
 
-print(f"Found {len(rows)} active watchlist notices with null overview_text.\n")
+print(f"Found {len(rows)} {scope} with null overview_text.\n")
 
 for i, r in enumerate(rows[:20], 1):
     dtc_str = f"closes {r['close_date']}" if r.get("close_date") else "close date TBC"
@@ -58,7 +73,8 @@ if not rows:
     sys.exit(0)
 
 if not FETCH_MODE:
-    print(f"\nRun with --fetch to re-scrape all {len(rows)} notices.")
+    all_flag = " --all" if ALL_MODE else ""
+    print(f"\nRun with{all_flag} --fetch to re-scrape all {len(rows)} notices.")
     sys.exit(0)
 
 print("\n" + "=" * 70)
