@@ -558,6 +558,9 @@ def _web_search_incumbent(agency: str, sector: str, notice_title: str) -> Option
         client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
         service_type = f"{sector} services"
         search_query = f"{agency} {service_type} current system provider NZ"
+        logger.info("INCUMBENT_DIAG web_search CALLED: agency=%r sector=%r", agency, sector)
+        logger.info("INCUMBENT_DIAG web_search QUERY: %r", search_query)
+        logger.info("INCUMBENT_DIAG web_search TITLE: %r", notice_title)
         prompt = (
             f"Search for: {search_query}\n\n"
             f"Find who currently provides the {sector} system or service to {agency} "
@@ -580,13 +583,28 @@ def _web_search_incumbent(agency: str, sector: str, notice_title: str) -> Option
             tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 2}],
             messages=[{"role": "user", "content": prompt}],
         )
+        logger.info("INCUMBENT_DIAG web_search RESPONSE: stop_reason=%r n_blocks=%d",
+                    msg.stop_reason, len(msg.content))
+        for i, block in enumerate(msg.content):
+            btype = type(block).__name__
+            if hasattr(block, "text"):
+                logger.info("INCUMBENT_DIAG block[%d] %s text=%r", i, btype, block.text[:200])
+            elif hasattr(block, "name"):
+                inp = getattr(block, "input", {})
+                logger.info("INCUMBENT_DIAG block[%d] %s name=%r input=%r", i, btype, block.name, str(inp)[:200])
+            else:
+                logger.info("INCUMBENT_DIAG block[%d] %s (no text/name attr)", i, btype)
         result_parts = [
             block.text.strip()
             for block in msg.content
             if hasattr(block, "text") and block.text
         ]
         result = " ".join(result_parts).strip()
-        if result and "no incumbent identified" not in result.lower() and len(result) > 20:
+        logger.info("INCUMBENT_DIAG assembled result=%r (len=%d)", result[:300], len(result))
+        passes = bool(result and "no incumbent identified" not in result.lower() and len(result) > 20)
+        logger.info("INCUMBENT_DIAG passes filter=%s → returning %r",
+                    passes, result[:120] if passes else None)
+        if passes:
             return result[:600]
     except Exception as exc:
         logger.warning("_web_search_incumbent failed for %s/%s: %s", agency, sector, exc)
@@ -622,6 +640,7 @@ def _call_claude(context: dict) -> Optional[dict]:
         )
     else:
         incumbent_text = "No current system or provider identified from uploaded documents or web research."
+    logger.info("INCUMBENT_DIAG _call_claude incumbent_text=%r", incumbent_text[:200])
 
     # Client history note
     ch = context.get("client_history", {})
@@ -1571,18 +1590,32 @@ def generate_pursuit_package(
     # MBIE award data is never used for named incumbent identification.
     incumbent = None
     incumbent_research = None
+    logger.info("INCUMBENT_DIAG START: notice=%s agency=%r sector=%r title=%r has_extra_docs=%s",
+                notice_id, agency, sector, (notice.get("title") or "")[:80], bool(extra_docs))
     if extra_docs:
+        logger.info("INCUMBENT_DIAG: extra_docs present (%d docs) — trying doc extraction first", len(extra_docs))
         incumbent_research = _extract_doc_incumbent(
             extra_docs, agency, notice.get("title") or ""
         )
+        logger.info("INCUMBENT_DIAG after doc extraction: incumbent_research=%r",
+                    incumbent_research[:80] if incumbent_research else None)
         if incumbent_research:
             logger.info("Doc incumbent for %s: %s", agency, incumbent_research[:80])
+    else:
+        logger.info("INCUMBENT_DIAG: no extra_docs — skipping doc extraction")
     if not incumbent_research:
+        logger.info("INCUMBENT_DIAG: incumbent_research is None/empty — calling web search")
         incumbent_research = _web_search_incumbent(
             agency, sector, notice.get("title") or ""
         )
+        logger.info("INCUMBENT_DIAG after web search: incumbent_research=%r",
+                    incumbent_research[:80] if incumbent_research else None)
         if incumbent_research:
             logger.info("Web incumbent for %s/%s: %s", agency, sector, incumbent_research[:80])
+    else:
+        logger.info("INCUMBENT_DIAG: incumbent_research already set from docs — skipping web search")
+    logger.info("INCUMBENT_DIAG FINAL incumbent_research=%r",
+                incumbent_research[:120] if incumbent_research else None)
     agency_stats = _get_agency_stats(agency, sector)
     flags = _get_relevant_flags(agency, sector)
     citation = _mbie_citation(sector, agency)
