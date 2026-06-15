@@ -445,6 +445,12 @@ COMPETITIVE NARRATIVE RULE: Generate competitive_narrative first as a full analy
 
 AUTHENTICATED DOCUMENTS RULE: When an "=== AUTHENTICATED TENDER DOCUMENTS ===" section is present, treat it as the primary source of truth about the tender scope, evaluation criteria, timeline, and requirements. It supersedes any inferences from the public notice overview. Prioritise and synthesise the document content throughout your analysis — especially in the executive summary, evaluation cone, and recommended actions. Reference specific document content where it strengthens or changes the assessment. If the documents reveal information not present in the public notice (e.g. detailed evaluation weighting, mandatory site visits, specific technical requirements), highlight this in the analysis.
 
+TENDER TYPE RULE: The "Tender Strategic Posture" field tells you what kind of procurement this is. Adapt ALL sections accordingly:
+- "Market shaping" (RFI/NOI/market research): This is NOT a live bid. Set go_nogo to "MARKET ENGAGEMENT". Frame go_nogo_rationale as a market intelligence recommendation, not a bid decision. Do NOT generate urgency language, teaming time pressure, or "limited time to respond" red flags. executive_summary must NOT use GO/NO-GO language. In risk_register and red_flags, suppress procurement-timeline and bid-submission risks — flag information gaps and engagement risks instead. recommended_actions must focus entirely on: attending market engagement events, submitting a well-positioned RFI response to shape requirements, building agency awareness and relationships — NOT bid preparation, proposal logistics, or teaming agreements. strategic_fit_score should reflect engagement value, not win probability. opportunity_structure_assessment should assess market shaping opportunity, not competitive bid dynamics.
+- "Qualification stage" (ROI/EOI): The goal is to make the shortlist, not win the contract. Frame go_nogo around whether the EOI/ROI is worth pursuing. recommended_actions should focus on EOI/ROI quality, capability demonstration, and relationship building — not full bid preparation.
+- "Early signal" (Advance Notice): No response required yet. Set go_nogo to "CONDITIONAL GO" reflecting pipeline readiness. Do NOT generate urgency flags. recommended_actions should focus on intelligence gathering, monitoring, and early positioning.
+- "Live bid" (RFP/RFT/RFQ/panel): Standard analysis applies — the current framing is correct.
+
 Respond ONLY with a valid JSON object, no preamble, no markdown fences."""
 
 _PURSUIT_PROMPT = """Prepare a pursuit intelligence package for:
@@ -459,6 +465,7 @@ GETS URL: {source_url}
 
 === OPPORTUNITY CONTEXT ===
 Procurement Stage: {procurement_stage}
+Tender Strategic Posture: {tender_posture}
 Briefing Date: {briefing_date}
 Questions Deadline: {questions_deadline}
 Registration Deadline: {registration_deadline}
@@ -519,7 +526,7 @@ Return a JSON object with EXACTLY these keys:
 
 "win_probability_rationale": Combine the above into a two-paragraph assessment. Paragraph 1 = opportunity structure (copy from opportunity_structure_assessment). Paragraph 2 = client-specific factors (copy from client_specific_factors). Separate these clearly.
 
-"go_nogo": Exactly one of "GO", "CONDITIONAL GO", or "NO GO"
+"go_nogo": Exactly one of "GO", "CONDITIONAL GO", "NO GO", or "MARKET ENGAGEMENT" — use MARKET ENGAGEMENT only when Tender Strategic Posture is "Market shaping" (RFI/NOI); these are not live bids
 
 "go_nogo_rationale": Two sentences. Decisive recommendation with primary reason and key condition if conditional.
 
@@ -813,6 +820,7 @@ def _call_claude(context: dict) -> Optional[dict]:
         days_until_close=n.get("days_until_close") or "Unknown",
         source_url=n.get("source_url", ""),
         procurement_stage=n.get("procurement_stage") or "Not determined",
+        tender_posture=context.get("tender_posture") or "Live bid — a contract is being awarded from this process.",
         briefing_date=str(n.get("briefing_date") or "Not found in notice"),
         questions_deadline=str(n.get("questions_deadline") or "Not found in notice"),
         registration_deadline=str(n.get("registration_deadline") or "Not found in notice"),
@@ -967,13 +975,15 @@ a:hover { color:var(--gold); }
 .cover-client { font-size:.8rem; color:var(--muted); }
 .cover-client strong { color:var(--navy); }
 .verdict { display:flex; align-items:center; gap:1.5rem; padding:1.25rem 1.5rem; border-radius:8px; border:1px solid; margin-bottom:2rem; }
-.verdict.go   { background:#eafaf1; border-color:#a9dfbf; }
-.verdict.cond { background:var(--gold-l); border-color:var(--gold); }
-.verdict.nogo { background:var(--red-l); border-color:#f1a9a0; }
+.verdict.go     { background:#eafaf1; border-color:#a9dfbf; }
+.verdict.cond   { background:var(--gold-l); border-color:var(--gold); }
+.verdict.nogo   { background:var(--red-l); border-color:#f1a9a0; }
+.verdict.engage { background:#e8f4fd; border-color:#3498db; }
 .verdict-badge { font-size:1.1rem; font-weight:800; letter-spacing:.04em; flex-shrink:0; }
-.verdict.go   .verdict-badge { color:var(--green); }
-.verdict.cond .verdict-badge { color:#1a6b62; }
-.verdict.nogo .verdict-badge { color:var(--red); }
+.verdict.go     .verdict-badge { color:var(--green); }
+.verdict.cond   .verdict-badge { color:#1a6b62; }
+.verdict.nogo   .verdict-badge { color:var(--red); }
+.verdict.engage .verdict-badge { color:#1a5a8a; }
 .verdict-text { font-size:.85rem; color:var(--text); line-height:1.55; }
 .prob-ring { flex-shrink:0; text-align:center; }
 .prob-pct  { font-size:1.55rem; font-weight:800; color:var(--navy); line-height:1; }
@@ -1042,9 +1052,12 @@ tbody tr:hover td { background:var(--surf2); }
 
 
 def _verdict_class(rec: str) -> str:
-    if "NO" in rec.upper():
+    r = rec.upper()
+    if "MARKET" in r or "ENGAGE" in r:
+        return "engage"
+    if "NO" in r:
         return "nogo"
-    if "CONDITIONAL" in rec.upper():
+    if "CONDITIONAL" in r:
         return "cond"
     return "go"
 
@@ -1687,6 +1700,13 @@ def generate_pursuit_package(
     except Exception as _pe:
         logger.debug("Agency plan signal query failed: %s", _pe)
 
+    # Classify tender type — determines strategic posture and whether bid framing applies
+    from parsing import classify_tender_posture as _classify_posture
+    tender_posture, is_live_bid = _classify_posture(
+        notice.get("procurement_stage"), notice.get("category_raw")
+    )
+    logger.info("Tender posture for %s: %r (is_live_bid=%s)", notice_id, tender_posture[:60], is_live_bid)
+
     context = {
         "client_name": client_name,
         "preferred_sectors": preferred_sectors or [],
@@ -1709,6 +1729,8 @@ def generate_pursuit_package(
         "national_market": national_market,
         "agency_plan_signals": agency_plan_signals,
         "extra_docs": extra_docs or [],
+        "tender_posture": tender_posture,
+        "is_live_bid": is_live_bid,
     }
 
     # 2. Call Claude
@@ -1729,11 +1751,17 @@ def generate_pursuit_package(
     # Prevent contradictory combinations (e.g. "Competitive — NO GO").
     # When go_nogo is overridden, also patch the rationale fields so the
     # narrative does not contradict the enforced recommendation.
+    # Non-live-bid notices (RFI/NOI/ROI/advance) bypass enforcement — their
+    # MARKET ENGAGEMENT verdict is intentional, not a contradiction to correct.
     _band_key = win_pos.get("css_key", "competitive")
     _rec = (analysis.get("go_nogo") or "GO").upper().strip()
     _band_label = win_pos.get("band", "Competitive")
     _go_nogo_overridden = False
-    if _band_key in ("strong", "competitive") and _rec == "NO GO":
+    if not is_live_bid:
+        # Override win position label to reflect market intelligence posture
+        win_pos = {**win_pos, "band": "Market Intelligence", "colour": "#3498db", "css_key": "engage"}
+        logger.info("Non-live-bid notice — win position overridden to 'Market Intelligence'")
+    elif _band_key in ("strong", "competitive") and _rec == "NO GO":
         logger.info(
             "Win position is '%s' but go_nogo was '%s' — overriding to CONDITIONAL GO",
             _band_label, _rec,

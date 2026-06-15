@@ -870,6 +870,53 @@ def _fmt_sector(sector: str) -> str:
 def _sector_badge(sector: str) -> str:
     return f'<span class="badge bn">{_fmt_sector(sector)}</span>'
 
+# Tender type badge — visually distinct by posture so RFI is never confused with RFP
+_TENDER_TYPE_STYLES: dict = {
+    # Live bids — teal (same family as sector badge but bolder)
+    "request for proposal":     ("RFP",            "background:#e0f4f2;color:#1a6b62;border:1px solid #2a9d8f;"),
+    "request for tender":       ("RFT",            "background:#e0f4f2;color:#1a6b62;border:1px solid #2a9d8f;"),
+    "request for quote":        ("RFQ",            "background:#e0f4f2;color:#1a6b62;border:1px solid #2a9d8f;"),
+    "panel / prequalification": ("Panel",          "background:#e0f4f2;color:#1a6b62;border:1px solid #2a9d8f;"),
+    # Information / market research — amber/orange
+    "request for information":  ("RFI",            "background:#fff3cd;color:#7a5000;border:1px solid #d4a017;"),
+    "notice of information":    ("NOI",            "background:#fff3cd;color:#7a5000;border:1px solid #d4a017;"),
+    # Qualification (EOI/ROI) — blue-grey
+    "expression of interest":   ("EOI",            "background:#eaf0f8;color:#2c5282;border:1px solid #6b8fc4;"),
+    # Advance notice — light neutral
+    "advance notice":           ("Advance Notice", "background:#f0f0f0;color:#556b7d;border:1px solid #b0bcd4;"),
+}
+
+def _tender_type_badge(procurement_stage: str, category_raw: str) -> str:
+    """Return a styled tender type badge. Falls back to raw category_raw if stage unmapped."""
+    stage_key = (procurement_stage or "").lower().strip()
+    for key, (label, style) in _TENDER_TYPE_STYLES.items():
+        if key in stage_key:
+            return (
+                f'<span style="font-size:.67rem;font-weight:700;padding:.15rem .45rem;'
+                f'border-radius:4px;letter-spacing:.02em;white-space:nowrap;{style}">'
+                f'{label}</span>'
+            )
+    # Fallback: derive short label from category_raw
+    raw = (category_raw or "").strip()
+    if not raw:
+        return ""
+    # Try to extract parenthesised abbreviation e.g. "(RFI)" from GETS verbose label
+    import re as _re
+    m = _re.search(r'\(([A-Z]{2,6})\)\s*$', raw)
+    short = m.group(1) if m else raw[:12]
+    # RFI/NOI/Advance in raw — amber; else neutral
+    if _re.search(r'\brfi\b|\bnoi\b|information|advance', raw.lower()):
+        style = "background:#fff3cd;color:#7a5000;border:1px solid #d4a017;"
+    elif _re.search(r'\broi\b|\beoi\b|interest', raw.lower()):
+        style = "background:#eaf0f8;color:#2c5282;border:1px solid #6b8fc4;"
+    else:
+        style = "background:#e0f4f2;color:#1a6b62;border:1px solid #2a9d8f;"
+    return (
+        f'<span style="font-size:.67rem;font-weight:700;padding:.15rem .45rem;'
+        f'border-radius:4px;letter-spacing:.02em;white-space:nowrap;{style}">'
+        f'{short}</span>'
+    )
+
 # Value band display labels and sort rank (higher = more valuable)
 _VALUE_BAND_LABELS = {
     "under_100k": "Under $100K",
@@ -3615,7 +3662,7 @@ def gw_watchlist():
             SELECT r.notice_id, r.title, r.agency, r.source_url, r.close_date,
                    r.category_raw,
                    p.sector_tag, p.days_until_close, p.value_band,
-                   p.geographic_scope,
+                   p.geographic_scope, p.procurement_stage,
                    e.summary, e.evaluation_weighting, e.red_flags, e.strategic_framing
               FROM parsed_notices p
               JOIN raw_notices r    ON r.notice_id = p.notice_id
@@ -3935,6 +3982,10 @@ function wlClearSearch(){
         else:
             dtc_badge = '<span class="badge bk">Close TBC</span>'
 
+        tender_badge = _tender_type_badge(
+            n.get("procurement_stage") or "", n.get("category_raw") or ""
+        )
+
         sector_match_badge = ""
         if preferred_sectors and sector in preferred_sectors:
             sector_match_badge = ('<span class="badge" style="background:rgba(42,157,143,.15);'
@@ -4107,6 +4158,7 @@ function wlClearSearch(){
             f'{gets_ref_html}'
             f'<div style="display:flex;flex-wrap:wrap;gap:.35rem;align-items:center;">'
             f'{_sector_badge(sector)}'
+            f'{tender_badge}'
             f'{_value_badge(n.get("value_band"))}'
             f'{dtc_badge}'
             f'{sector_match_badge}'

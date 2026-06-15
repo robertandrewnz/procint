@@ -213,6 +213,15 @@ def extract_procurement_stage(category_raw: Optional[str], overview_text: Option
     Derive procurement stage label from category_raw and/or overview_text keywords.
     """
     text = " ".join(filter(None, [category_raw, overview_text])).lower()
+    # RFI / market research — check before ROI/EOI to avoid false matches
+    if re.search(r"\brequest\s+for\s+information\b|\brfi\b|market\s+research", text):
+        return "Request for Information"
+    # NOI — notice of information / notice of intent
+    if re.search(r"\bnotice\s+of\s+(information|intent)\b|\bnoi\b", text):
+        return "Notice of Information"
+    # Advance notice
+    if re.search(r"\badvance\s+notice\b", text):
+        return "Advance Notice"
     if re.search(r"\bregistration\s+of\s+interest\b|\broi\b|\beoi\b|\bexpression\s+of\s+interest\b", text):
         return "Expression of Interest"
     if re.search(r"\brequest\s+for\s+proposal\b|\brfp\b", text):
@@ -224,6 +233,34 @@ def extract_procurement_stage(category_raw: Optional[str], overview_text: Option
     if re.search(r"\brequest\s+for\s+quote\b|\brfq\b", text):
         return "Request for Quote"
     return None
+
+
+def classify_tender_posture(procurement_stage: Optional[str], category_raw: Optional[str]) -> tuple:
+    """
+    Map procurement stage / category_raw to (posture_string, is_live_bid).
+    is_live_bid=False suppresses bid framing in generated analysis.
+    """
+    combined = " ".join(filter(None, [procurement_stage or "", category_raw or ""])).lower()
+    if re.search(r"request\s+for\s+information|\brfi\b|notice\s+of\s+(information|intent)|\bnoi\b|market\s+research", combined):
+        return (
+            "Market shaping — not a live bid. The opportunity is to influence future requirements "
+            "and build agency awareness, not to win a contract now.",
+            False,
+        )
+    if re.search(r"(registration|expression)\s+of\s+interest|\broi\b|\beoi\b", combined):
+        return (
+            "Qualification stage — the goal is to make the shortlist for a future RFP, not to win now.",
+            False,
+        )
+    if re.search(r"advance\s+notice", combined):
+        return (
+            "Early signal — no response required yet; prepare for an upcoming procurement.",
+            False,
+        )
+    return (
+        "Live bid — a contract is being awarded from this process.",
+        True,
+    )
 
 
 # ── Days until close ──────────────────────────────────────────────────────────

@@ -237,6 +237,20 @@ def _fetch_notice_detail(notice: dict) -> dict:
             if match:
                 notice["estimated_value"] = match.group(0)
 
+    # Tender Type from detail page — may be richer than the list-page abbreviation
+    # e.g. "Request for Information (Market research) (RFI)" vs just "RFI"
+    for _label_text in ["Tender Type", "Notice Type"]:
+        _label = soup.find(string=re.compile(rf"^\s*{re.escape(_label_text)}\s*:?\s*$", re.IGNORECASE))
+        if _label:
+            _parent = _label.find_parent()
+            if _parent:
+                _sibling = _parent.find_next_sibling()
+                if _sibling:
+                    _full = _sibling.get_text(strip=True)
+                    if _full:
+                        notice["category_raw"] = _full
+                        break
+
     notice["raw_html"] = html
     return notice
 

@@ -43,8 +43,8 @@ USER_PROMPT_TEMPLATE = """Analyse this New Zealand government procurement notice
 
 "red_flags": A list of strings, each a concise red flag (onerous terms, unrealistic timeline, potentially wired spec, limited market engagement, unusual conditions). Empty list [] if none identified.
 
-"strategic_framing": One sentence on what winning this contract would strategically mean for a firm — market position, reference site value, revenue, relationship access.
-
+"strategic_framing": One sentence on what engaging with this notice would strategically mean for a firm — market position, reference site value, revenue, relationship access, or shaping influence.
+{tender_type_note}
 --- NOTICE DATA ---
 Title: {title}
 Agency: {agency}
@@ -63,7 +63,22 @@ Overview:
 
 
 def _build_prompt(notice: dict) -> str:
+    from parsing import classify_tender_posture
     overview = notice.get("overview_text") or notice.get("description") or "Not provided"
+    _, is_live_bid = classify_tender_posture(
+        notice.get("procurement_stage"), notice.get("category_raw")
+    )
+    if not is_live_bid:
+        tender_type_note = (
+            "\nTENDER TYPE NOTE: This notice is NOT a live bid — it is market research, "
+            "an information request, or an advance signal. Do NOT generate red flags about "
+            "bid timeline pressure or submission urgency. Frame red_flags around information "
+            "gaps, market dynamics, and engagement risks only. Frame strategic_framing around "
+            "market shaping, agency relationship building, and influence on future procurement "
+            "specifications — not contract winning.\n"
+        )
+    else:
+        tender_type_note = ""
     return USER_PROMPT_TEMPLATE.format(
         title=notice.get("title") or "Unknown",
         agency=notice.get("agency") or "Unknown",
@@ -77,6 +92,7 @@ def _build_prompt(notice: dict) -> str:
         registration_deadline=str(notice.get("registration_deadline") or "Not found in notice"),
         evaluation_criteria=notice.get("evaluation_criteria") or "Not stated",
         overview=overview[:3000],
+        tender_type_note=tender_type_note,
     )
 
 
@@ -151,6 +167,7 @@ def run_enrichment() -> int:
     rows = db.fetchall(
         """
         SELECT r.notice_id, r.title, r.agency, r.description, r.overview_text,
+               r.category_raw,
                p.sector_tag, p.value_band, p.close_date,
                p.days_until_close, p.evaluation_criteria,
                p.briefing_date, p.questions_deadline,
