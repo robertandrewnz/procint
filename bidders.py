@@ -144,6 +144,66 @@ FIRM_EXCLUSION_SECTORS: dict[str, set[str]] = {
     "heb construction": {"construction", "civil", "infrastructure"},
 }
 
+# ── Government / public-sector entity exclusion ───────────────────────────────
+# Government agencies, crown entities, and public-sector bodies receive contracts
+# — they do not bid for them. Filter them from all likely-bidder results.
+
+_GOVT_EXPLICIT_NAMES: frozenset = frozenset({
+    "national security group",
+    "new zealand defence force",
+    "nzdf",
+    "new zealand police",
+    "nz police",
+    "inland revenue department",
+    "inland revenue",
+    "accident compensation corporation",
+    "new zealand transport agency",
+    "waka kotahi",
+    "education review office",
+    "serious fraud office",
+    "electoral commission",
+    "public service commission",
+    "state services commission",
+    "government communications security bureau",
+    "gcsb",
+    "new zealand security intelligence service",
+    "nzsis",
+    "department of corrections",
+    "department of prime minister and cabinet",
+    "te arawhiti",
+    "health new zealand",
+    "te whatu ora",
+})
+
+_GOVT_KEYWORDS_RE = re.compile(
+    r"\bministry\b"
+    r"|\bdepartment\b"
+    r"|\bauthority\b"
+    r"|\bcouncil\b"
+    r"|\boffice\s+of\b"
+    r"|\bcrown\b"
+    r"|\bcommission\b"
+    r"|\bcommissioner\b"
+    r"|\btribunal\b",
+    re.IGNORECASE,
+)
+
+
+def _is_government_entity(firm_name: str) -> bool:
+    """
+    Return True if the firm name is a government agency, crown entity,
+    or public-sector body. These organisations receive contracts — they should
+    never appear as likely bidders.
+    """
+    if not firm_name:
+        return False
+    lower = firm_name.lower().strip()
+    # Exact or prefix match against explicit names
+    for explicit in _GOVT_EXPLICIT_NAMES:
+        if lower == explicit or lower.startswith(explicit + " "):
+            return True
+    return bool(_GOVT_KEYWORDS_RE.search(firm_name))
+
 # ── Title-keyword exclusion triggers ──────────────────────────────────────────
 # If a notice title contains any of these phrases the named sector firms are hard-excluded.
 # This catches misclassified notices (e.g. aerospace notice tagged "infrastructure").
@@ -550,13 +610,17 @@ def _firm_is_excluded(firm_sectors: list[str], notice: dict,
     """
     Return True if this firm should be excluded from bidder results for this notice.
 
-    Three-pass check:
-    0. Firm-level sector override — FIRM_EXCLUSION_SECTORS pins effective sectors
-       for specific firms regardless of CSV/MBIE data.
-    1. Sector exclusion matrix — based on notice sector_tag.
-    2. Title keyword triggers — catches misclassified notices (e.g. aerospace
-       notice tagged 'infrastructure' because GETS has no aerospace category).
+    Pass -1: Government entity exclusion — ministries, councils, crown bodies etc.
+    Pass  0: Firm-level sector override — FIRM_EXCLUSION_SECTORS pins effective sectors
+             for specific firms regardless of CSV/MBIE data.
+    Pass  1: Sector exclusion matrix — based on notice sector_tag.
+    Pass  2: Title keyword triggers — catches misclassified notices (e.g. aerospace
+             notice tagged 'infrastructure' because GETS has no aerospace category).
     """
+    # Pass -1: government/public-sector entity — never a bidder
+    if firm_name and _is_government_entity(firm_name):
+        return True
+
     # Pass 0: firm-level override
     if firm_name:
         override = FIRM_EXCLUSION_SECTORS.get(firm_name.strip().lower())
@@ -741,6 +805,102 @@ def _related_sectors(sector: str) -> list[str]:
     return []
 
 
+# ── Web search fallback ───────────────────────────────────────────────────────
+
+def _web_search_bidders(notice_title: str, agency: str, sector: str) -> list[dict]:
+    """
+    Use Claude with web_search to find market participants when MBIE data is thin.
+    Returns a list of dicts compatible with score_bidders_for_notice() output,
+    with match_type='web_inferred'.
+    """
+    try:
+        import anthropic as _anthropic
+        _client = _anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+
+        if sector.lower() in ("other", "unknown", ""):
+            service_desc = notice_title
+        else:
+            service_desc = f"{notice_title}"
+
+        prompt = (
+            f"Search for New Zealand companies that provide the following service:\n"
+            f"'{service_desc}'\n\n"
+            f"This is for a New Zealand government procurement context. "
+            f"Identify commercial providers that would realistically bid on a government contract "
+            f"for this type of service.\n\n"
+            f"Search for: 'companies providing {service_desc} New Zealand', "
+            f"'New Zealand {sector} service providers government'.\n\n"
+            f"Return up to 5 named commercial providers operating in New Zealand. "
+            f"For each, provide the exact trading name and a brief description of their capability.\n\n"
+            f"Format each entry as: '[Company Name] — [capability description]'\n\n"
+            f"IMPORTANT: Only include commercial firms — NOT government agencies, councils, "
+            f"ministries, crown entities, or public sector organisations. "
+            f"If you cannot find credible commercial providers, respond with: "
+            f"'No providers identified.'"
+        )
+
+        msg = _client.messages.create(
+            model=config.CLAUDE_MODEL,
+            max_tokens=500,
+            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 2}],
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        result_parts = [
+            block.text.strip()
+            for block in msg.content
+            if hasattr(block, "text") and block.text
+        ]
+        result = " ".join(result_parts).strip()
+
+        if not result or "no providers identified" in result.lower():
+            return []
+
+        bidders = []
+        for line in result.split("\n"):
+            line = line.strip().lstrip("-•*0123456789. ")
+            if not line:
+                continue
+            # Parse "Company Name — description" or "Company Name - description"
+            if " — " in line:
+                parts = line.split(" — ", 1)
+            elif " - " in line:
+                parts = line.split(" - ", 1)
+            else:
+                continue
+            firm_name = parts[0].strip().strip("*_")
+            description = parts[1].strip() if len(parts) > 1 else ""
+            if not firm_name or len(firm_name) < 3 or len(firm_name) > 120:
+                continue
+            # Double-check: skip any government entities the model may have included
+            if _is_government_entity(firm_name):
+                logger.debug("Web search: skipping government entity %r", firm_name)
+                continue
+            bidders.append({
+                "firm_name":           firm_name,
+                "canonical_name":      canonical_name(firm_name),
+                "sector":              sector,
+                "size":                "medium",
+                "strategic_importance": "medium",
+                "intelligence_maturity": "weak",
+                "relevance_score":     0.3,
+                "match_type":          "web_inferred",
+                "reasoning":           [f"Web search: identified as NZ provider — {description[:120]}"],
+                "company_context":     description[:200] or None,
+                "context_confidence":  "unknown",
+            })
+
+        logger.info(
+            "Web search bidders for %r: %d provider(s) found",
+            notice_title[:60], len(bidders),
+        )
+        return bidders[:5]
+
+    except Exception as exc:
+        logger.warning("_web_search_bidders failed: %s", exc)
+        return []
+
+
 # ── Combined inference ────────────────────────────────────────────────────────
 
 def score_bidders_for_notice(
@@ -841,6 +1001,24 @@ def score_bidders_for_notice(
         canon = r.get("canonical_name") or r["firm_name"]
         if canon not in mbie_canonical_names:
             results.append(r)
+
+    # Web search fallback: when MBIE + CSV returns fewer than 3 bidders,
+    # search for market participants. Applies to all notices including specialists —
+    # web search respects the same government entity exclusion as MBIE.
+    if len(results) < 3:
+        logger.info(
+            "Notice %s: only %d bidder(s) from MBIE/CSV — triggering web search fallback",
+            notice.get("notice_id"), len(results),
+        )
+        web_results = _web_search_bidders(
+            notice.get("title") or "",
+            notice.get("agency") or "",
+            notice.get("sector_tag") or "other",
+        )
+        existing_canonicals = {r.get("canonical_name") or r["firm_name"] for r in results}
+        for wr in web_results:
+            if (wr.get("canonical_name") or wr["firm_name"]) not in existing_canonicals:
+                results.append(wr)
 
     # For specialist notices: if we have very few results, that's correct —
     # do NOT pad with general firms. Log so the operator knows.

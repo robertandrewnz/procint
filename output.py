@@ -477,6 +477,12 @@ def _bidder_card(b: dict) -> str:
     if match_type == "mbie_evidence":
         src_badge = ('<span class="bidder-src-badge bidder-src-mbie">'
                      '&#10003; MBIE historical</span>')
+    elif match_type == "web_inferred":
+        src_badge = ('<span class="bidder-src-badge" '
+                     'style="background:#fff3cd;color:#7a5000;border:1px solid #d4a017;'
+                     'font-size:.62rem;font-weight:600;padding:.12rem .45rem;'
+                     'border-radius:4px;">'
+                     '&#128269; Web inferred — no MBIE history</span>')
     elif match_type in ("exact", "cross_sector"):
         src_badge = ('<span class="bidder-src-badge bidder-src-inferred">'
                      '&#9675; Sector inference</span>')

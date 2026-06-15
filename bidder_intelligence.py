@@ -571,6 +571,7 @@ def _apply_mbie_enrichment(
     matches or closely resembles the agency is excluded — the buyer cannot also
     be a bidder.
     """
+    from bidders import _is_government_entity as _is_govt
     results = []
     for b in bidders_raw[:3]:
         name = str(b.get("name") or "").strip()
@@ -582,6 +583,10 @@ def _apply_mbie_enrichment(
                 "ACH: excluded '%s' — matches contracting agency '%s'",
                 name, agency_name,
             )
+            continue
+        # Exclude government/public-sector entities — they receive contracts, not bid for them
+        if _is_govt(name):
+            logger.info("ACH: excluded '%s' — identified as government or public-sector entity", name)
             continue
 
         prob = b.get("probability", "Medium")
