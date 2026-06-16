@@ -873,24 +873,20 @@ def _web_search_bidders(notice_title: str, agency: str, sector: str) -> list[dic
         import anthropic as _anthropic
         _client = _anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
-        if sector.lower() in ("other", "unknown", ""):
-            service_desc = notice_title
-        else:
-            service_desc = f"{notice_title}"
-
         prompt = (
-            f"Search for New Zealand companies that provide the following service:\n"
-            f"'{service_desc}'\n\n"
-            f"This is for a New Zealand government procurement context. "
-            f"Identify commercial providers that would realistically bid on a government contract "
-            f"for this type of service.\n\n"
-            f"Search for: 'companies providing {service_desc} New Zealand', "
-            f"'New Zealand {sector} service providers government'.\n\n"
+            f"Search for New Zealand companies that provide this specific service:\n"
+            f"'{notice_title}'\n\n"
+            f"This is for a New Zealand government procurement contract. "
+            f"Find commercial providers that deliver this exact type of service — "
+            f"anchor your search on what the service IS, not the sector or agency.\n\n"
+            f"Search for: '{notice_title} New Zealand providers', "
+            f"'{notice_title} companies New Zealand government'.\n\n"
             f"Return up to 5 named commercial providers operating in New Zealand. "
             f"For each, provide the exact trading name and a brief description of their capability.\n\n"
             f"Format each entry as: '[Company Name] — [capability description]'\n\n"
-            f"IMPORTANT: Only include commercial firms — NOT government agencies, councils, "
-            f"ministries, crown entities, or public sector organisations. "
+            f"IMPORTANT: Only include commercial firms that deliver THIS specific service — "
+            f"NOT government agencies, councils, ministries, crown entities, or public sector "
+            f"organisations, and NOT firms from adjacent sectors that don't provide this service. "
             f"If you cannot find credible commercial providers, respond with: "
             f"'No providers identified.'"
         )
