@@ -124,10 +124,29 @@ def _fetch_top_bidders(notice_id: str) -> list[dict]:
     """
     Return the top N bidders for *notice_id*.
 
-    ACH rows (match_type='ach_analysis') take absolute priority over MBIE rows.
-    When ACH rows are present, they are returned directly (already curated to 3).
-    When absent, falls back to the deduplicated MBIE/CSV pool with exclusion logic.
+    ACH rows (match_type='ach_analysis') are preferred when they pass the
+    relevance gate. When absent or gate-failed, falls back to the deduplicated
+    MBIE/CSV pool with exclusion logic.
     """
+    from canonical_suppliers import canonical_name, deduplicate_bidders
+    from bidders import _firm_is_excluded, _notice_is_specialist
+
+    # Fetch notice context once at the top — used by both the ACH gate and
+    # the Pipeline A exclusion logic.
+    notice_ctx: dict = {}
+    try:
+        notice_ctx = dict(db.fetchone(
+            """
+            SELECT r.notice_id, r.title, r.agency, p.sector_tag
+              FROM raw_notices r
+              LEFT JOIN parsed_notices p ON p.notice_id = r.notice_id
+             WHERE r.notice_id = %s
+            """,
+            (notice_id,),
+        ) or {})
+    except Exception:
+        pass
+
     # ── Prefer ACH results — only if they pass the relevance gate ──────────
     try:
         ach_rows = db.fetchall(
@@ -146,14 +165,7 @@ def _fetch_top_bidders(notice_id: str) -> list[dict]:
             # Gate check: verify stored ACH rows still match the notice service domain.
             # Handles notices processed before the gate was introduced.
             from bidder_intelligence import _ach_relevance_gate
-            notice_title_for_gate = ""
-            try:
-                _t = db.fetchone(
-                    "SELECT title FROM raw_notices WHERE notice_id = %s", (notice_id,)
-                )
-                notice_title_for_gate = (_t or {}).get("title") or ""
-            except Exception:
-                pass
+            notice_title_for_gate = notice_ctx.get("title") or ""
             if _ach_relevance_gate([dict(r) for r in ach_rows], notice_title_for_gate):
                 return [dict(r) for r in ach_rows]
             logger.info(
@@ -165,22 +177,6 @@ def _fetch_top_bidders(notice_id: str) -> list[dict]:
         logger.warning("ACH bidder fetch failed for %s: %s", notice_id, exc)
 
     # ── Fall back to legacy MBIE/CSV pool ───────────────────────────────────
-    from canonical_suppliers import canonical_name, deduplicate_bidders
-    from bidders import _firm_is_excluded, _notice_is_specialist
-
-    notice_ctx: dict = {}
-    try:
-        notice_ctx = dict(db.fetchone(
-            """
-            SELECT r.notice_id, r.title, r.agency, p.sector_tag
-              FROM raw_notices r
-              LEFT JOIN parsed_notices p ON p.notice_id = r.notice_id
-             WHERE r.notice_id = %s
-            """,
-            (notice_id,),
-        ) or {})
-    except Exception:
-        pass
     specialist_flag = _notice_is_specialist(notice_ctx) if notice_ctx else None
 
     pool = db.fetchall(
