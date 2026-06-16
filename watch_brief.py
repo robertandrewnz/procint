@@ -687,6 +687,7 @@ def generate_watch_brief(
         "watch_brief", run_date, filename,
         content=html, storage_path=storage_path,
         client_slug=client_slug_val,
+        client_name=client_name,
     )
 
     return out_path

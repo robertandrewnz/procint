@@ -469,11 +469,48 @@ def _run_fix_bidder_mismatches() -> None:
                 logger.warning("SCHEDULER: pipeline_runs UPDATE failed (fix_bidder_mismatches): %s", _e)
 
 
+def _mark_stale_runs_failed(max_hours: int = 4) -> None:
+    """Mark any pipeline_runs row stuck in 'running' for over max_hours as failed.
+
+    Called at Layer 2 start and by the hourly watchdog so a hung job is
+    never displayed as 'Running' indefinitely in the admin panel.
+    """
+    try:
+        import db as _db
+        result = _db.execute(
+            """
+            UPDATE pipeline_runs
+               SET status = 'failed',
+                   finished_at = NOW(),
+                   summary = 'Timed out — marked failed by watchdog after ' || %s || 'h'
+             WHERE status = 'running'
+               AND started_at < NOW() - INTERVAL '1 hour' * %s
+            """,
+            (max_hours, max_hours),
+        )
+        if result and hasattr(result, "rowcount") and result.rowcount:
+            logger.warning(
+                "SCHEDULER: marked %d stale pipeline_run(s) as failed (>%dh)",
+                result.rowcount, max_hours,
+            )
+    except Exception as exc:
+        logger.warning("SCHEDULER: _mark_stale_runs_failed error: %s", exc)
+
+
+def _run_stale_job_watchdog() -> None:
+    """Hourly watchdog — reaps jobs that have been 'running' for over 4 hours."""
+    _mark_stale_runs_failed(max_hours=4)
+
+
 def _run_layer2() -> None:
     """Layer 2: organisation seeding, awards ingestion, agency profiling, patterns."""
     logger.info("=" * 60)
     logger.info("SCHEDULER: Layer 2 pipeline starting at %s", datetime.utcnow().isoformat())
     logger.info("=" * 60)
+
+    # Clean up any stale runs from a previous hung execution before starting.
+    _mark_stale_runs_failed(max_hours=4)
+
     run_id = None
     layer2_ok = False
     try:
@@ -701,6 +738,18 @@ def start_scheduler() -> None:
         id="procurement_plans_monthly",
         name="Monthly procurement plan scraper (Sun 03:00 NZT)",
         misfire_grace_time=14400,  # 4h grace — this is a low-urgency background job
+        coalesce=True,
+        max_instances=1,
+    )
+
+    # ── Stale-job watchdog: hourly ────────────────────────────────────────────
+    scheduler.add_job(
+        _run_stale_job_watchdog,
+        "interval",
+        hours=1,
+        id="stale_job_watchdog",
+        name="Stale-job watchdog (hourly)",
+        misfire_grace_time=300,
         coalesce=True,
         max_instances=1,
     )

@@ -130,6 +130,20 @@ FIRM_SECTOR_OVERRIDES: dict[str, str] = {
     "dxc technology limit": "ICT",   # DXC TECHNOLOGY NZ LIMIT — truncated DB entry
 }
 
+def _db_sector_overrides() -> dict:
+    """Load any sector overrides stored in the DB via the admin apply panel.
+    Falls back to empty dict if the table doesn't exist yet or DB is unavailable.
+    """
+    try:
+        import db as _db
+        rows = _db.fetchall(
+            "SELECT firm_name_lower, sector FROM firm_sector_overrides"
+        )
+        return {r["firm_name_lower"]: r["sector"] for r in rows}
+    except Exception:
+        return {}
+
+
 # ── Firm-level exclusion sector pins ─────────────────────────────────────────
 # Hard-pins effective sector(s) for bidder EXCLUSION purposes regardless of
 # what their bidders.csv entry says.  Use when MBIE award history or broad CSV
@@ -430,9 +444,11 @@ def _mbie_bidders_for_notice(notice: dict) -> list[dict]:
         firm_ps_lower = firm_primary_sector.lower()
 
         # Apply firm-level sector override for known MBIE misclassifications.
+        # Merges hardcoded dict with any DB overrides added via admin panel.
         firm_canon_lower = canonical_name(name).lower()
-        if firm_canon_lower in FIRM_SECTOR_OVERRIDES:
-            firm_primary_sector = FIRM_SECTOR_OVERRIDES[firm_canon_lower]
+        _all_overrides = {**FIRM_SECTOR_OVERRIDES, **_db_sector_overrides()}
+        if firm_canon_lower in _all_overrides:
+            firm_primary_sector = _all_overrides[firm_canon_lower]
             firm_ps_lower = firm_primary_sector.lower()
 
         # Detect physical-works firm via matched_categories when primary_sector is absent

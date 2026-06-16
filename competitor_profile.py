@@ -1085,6 +1085,7 @@ def generate_competitor_profile(
         "competitor_profile", date.today(), filename,
         content=html, storage_path=storage_path,
         client_slug=client_slug_val,
+        client_name=client_name,
     )
 
     return out_path

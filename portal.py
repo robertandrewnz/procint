@@ -4367,9 +4367,40 @@ function renderFirmAudit(d) {
       for(var i=0;i<d.misclassified_physical.length;i++){var r=d.misclassified_physical[i];html+='<tr style="border-bottom:1px solid var(--border);"><td style="padding:.3rem .5rem;">'+_escHtml(r.name)+'</td><td style="padding:.3rem .5rem;color:#e05555;">'+_escHtml(r.sector)+'</td><td style="padding:.3rem .5rem;color:var(--muted);">'+r.wins+'</td></tr>';}
       html+='</tbody></table>';
     }
-    html+='<p style="font-size:.78rem;color:var(--muted);">Add overrides to FIRM_SECTOR_OVERRIDES in bidders.py for any firm that should be reclassified.</p>';
+    html+='<button onclick="applyIctReclassifications()" style="margin-top:.5rem;padding:.35rem .9rem;background:#2A9D8F;color:#fff;border:none;border-radius:4px;font-size:.8rem;cursor:pointer;">Apply ICT Reclassifications</button>';
+    html+='<div id="afs-apply-result" style="margin-top:.5rem;font-size:.78rem;"></div>';
   }
   box.innerHTML=html;
+}
+
+function applyIctReclassifications() {
+  var res=document.getElementById('afs-apply-result');
+  res.textContent='Applying…';
+  fetch('/admin/apply-ict-reclassifications',{method:'POST',headers:{'Content-Type':'application/json'}})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){res.style.color='#2A9D8F';res.textContent='Applied '+d.applied+' ICT overrides to DB. Bidder scoring will use updated sectors immediately.';}
+      else{res.style.color='#e05555';res.textContent='Error: '+(d.error||'unknown');}
+    })
+    .catch(function(e){res.style.color='#e05555';res.textContent='Error: '+e;});
+}
+
+function resetStuckJobs() {
+  var res=document.getElementById('stuck-jobs-result');
+  if(res)res.textContent='Resetting…';
+  fetch('/admin/reset-stuck-jobs',{method:'POST',headers:{'Content-Type':'application/json'}})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){
+        var msg=d.reset>0?'Reset '+d.reset+' stuck job(s) to Failed.':'No stuck jobs found (nothing running >2h).';
+        if(res){res.style.color=d.reset>0?'#2A9D8F':'var(--muted)';res.textContent=msg;}
+        else{alert(msg);}
+      } else {
+        if(res){res.style.color='#e05555';res.textContent='Error: '+(d.error||'unknown');}
+        else{alert('Error: '+(d.error||'unknown'));}
+      }
+    })
+    .catch(function(e){if(res){res.style.color='#e05555';res.textContent='Error: '+e;}else{alert('Error: '+e);}});
 }
 
 // ── Delete Bad Packages ───────────────────────────────────────────────────────
@@ -6204,7 +6235,11 @@ def admin_dash():
             f'</div>'
             f'<div class="card" style="margin-top:1.5rem;">'
             f'<div class="ch"><span class="ct">Scheduler Status</span>'
-            f'<a href="{url_for("admin_pipeline")}" class="btn bg-out sm">Pipeline control &rarr;</a></div>'
+            f'<div style="display:flex;gap:.5rem;align-items:center;">'
+            f'<button onclick="resetStuckJobs()" class="btn bg-out sm" style="color:#e07b39;border-color:#e07b39;">Reset Stuck Jobs</button>'
+            f'<a href="{url_for("admin_pipeline")}" class="btn bg-out sm">Pipeline control &rarr;</a>'
+            f'</div></div>'
+            f'<div id="stuck-jobs-result" style="font-size:.78rem;padding:.3rem 1.25rem;"></div>'
             f'<table style="width:100%;border-collapse:collapse;">'
             f'<thead><tr style="color:var(--muted);font-size:.73rem;border-bottom:1px solid var(--border);">'
             f'<th style="text-align:left;padding:.4rem .75rem;">Job</th>'
@@ -6802,6 +6837,97 @@ def admin_audit_firm_sectors():
         return _jfy({"ok": False, "error": str(exc)})
 
 
+@app.route("/admin/reset-stuck-jobs", methods=["POST"])
+@login_required
+@admin_required
+def admin_reset_stuck_jobs():
+    """Mark any pipeline_runs row stuck in 'running' for over 2h as failed."""
+    from flask import jsonify as _jfy
+    try:
+        result = db.execute(
+            """
+            UPDATE pipeline_runs
+               SET status = 'failed',
+                   finished_at = NOW(),
+                   summary = 'Manually reset via admin panel'
+             WHERE status = 'running'
+               AND started_at < NOW() - INTERVAL '2 hours'
+            """,
+        )
+        count = result.rowcount if result and hasattr(result, "rowcount") else 0
+        return _jfy({"ok": True, "reset": count})
+    except Exception as exc:
+        logger.exception("admin_reset_stuck_jobs: %s", exc)
+        return _jfy({"ok": False, "error": str(exc)})
+
+
+@app.route("/admin/apply-ict-reclassifications", methods=["POST"])
+@login_required
+@admin_required
+def admin_apply_ict_reclassifications():
+    """Write ICT firm sector overrides to the firm_sector_overrides DB table."""
+    from flask import jsonify as _jfy
+
+    _KNOWN_ICT = {
+        "fusion5", "empired", "revolent", "datacom", "spark nz", "gen-i",
+        "unisys", "hewlett packard", "hp", "microsoft", "ibm nz", "ibm",
+        "cisco", "oracle", "sap", "accenture", "wipro", "infosys",
+        "theta", "provoke", "solnet", "jade software", "intergen",
+        "dimension data", "ntt", "computacenter", "logicalis",
+        "axon networks", "psi", "tait communications",
+        "dxc", "dxc technology", "fujitsu", "tata",
+        "assurity", "beca ict", "pricewaterhousecoopers ict",
+        "kpmg ict", "deloitte digital",
+    }
+
+    try:
+        # Ensure table exists (idempotent)
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS firm_sector_overrides (
+                firm_name_lower TEXT PRIMARY KEY,
+                sector          TEXT NOT NULL,
+                added_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+
+        ict_rows = db.fetchall(
+            """
+            SELECT supplier_name, primary_sector
+              FROM supplier_win_history
+             WHERE primary_sector NOT IN ('ICT','cybersecurity','advisory','other')
+               AND total_wins >= 1
+             ORDER BY total_wins DESC
+            """
+        )
+
+        applied = []
+        for r in ict_rows:
+            nl = (r["supplier_name"] or "").lower()
+            if any(k in nl for k in _KNOWN_ICT):
+                db.execute(
+                    """
+                    INSERT INTO firm_sector_overrides (firm_name_lower, sector)
+                    VALUES (%s, 'ICT')
+                    ON CONFLICT (firm_name_lower) DO UPDATE SET sector = 'ICT'
+                    """,
+                    (nl,),
+                )
+                applied.append(r["supplier_name"])
+
+        # Invalidate the bidders module cache so new overrides load immediately
+        import sys
+        if "bidders" in sys.modules:
+            del sys.modules["bidders"]
+
+        logger.info("admin_apply_ict_reclassifications: applied %d overrides", len(applied))
+        return _jfy({"ok": True, "applied": len(applied), "firms": applied[:20]})
+    except Exception as exc:
+        logger.exception("admin_apply_ict_reclassifications: %s", exc)
+        return _jfy({"ok": False, "error": str(exc)})
+
+
 @app.route("/admin/backfill-overview-text", methods=["POST"])
 @login_required
 @admin_required
@@ -6940,8 +7066,8 @@ def admin_delete_bad_packages():
             """
             SELECT id, output_type, client_name, client_slug, notice_id, run_date
               FROM pipeline_outputs
-             WHERE client_name IS NULL
-                OR TRIM(LOWER(client_name)) = ANY(%s)
+             WHERE output_type NOT IN ('demo_html', 'demo_pdf')
+               AND (client_name IS NULL OR TRIM(LOWER(client_name)) = ANY(%s))
              ORDER BY run_date DESC NULLS LAST
             """,
             (list(_BAD),),
