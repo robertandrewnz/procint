@@ -3941,12 +3941,16 @@ function wlClearSearch(){
             grouped: dict = defaultdict(list)
             for row in raw_bidders:
                 grouped[row["notice_id"]].append(dict(row))
+            from bidder_intelligence import _ach_relevance_gate
             for nid, rows in grouped.items():
-                # If this notice has ACH rows, use them directly (already curated to 3)
+                # If this notice has ACH rows, gate them before use
                 ach_rows = [r for r in rows if r.get("match_type") == "ach_analysis"]
                 if ach_rows:
-                    bidders_by_notice[nid] = ach_rows[:3]
-                    continue
+                    notice_title_for_gate = (notice_ctx_map.get(nid) or {}).get("title") or ""
+                    if _ach_relevance_gate(ach_rows, notice_title_for_gate):
+                        bidders_by_notice[nid] = ach_rows[:3]
+                        continue
+                    # Gate failed — fall through to Pipeline A exclusion path
                 # Legacy path: apply exclusions + dedup on MBIE/CSV rows
                 ctx = notice_ctx_map.get(nid, {})
                 is_specialist = _notice_is_specialist(ctx) if ctx else False
