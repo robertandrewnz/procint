@@ -247,6 +247,14 @@ TITLE_KEYWORD_SECTOR_EXCLUSIONS: list[tuple[list[str], set[str]]] = [
          "bridge maintenance", "drainage works", "earthworks"],
         {"ICT", "health", "legal", "aerospace", "cybersecurity"},
     ),
+    # Psychometric / cognitive assessment keywords — exclude physical-security firms
+    (
+        ["cognitive ability", "psychometric", "aptitude test", "ability testing",
+         "personality assessment", "behavioural assessment", "talent assessment",
+         "psychometric testing", "cognitive testing", "assessment tools",
+         "workforce assessment", "recruitment assessment"],
+        {"security", "construction", "civil", "roading", "infrastructure", "FM"},
+    ),
 ]
 
 # ── Specialist sectors ─────────────────────────────────────────────────────────
@@ -1002,13 +1010,18 @@ def score_bidders_for_notice(
         if canon not in mbie_canonical_names:
             results.append(r)
 
-    # Web search fallback: when MBIE + CSV returns fewer than 3 bidders,
-    # search for market participants. Applies to all notices including specialists —
-    # web search respects the same government entity exclusion as MBIE.
-    if len(results) < 3:
+    # Web search fallback: fire when MBIE + CSV returns fewer than 3 bidders, OR
+    # when the notice is an RFI/NOI (non-live-bid) — for market research notices
+    # MBIE history is rarely relevant and web search gives better market mapping.
+    from parsing import classify_tender_posture as _classify_posture
+    _, _is_live_bid = _classify_posture(
+        notice.get("procurement_stage"), notice.get("category_raw")
+    )
+    _trigger_web = len(results) < 3 or not _is_live_bid
+    if _trigger_web:
         logger.info(
-            "Notice %s: only %d bidder(s) from MBIE/CSV — triggering web search fallback",
-            notice.get("notice_id"), len(results),
+            "Notice %s: triggering web search fallback (bidders=%d, is_live_bid=%s)",
+            notice.get("notice_id"), len(results), _is_live_bid,
         )
         web_results = _web_search_bidders(
             notice.get("title") or "",

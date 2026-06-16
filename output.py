@@ -349,6 +349,7 @@ def _recommended_actions(item: dict) -> list[str]:
     """
     Generate 2-4 plain-language recommended actions for a prospective bidder.
     Heuristic fallback used when Claude enrichment has not run.
+    Posture-aware: RFI/NOI/advance notices get market engagement framing, not bid prep.
     """
     actions = []
     dtc = item.get("days_until_close")
@@ -357,6 +358,68 @@ def _recommended_actions(item: dict) -> list[str]:
     notice_type = (item.get("category_raw") or "").upper()
     agency = item.get("agency") or "the agency"
 
+    # Determine tender posture
+    try:
+        from parsing import classify_tender_posture
+        _, is_live_bid = classify_tender_posture(
+            item.get("procurement_stage"), item.get("category_raw")
+        )
+    except Exception:
+        is_live_bid = True
+
+    # ── Non-live-bid (RFI / ROI / advance): engagement framing ─────────────────
+    if not is_live_bid:
+        days_str = f"{dtc} days" if dtc is not None else "the stated window"
+        is_eoi_roi = any(kw in notice_type for kw in ("EOI", "ROI", "EXPRESSION", "REGISTRATION"))
+
+        if is_eoi_roi:
+            actions.append(
+                "Submit a capability statement focused on relevant past performance "
+                "rather than pricing. Use the EOI/ROI to shape the future RFP scope "
+                "by highlighting your firm's differentiators."
+            )
+        else:
+            # RFI / market research / NOI
+            actions.append(
+                f"Submit an RFI response within {days_str} — frame it to demonstrate "
+                f"market credibility and position your firm to influence {agency}'s future "
+                f"requirements specification, not to win a contract now."
+            )
+            actions.append(
+                f"Attend any market engagement sessions {agency} may run as part of this RFI. "
+                "Direct contact with the procurement team is the primary strategic value "
+                "of RFI participation."
+            )
+
+        # Sector-specific intelligence note (kept, but framed for engagement not bid prep)
+        rfi_sector_notes = {
+            "defence": (
+                "Check NZDF's annual procurement plan and any related Budget announcements — "
+                "RFI responses that align with signalled investment priorities receive more weight."
+            ),
+            "ICT": (
+                "Review existing All-of-Government (AoG) panel arrangements — "
+                "understanding how a future contract might sit within or alongside existing panels "
+                "strengthens your RFI positioning."
+            ),
+            "health": (
+                "Engage Health NZ's market engagement team directly — "
+                "health sector RFIs often precede complex multi-year procurements where "
+                "early relationship establishment matters significantly."
+            ),
+        }
+        if sector in rfi_sector_notes:
+            actions.append(rfi_sector_notes[sector])
+
+        if value_band == "unknown":
+            actions.append(
+                "The estimated contract value is not disclosed — ask about anticipated budget "
+                "and contract structure in your RFI response to help calibrate market interest."
+            )
+
+        return actions[:4]
+
+    # ── Live bid (RFP / RFT / RFQ / panel): standard bid preparation framing ───
     # Urgency-driven action
     if dtc is not None and dtc <= 3:
         actions.append(
@@ -445,7 +508,7 @@ def _recommended_actions(item: dict) -> list[str]:
             "annual procurement plan to calibrate the likely scale before committing bid resources."
         )
 
-    return actions[:4]  # cap at 4
+    return actions[:4]
 
 
 def _bidder_card(b: dict) -> str:
