@@ -232,54 +232,20 @@ def _identify_candidates(notice: dict) -> list[dict]:
     """
     Identify candidate bidders from MBIE historical awards and web search only.
 
-    Reads existing Pipeline A results (mbie_evidence, web_inferred) from
-    bidder_pool.  If none are found, runs identification live so ACH can proceed
-    on the first Layer 2 run after a new notice appears.
+    Always runs live — never reads stale Pipeline A rows from bidder_pool.
+    Stale web_inferred rows from old Layer 1 runs may contain wrong firms
+    (anchored on sector tag rather than notice title), so reusing them would
+    feed bad candidates into the ACH assessment.
 
     CSV (bidders.csv) is deliberately excluded — it generates sector-matched
     noise that causes agency-anchored pollution (e.g. defence primes for a
     cognitive testing RFI at NZDF).
     """
-    notice_id = notice.get("notice_id", "?")
-
-    # Read existing Pipeline A rows first (avoids duplicate web search API cost)
-    try:
-        rows = db.fetchall(
-            """
-            SELECT firm_name, match_type, reasoning, sector, size,
-                   strategic_importance, relevance_score, company_context,
-                   context_confidence
-              FROM bidder_pool
-             WHERE notice_id = %s
-               AND match_type IN ('mbie_evidence', 'web_inferred')
-             ORDER BY
-                CASE match_type WHEN 'mbie_evidence' THEN 0 ELSE 1 END,
-                COALESCE(relevance_score, 0) DESC
-            """,
-            (notice_id,),
-        )
-        if rows:
-            logger.debug(
-                "ACH notice %s: using %d existing Pipeline A candidate(s) from bidder_pool",
-                notice_id, len(rows),
-            )
-            return [dict(r) for r in rows][:8]
-    except Exception as exc:
-        logger.warning("ACH candidate read failed for %s: %s", notice_id, exc)
-
-    # No Pipeline A rows exist yet — run identification now
-    logger.info(
-        "ACH notice %s: no Pipeline A rows found — running MBIE + web search now",
-        notice_id,
-    )
     return _identify_candidates_live(notice)
 
 
 def _identify_candidates_live(notice: dict) -> list[dict]:
-    """
-    Run MBIE + web search live and return the combined candidate list.
-    Called when bidder_pool has no existing Pipeline A rows for the notice.
-    """
+    """Run MBIE + web search live and return the combined candidate list."""
     from bidders import (
         _mbie_available, _mbie_bidders_for_notice, _firm_is_excluded,
         _web_search_bidders, _is_government_entity,
