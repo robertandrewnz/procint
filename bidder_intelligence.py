@@ -1,30 +1,30 @@
 """
 bidder_intelligence.py — ACH (Analysis of Competing Hypotheses) bidder analysis.
 
-Architecture (redesigned):
-  Step 1 — Requirements extraction: lightweight Claude call extracts the specific
-            operational, statutory, and licensing requirements this notice demands.
-            This grounds the subsequent ACH in capability specifics, not sector labels.
+Correct architecture:
 
-  Step 2 — Pure ACH reasoning: Claude reasons from its knowledge of NZ firms using
-            a 4-step structured prompt (capability analysis → firm identification →
-            geo/scale fit → ranked output with confidence calibration).
-            NO MBIE data is injected here — MBIE would anchor Claude toward
-            registered firms regardless of capability fit.
+  Step 1 — Candidate identification from data only
+            MBIE historical awards and web search are the only two sources that
+            generate firm names.  Web search fires when MBIE returns fewer than
+            3 relevant results, using the notice title as the search anchor.
+            CSV bidder lists are NOT used — they generate sector-matched noise.
 
-  Step 3 — Category-gated MBIE enrichment: after Claude returns its 3 firms, each
-            is cross-checked against MBIE awards. The badge type depends on whether
-            MBIE wins are in the SAME category as the notice or a different one:
-              • "category_match"    → ✓ MBIE confirmed — N wins in this category
-              • "unrelated_category" → ⚠ MBIE present — N wins in unrelated categories
-              • "no_mbie"           → Training knowledge — no MBIE record
-            An ⚠ badge signals the MBIE data is irrelevant, not confirming.
+  Step 2 — ACH assessment of the candidate pool
+            Claude receives the identified candidates and applies structured
+            hypothesis analysis: who has strongest capability evidence, who has
+            existing agency relationships, who is best positioned.
+            Claude does NOT generate new firm names — it only ranks and reasons
+            about the provided candidates.
 
-Confidence calibration rule (enforced in system prompt AND post-hoc):
-  "High" probability requires BOTH documented capability AND geographic presence.
-  capability_match: "confirmed" = documented council contracts in this service
-                   "inferred"  = adjacent capability, plausible transfer
-                   "unknown"   = sector presence only
+  Step 3 — MBIE enrichment
+            Each assessed firm is cross-checked against MBIE awards.
+            Badge type signals category relevance, not confirmation of the ranking.
+              • "category_match"     → ✓ MBIE confirmed — N wins in this category
+              • "unrelated_category" → ⚠ MBIE present — wins in other categories
+              • "no_mbie"            → Training knowledge — no MBIE record
+
+  If Step 1 produces no candidates, nothing is stored and nothing is shown.
+  ACH never invents firm names.
 
 Caching:
   Results stored in bidder_pool with match_type='ach_analysis'.
@@ -33,10 +33,8 @@ Caching:
 """
 from __future__ import annotations
 
-import csv
 import json
 import logging
-import os
 import re
 from typing import Optional
 
@@ -52,139 +50,6 @@ PROBABILITY_COLOURS = {
     "Medium-Low":  "#e07b39",   # orange
     "Low":         "#8fa3bc",   # muted
 }
-
-
-# ── Domain-specific seed lists ────────────────────────────────────────────────
-# Hardcoded lists of known NZ providers per service domain. Injected into the
-# ACH prompt when title keywords match the domain, grounding Claude's reasoning
-# in real NZ market participants rather than training-knowledge associations.
-# Title-keyword detection takes priority over sector tag so a psychometric notice
-# tagged 'defence' gets assessment-firm seeds, not defence primes.
-
-_PSYCHOMETRIC_FIRMS = [
-    "People Central", "Clevry", "Hudson NZ", "Hays New Zealand",
-    "Chandler Macleod NZ", "SHL New Zealand", "Aon Assessment Solutions",
-    "Team Management Systems NZ", "Human Synergistics NZ",
-    "Saville Assessment", "Thomas International NZ",
-    "HP Profiling Solutions", "Criterion Works NZ", "Talogy NZ",
-    "Korn Ferry NZ", "Central Testing Services NZ",
-]
-
-_LEGAL_FIRMS = [
-    "Bell Gully", "Chapman Tripp", "Russell McVeagh",
-    "MinterEllisonRuddWatts", "Simpson Grierson", "Buddle Findlay",
-    "DLA Piper NZ", "Chen Palmer", "Dentons Kensington Swan",
-    "Franks Ogilvie", "Heaney & Partners", "Cavell Leitch",
-    "Wynn Williams", "Gallaway Cook Allan", "Lane Neave",
-]
-
-_HEALTH_CLINICAL_FIRMS = [
-    "Orion Health", "Fisher & Paykel Healthcare", "Pacific Radiology",
-    "Telstra Health NZ", "Labtests Auckland", "NZ Clinical Research",
-    "Healthpoint NZ", "CompuMed NZ", "Cubex Health",
-    "Medtech Global NZ", "Toniq NZ", "MyIndici",
-    "Momentum Consulting Health", "Zedmed NZ",
-]
-
-_ENV_SCIENCE_FIRMS = [
-    "Tonkin + Taylor", "Pattle Delamore Partners", "GHD New Zealand",
-    "AECOM New Zealand", "Beca", "Stantec NZ", "Jacobs NZ",
-    "Morphum Environmental", "Mott MacDonald NZ",
-    "Environmental Management Services NZ", "RPS Group NZ",
-    "Hill Laboratories", "AsureQuality", "EnviroNZ",
-    "Woods Environmental NZ",
-]
-
-# ── CSV candidate pool (for ICT / Cybersecurity seeding) ──────────────────────
-
-_CSV_CANDIDATES: dict[str, list[str]] = {}
-
-
-def _load_csv_candidates() -> dict[str, list[str]]:
-    """
-    Lazily load bidders.csv and index firm names by sector tag.
-    Returns a dict keyed by lowercase sector string.
-    """
-    global _CSV_CANDIDATES
-    if _CSV_CANDIDATES:
-        return _CSV_CANDIDATES
-    csv_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "data", "bidders.csv"
-    )
-    result: dict[str, list[str]] = {}
-    try:
-        with open(csv_path, newline="", encoding="utf-8") as fh:
-            for row in csv.DictReader(fh):
-                name = (row.get("canonical_name") or row.get("firm_name") or "").strip()
-                if not name:
-                    continue
-                for sec in (row.get("sectors") or "").split("|"):
-                    sec = sec.strip().lower()
-                    if sec:
-                        result.setdefault(sec, []).append(name)
-        _CSV_CANDIDATES = result
-        logger.debug("Loaded CSV candidates for %d sector keys", len(result))
-    except Exception as exc:
-        logger.warning("Could not load bidders.csv candidates: %s", exc)
-    return result
-
-
-def _sector_candidates(sector_tag: str, title: str = "") -> tuple:
-    """
-    Return (firms_list, domain_label) for the ACH seed list injection.
-
-    Title-keyword detection takes priority over sector tag — a psychometric
-    notice tagged 'defence' gets assessment-firm seeds, not defence primes.
-    Returns ([], "") if no domain match.
-    """
-    title_lower = title.lower()
-
-    # Psychometric / cognitive / HR assessment
-    if any(kw in title_lower for kw in [
-        "psychometric", "cognitive ability", "aptitude test", "ability testing",
-        "personality assessment", "behavioural assessment", "talent assessment",
-        "recruitment assessment", "cognitive testing", "assessment tools",
-        "workforce assessment", "psychometric testing",
-    ]):
-        return _PSYCHOMETRIC_FIRMS, "PSYCHOMETRIC/ASSESSMENT"
-
-    # Legal services
-    if any(kw in title_lower for kw in [
-        "legal services", "legal advice", "solicitor", "barrister",
-        "counsel", "law firm", "litigation", "conveyancing", "judicial",
-    ]):
-        return _LEGAL_FIRMS, "LEGAL"
-
-    # Health / clinical IT and services
-    if any(kw in title_lower for kw in [
-        "clinical", "surgical", "pharmaceutical", "pathology", "radiology",
-        "diagnostic", "patient care", "health information", "medical device",
-        "electronic health record", "patient management system",
-    ]):
-        return _HEALTH_CLINICAL_FIRMS, "HEALTH/CLINICAL"
-
-    # Environmental science / ecology
-    if any(kw in title_lower for kw in [
-        "environmental assessment", "ecology", "ecological", "biodiversity",
-        "wetland", "environmental monitoring", "habitat", "freshwater",
-        "environmental impact", "environmental management", "soil contamination",
-        "groundwater", "air quality",
-    ]):
-        return _ENV_SCIENCE_FIRMS, "ENVIRONMENTAL SCIENCE"
-
-    # ICT / Cybersecurity — fall back to CSV lookup
-    s = (sector_tag or "").lower()
-    if not any(k in s for k in ("ict", "cyber", "security", "defence")):
-        return [], ""
-    candidates = _load_csv_candidates()
-    seen: set[str] = set()
-    firms: list[str] = []
-    for sec_key in ("cybersecurity", "ict", "security"):
-        for f in candidates.get(sec_key, []):
-            if f not in seen:
-                seen.add(f)
-                firms.append(f)
-    return firms[:30], "ICT/CYBERSECURITY"
 
 
 # ── Step 1: Requirements extraction ───────────────────────────────────────────
@@ -258,123 +123,7 @@ def _format_requirements_summary(reqs: dict) -> str:
     return "\n".join(parts) if parts else "Requirements not extracted."
 
 
-# ── Step 2: Pure ACH reasoning (no MBIE context injected) ─────────────────────
-
-_ACH_SYSTEM = """\
-You are a New Zealand government procurement intelligence analyst. Identify the 3 most \
-likely bidding organisations for a specific NZ government contract.
-
-PRIMARY RULE — THE SERVICE TYPE IN THE TITLE IS YOUR ONLY ANCHOR:
-The notice title describes the SPECIFIC SERVICE being purchased. Always start by identifying \
-what service the title describes, then find NZ firms that provide THAT specific service.
-
-The contracting agency name is secondary context only — it indicates compliance requirements \
-and procurement sector, NOT what kind of firm bids. A well-known agency does NOT mean you \
-should default to that agency's typical industry partners. Examples:
-  • NZDF procuring "Cognitive Ability Testing" → bidders are HR/psychometric assessment firms
-  • A hospital procuring "grounds maintenance" → bidders are landscaping firms
-  • Police procuring "translation services" → bidders are language service providers
-  • MBIE procuring "legal services" → bidders are law firms
-NEVER let the agency name override the service type in the title.
-
-Your reasoning MUST follow these four steps in sequence:
-
-STEP 1 — SERVICE TYPE IDENTIFICATION
-State precisely what the title is asking for — the specific service, product, or capability \
-being purchased. Not the sector or agency context. Then state what operational, technical, \
-and statutory capabilities providing that service requires. Use precise language: not \
-"testing services" but "psychometric / cognitive ability test instruments, validated NZ \
-norm groups, accredited test administrators, scoring and reporting platform." Not \
-"security services" but "Dog Control Act enforcement officer designation, animal impounding \
-infrastructure, after-hours patrol SLA, rural district coverage across X km²."
-
-STEP 2 — FIRM IDENTIFICATION
-Identify NZ firms that demonstrably provide THAT SPECIFIC SERVICE based on:
-- Known delivery of this exact service type (not adjacent sectors)
-- Documented government contracts for this specific type of work
-- Public capability statements or known operational presence in this service category
-Do NOT include firms active in an adjacent sector without the specific capability. \
-A defence prime (aircraft, missiles, ship systems) is NOT a match for cognitive ability \
-testing. A corporate IT firm is NOT a match for animal control. A construction company \
-is NOT a match for HR assessment services.
-IMPORTANT: The contracting agency is the BUYER, not a bidder. Never list the agency as a bidder.
-
-STEP 3 — GEOGRAPHIC AND SCALE FIT
-For each candidate:
-- Geographic coverage: does this firm deliver services in this district or region?
-- Scale fit: small contracts may suit regional operators over major national firms.
-- Incumbency signals: any public signals of an existing operator?
-
-STEP 4 — CONFIDENCE CALIBRATION AND RANKING
-Apply this rule strictly:
-- "High" ONLY if the firm has BOTH documented capability in this specific service type \
-AND confirmed geographic presence. If either is uncertain → maximum "Medium".
-- "Medium" = capability inferred from adjacent work OR capability confirmed but geography uncertain.
-- "Medium-Low" = sector presence but no evidence of this specific capability.
-
-capability_match values:
-- "confirmed": documented government contracts in this exact service category
-- "inferred": adjacent capability with plausible transfer, not confirmed for this service type
-- "unknown": broad sector presence only, no evidence of this specific service
-
-FIRM NAME FORMAT — strictly enforced:
-- Use the organisation's common NZ trading name only. Maximum 50 characters.
-- No parenthetical explanations. No technology stack descriptions in the name.
-- No hedging phrases: NOT "Verbit.ai (or equivalent provider)".
-- If a global firm, use its recognised NZ entity name: "Microsoft NZ", "IBM NZ".
-
-CRITICAL: You MUST always return exactly 3 bidder hypotheses. When data is limited, use \
-"Medium-Low" / "unknown" — but name real NZ organisations that provide THIS specific service. \
-Never return fewer than 3 bidders.
-
-Return ONLY valid JSON — no text outside the JSON block:
-{"bidders": [\
-{"name": str, "probability": "High"|"Medium"|"Medium-Low", \
-"capability_match": "confirmed"|"inferred"|"unknown", \
-"evidence": [str, str], "discriminator": str, \
-"size": "small"|"medium"|"large"|"major"}\
-]}"""
-
-
-def _build_ach_prompt(notice: dict, requirements_summary: str) -> str:
-    title       = notice.get("title") or ""
-    agency      = notice.get("agency") or notice.get("agency_name") or ""
-    region      = notice.get("geographic_scope") or notice.get("region") or "Not specified"
-    sector      = notice.get("sector_tag") or notice.get("sector") or "other"
-    description = (notice.get("description") or "")[:1200]
-    value_band  = notice.get("value_band") or "unknown"
-
-    value_labels = {
-        "under_100k": "Under $100K", "100k_500k": "$100K–$500K",
-        "500k_2m": "$500K–$2M",      "2m_10m": "$2M–$10M",
-        "10m_plus": "$10M+",          "unknown": "Value not specified",
-    }
-    value_str = value_labels.get(value_band, value_band)
-
-    # Domain-specific seed list: grounds ACH in real NZ market participants.
-    # Title-keyword detection takes priority over sector tag so a psychometric
-    # notice tagged 'defence' gets assessment-firm seeds rather than defence primes.
-    candidates_block = ""
-    candidates, domain_label = _sector_candidates(sector, title)
-    if candidates:
-        candidates_block = (
-            f"\n\nKNOWN NZ {domain_label} PROVIDERS — from NZ procurement database. "
-            f"Evaluate each against the specific service described in the title above. "
-            f"Include only those with genuine capability match for THAT service:\n"
-            + "\n".join(f"- {c}" for c in candidates)
-        )
-
-    return (
-        f"SERVICE BEING PROCURED (primary anchor): {title}\n"
-        f"Contracting agency (compliance/sector context only): {agency}\n"
-        f"Region / scope: {region}\n"
-        f"Sector classification: {sector}\n"
-        f"Contract value: {value_str}\n\n"
-        f"Specific requirements extracted:\n{requirements_summary}\n\n"
-        f"Full description: {description or 'Not provided'}"
-        f"{candidates_block}"
-    )
-
+# ── Shared utilities ───────────────────────────────────────────────────────────
 
 _GARBAGE_NAME_FRAGMENTS = (
     "unable to rank",
@@ -385,7 +134,6 @@ _GARBAGE_NAME_FRAGMENTS = (
     "insufficient data for",
 )
 
-# Common suffixes/abbreviations to strip when comparing agency vs bidder names
 _AGENCY_STOP_WORDS = frozenset({
     "district", "city", "regional", "council", "dc", "cc", "rc",
     "limited", "ltd", "inc", "trust", "board", "authority",
@@ -394,60 +142,39 @@ _AGENCY_STOP_WORDS = frozenset({
 
 
 def _normalise_for_match(name: str) -> str:
-    """
-    Strip punctuation and common stop-words, lowercase, return token set.
-    Used for fuzzy agency vs bidder name comparison.
-    """
     tokens = re.sub(r"[^a-z0-9 ]", " ", name.lower()).split()
     return " ".join(t for t in tokens if t not in _AGENCY_STOP_WORDS and len(t) > 1)
 
 
 def _is_agency_name(bidder_name: str, agency_name: str) -> bool:
-    """
-    Return True if *bidder_name* looks like it IS the contracting agency.
-
-    Catches:
-      - Exact substring match after normalisation ("Tararua District Council" in firm name)
-      - Known abbreviation patterns: "TDC", "WCC", "ACC", "HCC", etc.
-      - Partial overlap: if ≥2 meaningful tokens from agency appear in bidder name
-    """
+    """Return True if *bidder_name* looks like it IS the contracting agency."""
     if not agency_name or not bidder_name:
         return False
 
     b_lower = bidder_name.lower().strip()
     a_lower = agency_name.lower().strip()
 
-    # Direct containment (case-insensitive)
     if a_lower in b_lower or b_lower in a_lower:
         return True
 
-    # Normalised token overlap
     b_norm = _normalise_for_match(bidder_name)
     a_norm = _normalise_for_match(agency_name)
     if not a_norm or not b_norm:
         return False
 
-    # Full match after normalisation (exact only — substring would over-match)
     if a_norm == b_norm:
         return True
 
-    # Token overlap: ≥2 significant tokens shared
     b_tokens = set(b_norm.split())
     a_tokens = set(a_norm.split())
-    shared = b_tokens & a_tokens
-    if len(shared) >= 2:
+    if len(b_tokens & a_tokens) >= 2:
         return True
 
-    # Initialisms: "TDC" matches "Tararua District Council", "WCC" → "Wellington City Council"
-    # Use ALL words (not filtered) so "T-D-C" generates from "Tararua District Council"
-    # Skip if bidder has a parenthetical expansion — that signals a different named entity
-    # (e.g. "ACC (Accident Compensation Corporation)" has its own expansion, not the agency's)
     has_expansion = bool(re.search(r"\([a-z]{4,}", b_lower))
     if not has_expansion:
         all_words = [t for t in re.sub(r"[^a-z0-9 ]", " ", a_lower).split() if len(t) > 1]
         if all_words:
             initialism = "".join(w[0] for w in all_words)
-            # 2- to 4-letter initialism must appear as a standalone word/token in bidder name
             if 2 <= len(initialism) <= 4:
                 pattern = r"(?<![a-z])" + re.escape(initialism) + r"(?![a-z])"
                 if re.search(pattern, b_lower):
@@ -457,14 +184,8 @@ def _is_agency_name(bidder_name: str, agency_name: str) -> bool:
 
 
 def _extract_json_from_response(raw: str) -> dict:
-    """
-    Robust JSON extractor. Claude sometimes wraps JSON in fences and then adds
-    prose analysis afterward. This finds the first { ... } block in the response.
-    """
-    # Try fence-stripped parse first
+    """Robust JSON extractor — handles fences and prose after the JSON block."""
     cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
-    # Take only up to the first line that is just ``` (closing fence)
-    # to avoid ingesting prose after the JSON block
     lines = cleaned.split("\n")
     json_lines = []
     for line in lines:
@@ -473,13 +194,11 @@ def _extract_json_from_response(raw: str) -> dict:
         json_lines.append(line)
     cleaned = "\n".join(json_lines).strip()
 
-    # Try parsing the cleaned block
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
         pass
 
-    # Fallback: find outermost { ... } pair in original raw
     start = raw.find("{")
     end   = raw.rfind("}")
     if start >= 0 and end > start:
@@ -492,58 +211,274 @@ def _extract_json_from_response(raw: str) -> dict:
 
 
 def _is_garbage_name(name: str) -> bool:
-    """Return True if the bidder name is a placeholder / non-firm string."""
     name_lower = name.lower()
     return any(frag in name_lower for frag in _GARBAGE_NAME_FRAGMENTS)
 
 
-def _run_ach_reasoning(notice: dict, requirements_summary: str) -> list[dict]:
-    """
-    Call Claude with the 4-step ACH prompt. Returns raw bidder list from Claude
-    with no MBIE enrichment applied yet.
+def _fuzzy_name_match(a: str, b: str) -> bool:
+    """Token-overlap test for firm name matching."""
+    stop = {"nz", "ltd", "limited", "new", "zealand", "the"}
+    a_tokens = set(re.sub(r"[^a-z0-9 ]", " ", a).split()) - stop
+    b_tokens = set(re.sub(r"[^a-z0-9 ]", " ", b).split()) - stop
+    if not a_tokens or not b_tokens:
+        return False
+    shared = a_tokens & b_tokens
+    return len(shared) >= 2 or (len(shared) == 1 and min(len(a_tokens), len(b_tokens)) <= 2)
 
-    Returns [] on any failure — caller must fall back to MBIE inference.
-    Distinct log messages identify the failure mode so zero-bidder notices
-    can be diagnosed from logs.
+
+# ── Step 1: Candidate identification ──────────────────────────────────────────
+
+def _identify_candidates(notice: dict) -> list[dict]:
+    """
+    Identify candidate bidders from MBIE historical awards and web search only.
+
+    Reads existing Pipeline A results (mbie_evidence, web_inferred) from
+    bidder_pool.  If none are found, runs identification live so ACH can proceed
+    on the first Layer 2 run after a new notice appears.
+
+    CSV (bidders.csv) is deliberately excluded — it generates sector-matched
+    noise that causes agency-anchored pollution (e.g. defence primes for a
+    cognitive testing RFI at NZDF).
     """
     notice_id = notice.get("notice_id", "?")
+
+    # Read existing Pipeline A rows first (avoids duplicate web search API cost)
+    try:
+        rows = db.fetchall(
+            """
+            SELECT firm_name, match_type, reasoning, sector, size,
+                   strategic_importance, relevance_score, company_context,
+                   context_confidence
+              FROM bidder_pool
+             WHERE notice_id = %s
+               AND match_type IN ('mbie_evidence', 'web_inferred')
+             ORDER BY
+                CASE match_type WHEN 'mbie_evidence' THEN 0 ELSE 1 END,
+                COALESCE(relevance_score, 0) DESC
+            """,
+            (notice_id,),
+        )
+        if rows:
+            logger.debug(
+                "ACH notice %s: using %d existing Pipeline A candidate(s) from bidder_pool",
+                notice_id, len(rows),
+            )
+            return [dict(r) for r in rows][:8]
+    except Exception as exc:
+        logger.warning("ACH candidate read failed for %s: %s", notice_id, exc)
+
+    # No Pipeline A rows exist yet — run identification now
+    logger.info(
+        "ACH notice %s: no Pipeline A rows found — running MBIE + web search now",
+        notice_id,
+    )
+    return _identify_candidates_live(notice)
+
+
+def _identify_candidates_live(notice: dict) -> list[dict]:
+    """
+    Run MBIE + web search live and return the combined candidate list.
+    Called when bidder_pool has no existing Pipeline A rows for the notice.
+    """
+    from bidders import (
+        _mbie_available, _mbie_bidders_for_notice, _firm_is_excluded,
+        _web_search_bidders, _is_government_entity,
+    )
+    from canonical_suppliers import canonical_name, deduplicate_bidders
+
+    notice_id     = notice.get("notice_id", "?")
+    notice_sector = notice.get("sector_tag") or "other"
+    candidates: list[dict] = []
+    mbie_canonical: set[str] = set()
+
+    # Source 1: MBIE historical awards
+    if _mbie_available():
+        mbie_rows = _mbie_bidders_for_notice(notice)
+        for r in mbie_rows:
+            r_sectors = [s.strip() for s in (r.get("sector") or "").split("|") if s.strip()]
+            if _firm_is_excluded(r_sectors, notice, r.get("firm_name", "")):
+                continue
+            if _is_government_entity(r.get("firm_name", "")):
+                continue
+            cn = canonical_name(r.get("firm_name", ""))
+            r["canonical_name"] = cn
+            r["match_type"] = "mbie_evidence"
+            candidates.append(r)
+            mbie_canonical.add(cn.lower())
+        logger.debug("ACH notice %s: %d MBIE candidate(s)", notice_id, len(candidates))
+
+    # Source 2: web search — fires when MBIE < 3 relevant results
+    if len(candidates) < 3:
+        web_rows = _web_search_bidders(
+            notice.get("title") or "",
+            notice.get("agency") or "",
+            notice_sector,
+        )
+        for r in web_rows:
+            cn = canonical_name(r.get("firm_name", ""))
+            if cn.lower() in mbie_canonical:
+                continue
+            if _is_government_entity(r.get("firm_name", "")):
+                continue
+            r["canonical_name"] = cn
+            candidates.append(r)
+        logger.debug(
+            "ACH notice %s: web search added %d candidate(s) (total %d)",
+            notice_id, len(web_rows), len(candidates),
+        )
+
+    return deduplicate_bidders(candidates)[:8]
+
+
+# ── Step 2: ACH assessment ─────────────────────────────────────────────────────
+
+_ACH_ASSESSMENT_SYSTEM = """\
+You are a New Zealand government procurement intelligence analyst using Analysis of \
+Competing Hypotheses (ACH).
+
+You will receive a list of candidate organisations that have been identified as potential \
+bidders for a specific NZ government contract, sourced from MBIE historical awards and web \
+search results.
+
+YOUR TASK: Assess and rank ONLY the provided candidates. Do NOT add any organisation not in \
+the candidate list. You are an assessor, not a firm identifier.
+
+For each candidate, evaluate the hypothesis "This organisation will bid and win this contract":
+
+STEP 1 — CAPABILITY FIT
+Does this firm demonstrably provide the specific service described in the notice title?
+  "confirmed" = documented delivery of this exact service type for government clients
+  "inferred"  = adjacent capability with plausible transfer to this service type
+  "unknown"   = sector presence only, no evidence of this specific service
+
+STEP 2 — GEOGRAPHIC AND SCALE FIT
+Does the firm have confirmed delivery capability in this district or region?
+Is the firm the right scale for this contract value?
+Are there incumbency signals or prior agency relationship evidence?
+
+STEP 3 — RANK AND CALIBRATE
+Rank candidates from most to least likely. Apply probability bands strictly:
+  "High"       = confirmed capability in this exact service type AND geographic presence confirmed
+  "Medium"     = capability inferred, OR capability confirmed but geography uncertain
+  "Medium-Low" = sector presence only, limited evidence of this specific capability
+  "Low"        = minimal alignment — unlikely to bid even if sector-adjacent
+
+RULES:
+- Include ALL candidates in your output, even those ranked "Low"
+- Do NOT add any organisation not in the candidate list
+- If all candidates appear weak, rank them "Medium-Low" or "Low" — do not invent better candidates
+- The contracting agency is the BUYER, not a bidder — never list them as a candidate
+
+Return ONLY valid JSON:
+{"bidders": [\
+{"name": str, "probability": "High"|"Medium"|"Medium-Low"|"Low", \
+"capability_match": "confirmed"|"inferred"|"unknown", \
+"evidence": [str, str], "discriminator": str, \
+"size": "small"|"medium"|"large"|"major"}\
+]}"""
+
+
+def _build_ach_assessment_prompt(
+    candidates: list[dict],
+    notice: dict,
+    reqs_summary: str,
+) -> str:
+    title       = notice.get("title") or ""
+    agency      = notice.get("agency") or notice.get("agency_name") or ""
+    region      = notice.get("geographic_scope") or notice.get("region") or "Not specified"
+    value_band  = notice.get("value_band") or "unknown"
+    description = (notice.get("description") or "")[:800]
+
+    value_labels = {
+        "under_100k": "Under $100K", "100k_500k": "$100K–$500K",
+        "500k_2m": "$500K–$2M",      "2m_10m": "$2M–$10M",
+        "10m_plus": "$10M+",          "unknown": "Value not specified",
+    }
+    value_str = value_labels.get(value_band, value_band)
+
+    lines = []
+    for i, c in enumerate(candidates, 1):
+        name = c.get("canonical_name") or c.get("firm_name") or "?"
+        src  = c.get("match_type") or "unknown"
+        src_label = {
+            "mbie_evidence": "MBIE historical awards",
+            "web_inferred":  "web search",
+        }.get(src, src)
+
+        # Pull the most useful description from whatever field is populated
+        desc = ""
+        reasoning = c.get("reasoning") or []
+        if isinstance(reasoning, list) and reasoning:
+            desc = " — " + str(reasoning[0])[:120]
+        elif isinstance(reasoning, str) and reasoning:
+            # Pipe-separated stored reasoning — take first useful part
+            parts = [p.strip() for p in reasoning.split("|")
+                     if p.strip() and not p.strip().startswith("CAPMATCH:")]
+            if parts:
+                desc = " — " + parts[0][:120]
+        if not desc and c.get("company_context"):
+            desc = " — " + str(c["company_context"])[:120]
+
+        lines.append(f"{i}. {name} (source: {src_label}){desc}")
+
+    candidates_block = "\n".join(lines)
+
+    return (
+        f"SERVICE BEING PROCURED: {title}\n"
+        f"AGENCY (the buyer — do not list as a bidder): {agency}\n"
+        f"REGION/SCOPE: {region}\n"
+        f"CONTRACT VALUE: {value_str}\n\n"
+        f"SPECIFIC REQUIREMENTS:\n{reqs_summary}\n\n"
+        f"FULL DESCRIPTION: {description or 'Not provided'}\n\n"
+        f"CANDIDATES TO ASSESS (rank ALL of these, do not add others):\n"
+        f"{candidates_block}"
+    )
+
+
+def _run_ach_assessment(
+    candidates: list[dict],
+    notice: dict,
+    reqs_summary: str,
+) -> list[dict]:
+    """
+    Call Claude to assess and rank the provided candidates using ACH methodology.
+
+    Returns at most 3 ranked bidders containing ONLY names from the input
+    candidate set.  Returns [] on any failure.
+    """
+    notice_id = notice.get("notice_id", "?")
+    if not candidates:
+        return []
+
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     except Exception as exc:
-        logger.warning(
-            "ACH skip notice %s: Anthropic client init failed — %s "
-            "(caller will fall back to MBIE)",
-            notice_id, exc,
-        )
+        logger.warning("ACH assessment notice %s: Anthropic client init failed — %s",
+                       notice_id, exc)
         return []
 
-    # --- Claude API call ---
     try:
         resp = client.messages.create(
             model="claude-haiku-4-5",
             max_tokens=1400,
-            system=_ACH_SYSTEM,
+            system=_ACH_ASSESSMENT_SYSTEM,
             messages=[{
                 "role": "user",
-                "content": _build_ach_prompt(notice, requirements_summary),
+                "content": _build_ach_assessment_prompt(candidates, notice, reqs_summary),
             }],
         )
     except Exception as api_exc:
-        logger.warning(
-            "ACH skip notice %s: Claude API call failed — %s "
-            "(caller will fall back to MBIE)",
-            notice_id, api_exc,
-        )
+        logger.warning("ACH assessment notice %s: Claude API call failed — %s",
+                       notice_id, api_exc)
         return []
 
-    # --- JSON extraction ---
     raw = resp.content[0].text.strip()
     data = _extract_json_from_response(raw)
     if not data:
         logger.warning(
-            "ACH skip notice %s: JSON extraction failed (raw length=%d, "
-            "preview=%.120r) — caller will fall back to MBIE",
+            "ACH assessment notice %s: JSON extraction failed "
+            "(raw length=%d, preview=%.120r)",
             notice_id, len(raw), raw,
         )
         return []
@@ -551,95 +486,44 @@ def _run_ach_reasoning(notice: dict, requirements_summary: str) -> list[dict]:
     bidders = data.get("bidders", [])
     if not bidders:
         logger.warning(
-            "ACH skip notice %s: Claude returned valid JSON but 'bidders' "
-            "list is empty — caller will fall back to MBIE",
+            "ACH assessment notice %s: Claude returned valid JSON but 'bidders' is empty",
             notice_id,
         )
         return []
 
-    # --- Garbage-name filter ---
-    before = len(bidders)
-    bidders = [b for b in bidders if not _is_garbage_name(str(b.get("name") or ""))]
-    dropped = before - len(bidders)
-    if dropped:
-        logger.info(
-            "ACH notice %s: filtered %d garbage-name bidder(s) "
-            "(%d remain after filter)",
-            notice_id, dropped, len(bidders),
-        )
-    if not bidders:
-        logger.warning(
-            "ACH skip notice %s: all %d bidder(s) from Claude were "
-            "garbage/placeholder names — caller will fall back to MBIE",
-            notice_id, before,
-        )
+    # Validate: only accept names that are in the input candidate set
+    candidate_names_lower = {
+        (c.get("canonical_name") or c.get("firm_name") or "").lower()
+        for c in candidates
+    }
 
-    return bidders
-
-
-# ── ACH relevance gate ────────────────────────────────────────────────────────
-# Validates that ACH-identified firms plausibly relate to the service described
-# in the notice title. Prevents agency-anchored hallucinations (e.g. aerospace
-# primes returned for a cognitive testing RFI at NZDF) from being stored and
-# hiding correct Pipeline A (MBIE/web search) results at display time.
-
-_GATE_STOP = frozenset({
-    "the", "and", "for", "of", "in", "to", "a", "an", "at", "by", "or",
-    "with", "from", "new", "zealand", "nz", "government", "contract",
-    "services", "service", "project", "works", "supply", "provision",
-    "request", "proposal", "nzdf", "ministry", "department", "authority",
-    "into", "via", "its", "this", "that",
-})
-
-
-def _gate_title_keywords(title: str) -> list:
-    """Extract meaningful service-domain keywords from notice title."""
-    words = re.findall(r"[a-zA-Z]{3,}", title.lower())
-    return [w for w in words if w not in _GATE_STOP][:10]
-
-
-def _ach_relevance_gate(bidders: list, notice_title: str) -> bool:
-    """
-    Return True if ACH results are plausibly relevant to the notice service type.
-
-    For each ACH firm, checks that its evidence, discriminator, or name contains
-    at least one keyword from the notice title. If >50% of firms have zero overlap,
-    the gate fails — ACH has likely anchored on the agency rather than the service.
-
-    Returns True (pass) when the title has too few evaluable keywords.
-    """
-    kws = _gate_title_keywords(notice_title)
-    if len(kws) < 2 or not bidders:
-        return True  # insufficient signal; give benefit of the doubt
-
-    failed = 0
+    validated: list[dict] = []
     for b in bidders:
-        name_text = (b.get("name") or b.get("firm_name") or "").lower()
-        evidence = b.get("evidence") or []
-        discriminator = b.get("discriminator") or ""
-        reasoning_raw = b.get("reasoning") or ""
-        # Handle both fresh ACH dicts (evidence list) and stored DB rows (pipe-separated)
-        parts = [p.strip() for p in reasoning_raw.split("|") if p.strip()
-                 and not p.strip().startswith("CAPMATCH:")]
+        name = str(b.get("name") or "").strip()
+        if not name or _is_garbage_name(name):
+            continue
+        name_l = name.lower()
+        if not any(
+            name_l in inp or inp in name_l or _fuzzy_name_match(name_l, inp)
+            for inp in candidate_names_lower
+        ):
+            logger.info(
+                "ACH assessment notice %s: rejecting %r — not in input candidate set",
+                notice_id, name,
+            )
+            continue
+        validated.append(b)
 
-        all_text = " ".join([
-            name_text,
-            " ".join(str(e) for e in evidence),
-            discriminator,
-            " ".join(parts),
-        ]).lower()
-
-        if not any(kw in all_text for kw in kws):
-            failed += 1
-
-    passes = failed <= len(bidders) // 2
-    if not passes:
+    if not validated:
         logger.warning(
-            "ACH relevance gate FAILED for %r: %d/%d firms have no keyword "
-            "overlap with title service domain (kws=%s)",
-            notice_title[:70], failed, len(bidders), kws[:5],
+            "ACH assessment notice %s: all %d returned bidder(s) rejected — "
+            "none matched input candidates (candidates were: %s)",
+            notice_id, len(bidders),
+            ", ".join(c.get("canonical_name") or c.get("firm_name", "?")
+                      for c in candidates[:5]),
         )
-    return passes
+
+    return validated[:3]
 
 
 # ── Step 3: Category-gated MBIE enrichment ────────────────────────────────────
@@ -663,7 +547,6 @@ def _mbie_confirmation(firm_name: str, notice_sector: str) -> tuple[str, int, st
         return "no_mbie", 0, ""
 
     try:
-        # Same-sector wins
         same_row = db.fetchone(
             """
             SELECT COUNT(DISTINCT n.rfx_id) AS wins
@@ -680,7 +563,6 @@ def _mbie_confirmation(firm_name: str, notice_sector: str) -> tuple[str, int, st
         if same_wins > 0:
             return "category_match", same_wins, notice_sector
 
-        # Wins in any other category
         any_row = db.fetchone(
             """
             SELECT COUNT(DISTINCT n.rfx_id) AS wins,
@@ -712,12 +594,8 @@ def _apply_mbie_enrichment(
     agency_name: str = "",
 ) -> list[dict]:
     """
-    Apply category-gated MBIE badges to each Claude-identified bidder.
+    Apply category-gated MBIE badges to each ACH-assessed bidder.
     Does NOT modify Claude's probability rankings — MBIE is informational only.
-
-    agency_name: the contracting agency for this notice.  Any bidder whose name
-    matches or closely resembles the agency is excluded — the buyer cannot also
-    be a bidder.
     """
     from bidders import _is_government_entity as _is_govt
     results = []
@@ -725,16 +603,12 @@ def _apply_mbie_enrichment(
         name = str(b.get("name") or "").strip()
         if not name:
             continue
-        # Exclude the contracting agency itself
         if agency_name and _is_agency_name(name, agency_name):
-            logger.info(
-                "ACH: excluded '%s' — matches contracting agency '%s'",
-                name, agency_name,
-            )
+            logger.info("ACH: excluded '%s' — matches contracting agency '%s'",
+                        name, agency_name)
             continue
-        # Exclude government/public-sector entities — they receive contracts, not bid for them
         if _is_govt(name):
-            logger.info("ACH: excluded '%s' — identified as government or public-sector entity", name)
+            logger.info("ACH: excluded '%s' — identified as government entity", name)
             continue
 
         prob = b.get("probability", "Medium")
@@ -750,19 +624,15 @@ def _apply_mbie_enrichment(
         size          = b.get("size", "medium")
 
         badge_type, wins, extra = _mbie_confirmation(name, notice_sector)
-
-        # Encode badge info in context_confidence column: "badge_type:N"
         conf_str = f"{badge_type}:{wins}"
 
-        # Post-hoc confidence calibration:
-        # If Claude assigned "High" but capability_match is not "confirmed", downgrade.
+        # Post-hoc confidence cap: "High" requires confirmed capability
         if prob == "High" and capability_match != "confirmed":
             prob = "Medium"
-            evidence = evidence + [
+            evidence = (evidence + [
                 "Probability capped at Medium — capability match is inferred, "
                 "not confirmed for this specific service type"
-            ]
-            evidence = evidence[:3]
+            ])[:3]
 
         results.append({
             "name":             name,
@@ -781,175 +651,157 @@ def _apply_mbie_enrichment(
     return results
 
 
-# ── MBIE fallback ─────────────────────────────────────────────────────────────
+# ── Backward-compat gate stub ─────────────────────────────────────────────────
+# The ACH relevance gate is no longer needed in the new architecture — ACH only
+# assesses candidates supplied from MBIE/web search and cannot generate firm
+# names independently.  These stubs are kept because portal.py and output.py
+# import them to screen stale ach_analysis rows from the old architecture while
+# they remain in bidder_pool before Layer 2 replaces them.
 
-def _mbie_fallback_bidders(notice: dict) -> list[dict]:
+_GATE_STOP = frozenset({
+    "the", "and", "for", "of", "in", "to", "a", "an", "at", "by", "or",
+    "with", "from", "new", "zealand", "nz", "government", "contract",
+    "services", "service", "project", "works", "supply", "provision",
+    "request", "proposal", "nzdf", "ministry", "department", "authority",
+    "into", "via", "its", "this", "that",
+})
+
+
+def _gate_title_keywords(title: str) -> list:
+    """Extract meaningful service-domain keywords from notice title."""
+    words = re.findall(r"[a-zA-Z]{3,}", title.lower())
+    return [w for w in words if w not in _GATE_STOP][:10]
+
+
+def _ach_relevance_gate(bidders: list, notice_title: str) -> bool:
     """
-    MBIE/CSV inference fallback — called when the ACH Claude call returns no
-    usable results (API failure, JSON parse failure, or empty bidder list).
+    Screen ACH bidder rows against notice title keywords.
 
-    Runs score_bidders_for_notice() from bidders.py and converts the results
-    to the ACH-compatible dict format so they can be stored and rendered via
-    store_ach_results() / render_ach_card().
+    Kept functional (not a no-op) to block stale ach_analysis rows from the
+    old architecture that may still be in bidder_pool.  Once Layer 2 re-runs
+    under the new architecture and replaces those rows with correctly-anchored
+    results, this gate becomes a no-op that always passes.
     """
-    notice_id = notice.get("notice_id", "?")
-    logger.info(
-        "ACH fallback: running MBIE inference for notice %s "
-        "(sector=%s, agency=%s)",
-        notice_id,
-        notice.get("sector_tag") or "other",
-        notice.get("agency") or "",
-    )
-    try:
-        from bidders import score_bidders_for_notice
-        mbie_results = score_bidders_for_notice(notice)
-    except Exception as exc:
-        logger.error(
-            "ACH fallback: MBIE inference also failed for notice %s: %s",
-            notice_id, exc,
-        )
-        return []
+    kws = _gate_title_keywords(notice_title)
+    if len(kws) < 2 or not bidders:
+        return True
 
-    if not mbie_results:
+    failed = 0
+    for b in bidders:
+        name_text = (b.get("name") or b.get("firm_name") or "").lower()
+        evidence = b.get("evidence") or []
+        discriminator = b.get("discriminator") or ""
+        reasoning_raw = b.get("reasoning") or ""
+        parts = [p.strip() for p in reasoning_raw.split("|") if p.strip()
+                 and not p.strip().startswith("CAPMATCH:")]
+
+        all_text = " ".join([
+            name_text,
+            " ".join(str(e) for e in evidence),
+            discriminator,
+            " ".join(parts),
+        ]).lower()
+
+        if not any(kw in all_text for kw in kws):
+            failed += 1
+
+    passes = failed <= len(bidders) // 2
+    if not passes:
         logger.warning(
-            "ACH fallback: MBIE inference returned 0 bidders for notice %s",
-            notice_id,
+            "ACH relevance gate FAILED for %r: %d/%d firms have no keyword "
+            "overlap with title (kws=%s) — these are stale rows from old architecture",
+            notice_title[:70], failed, len(bidders), kws[:5],
         )
-        return []
-
-    out: list[dict] = []
-    for b in mbie_results[:3]:
-        name = (b.get("canonical_name") or b.get("firm_name") or "").strip()
-        if not name:
-            continue
-
-        # Map MBIE strategic_importance to ACH probability bands
-        si = (b.get("strategic_importance") or "medium").lower()
-        prob_map = {
-            "high": "Medium", "medium": "Medium", "low": "Medium-Low",
-            "strategic": "Medium", "opportunistic": "Medium-Low",
-        }
-        prob = prob_map.get(si, "Medium-Low")
-
-        # Adapt context_confidence from legacy "high"/"low" format
-        conf = (b.get("context_confidence") or "no_mbie:0").strip()
-        if conf == "high":
-            conf = "category_match:1"
-        elif conf == "low" or ":" not in conf:
-            conf = "no_mbie:0"
-
-        reasoning_parts = b.get("reasoning") or []
-        if isinstance(reasoning_parts, str):
-            reasoning_parts = [reasoning_parts]
-
-        out.append({
-            "name":             name,
-            "probability":      prob,
-            "capability_match": "inferred",
-            "evidence":         [str(r) for r in reasoning_parts[:2]]
-                                or ["MBIE historical award data"],
-            "discriminator":    "MBIE-only fallback — ACH Claude unavailable at inference time",
-            "size":             b.get("size") or "medium",
-            "mbie_wins":        0,
-            "mbie_badge_type":  conf.split(":")[0],
-            "mbie_extra":       "",
-            "conf_str":         conf,
-            "match_type":       "ach_analysis",
-        })
-
-    logger.info(
-        "ACH fallback: produced %d MBIE bidder(s) for notice %s — %s",
-        len(out),
-        notice_id,
-        ", ".join(r["name"] for r in out),
-    )
-    return out
+    return passes
 
 
-# ── Main ACH function ──────────────────────────────────────────────────────────
+# ── Main pipeline ──────────────────────────────────────────────────────────────
 
 def generate_bidder_intelligence(
     notice: dict,
     show_reasoning: bool = False,
 ) -> list[dict]:
     """
-    Run ACH bidder analysis for *notice* using Claude.
+    Run ACH bidder analysis for *notice*.
 
-    Three-step pipeline:
-      1. Extract specific capability requirements (separate Claude call)
-      2. Pure ACH reasoning — no MBIE context injected (but ICT/Cyber notices
-         receive a candidate list from bidders.csv to anchor Claude's hypotheses)
-      3. Category-gated MBIE enrichment applied post-hoc
+    Step 1 — Identify candidates from MBIE + web search (data only, no CSV)
+    Step 2 — Extract specific capability requirements
+    Step 3 — ACH assessment: Claude ranks provided candidates, adds no new names
+    Step 4 — MBIE enrichment: category-gated badges applied post-hoc
 
-    On any Claude API failure, JSON parse failure, or empty result, falls back
-    to MBIE-only inference rather than returning zero bidders.  Every skip
-    decision is logged with a specific reason.
-
-    Args:
-        notice: Dict with at minimum: title, agency, sector_tag, value_band.
-                description and geographic_scope significantly improve quality.
-                category_raw improves tender-type logging.
-        show_reasoning: If True, log requirements + raw ACH output at INFO level.
-
-    Returns:
-        List of up to 3 bidder dicts.  Falls back to MBIE results on failure.
+    Returns [] if Step 1 finds no candidates.  Nothing is stored and nothing
+    is shown rather than having ACH invent firms.
     """
     notice_id     = notice.get("notice_id", "?")
     notice_sector = notice.get("sector_tag") or notice.get("sector") or "other"
     agency_name   = notice.get("agency") or notice.get("agency_name") or ""
-    tender_type   = notice.get("category_raw") or "unknown"
 
     logger.info(
-        "ACH starting for notice %s (sector=%s, tender_type=%s, agency=%s)",
-        notice_id, notice_sector, tender_type, agency_name,
+        "ACH starting for notice %s (sector=%s, agency=%s)",
+        notice_id, notice_sector, agency_name,
     )
 
-    # Step 1 — Extract capability requirements
-    reqs = _extract_requirements(notice)
-    requirements_summary = _format_requirements_summary(reqs)
-    if not reqs.get("requirements"):
+    # Step 1 — Candidate identification (MBIE + web search only)
+    candidates = _identify_candidates(notice)
+    if not candidates:
         logger.info(
-            "ACH notice %s: requirements extraction returned empty list "
-            "(Step 1 fell back to defaults) — ACH will run on title/description only",
+            "ACH skip notice %s: no candidates from MBIE or web search — "
+            "returning [] so display shows nothing",
             notice_id,
         )
+        return []
+
+    logger.info(
+        "ACH notice %s: %d candidate(s) — %s",
+        notice_id,
+        len(candidates),
+        ", ".join(
+            c.get("canonical_name") or c.get("firm_name", "?")
+            for c in candidates[:5]
+        ),
+    )
 
     if show_reasoning:
-        logger.info("=== REQUIREMENTS for %s ===\n%s", notice_id, requirements_summary)
+        logger.info(
+            "=== CANDIDATES for %s ===\n%s",
+            notice_id,
+            json.dumps(
+                [{"name": c.get("canonical_name") or c.get("firm_name"),
+                  "source": c.get("match_type")}
+                 for c in candidates],
+                indent=2,
+            ),
+        )
 
-    # Step 2 — Pure ACH reasoning (no MBIE context; ICT/Cyber get candidate seeds)
-    bidders_raw = _run_ach_reasoning(notice, requirements_summary)
+    # Step 2 — Requirements extraction
+    reqs = _extract_requirements(notice)
+    reqs_summary = _format_requirements_summary(reqs)
 
     if show_reasoning:
-        logger.info("=== RAW ACH OUTPUT for %s ===\n%s",
+        logger.info("=== REQUIREMENTS for %s ===\n%s", notice_id, reqs_summary)
+
+    # Step 3 — ACH assessment of the candidate pool
+    bidders_raw = _run_ach_assessment(candidates, notice, reqs_summary)
+
+    if show_reasoning:
+        logger.info("=== RAW ACH ASSESSMENT for %s ===\n%s",
                     notice_id, json.dumps(bidders_raw, indent=2))
 
     if not bidders_raw:
-        # _run_ach_reasoning already logged the specific failure reason
-        return _mbie_fallback_bidders(notice)
+        logger.warning(
+            "ACH notice %s: assessment returned no results — "
+            "no bidders will be stored",
+            notice_id,
+        )
+        return []
 
-    # Step 3 — Category-gated MBIE enrichment (agency-as-bidder filtered here)
-    pre_enrichment_count = len(bidders_raw)
+    # Step 4 — MBIE enrichment (badges only; does not change ranking)
     results = _apply_mbie_enrichment(bidders_raw, notice_sector, agency_name=agency_name)
 
     if not results:
         logger.warning(
-            "ACH notice %s: all %d Claude bidder(s) removed by enrichment/agency filter "
-            "(agency='%s') — falling back to MBIE inference",
-            notice_id, pre_enrichment_count, agency_name,
-        )
-        return _mbie_fallback_bidders(notice)
-
-    # Step 4 — Relevance gate: verify ACH results match the service domain.
-    # If >50% of firms have no keyword overlap with the title, ACH has anchored
-    # on the agency rather than the service (e.g. defence primes for cognitive testing).
-    # Returning [] causes run_ach_for_enriched to skip store_ach_results, leaving
-    # Pipeline A (MBIE/web search) results visible in _fetch_top_bidders.
-    if not _ach_relevance_gate(results, notice.get("title") or ""):
-        logger.warning(
-            "ACH notice %s: relevance gate FAILED — discarding %d ACH result(s). "
-            "Pipeline A (MBIE/web search) results will be displayed instead.",
-            notice_id, len(results),
+            "ACH notice %s: all candidates removed by agency/govt filter",
+            notice_id,
         )
         return []
 
@@ -1018,9 +870,7 @@ def store_ach_results(notice_id: str, bidders: list[dict]) -> None:
         )
         ts_marker = str(row["parsed_at"])[:19] if row and row.get("parsed_at") else ""
 
-        # Delete ALL existing ach_analysis rows for this notice before inserting
-        # new ones. Previous firm-name-only deletion left stale rows when Claude
-        # named different firms on a re-run (old names were never cleaned up).
+        # Delete ALL existing ach_analysis rows before inserting new ones
         db.execute(
             "DELETE FROM bidder_pool WHERE notice_id = %s AND match_type = 'ach_analysis'",
             (notice_id,),
@@ -1031,7 +881,6 @@ def store_ach_results(notice_id: str, bidders: list[dict]) -> None:
             evidence_parts = b.get("evidence") or []
             discriminator  = b.get("discriminator") or ""
 
-            # Encode capability_match as first token so renderer can parse it
             reasoning_parts = [f"CAPMATCH:{cap_match}"] + [
                 str(e) for e in evidence_parts
             ]
@@ -1073,13 +922,9 @@ def run_ach_for_enriched(force: bool = False) -> dict:
     """
     Run ACH analysis on all notices with enriched_notices entries.
 
-    Note on tender type filtering: this runner has NO tender-type exclusions.
-    Notice of Intent and Advance Notice tender types are NOT skipped — they
-    receive ACH analysis if they have been enriched.  The category_raw field
-    is included in each notice dict for logging and prompt context only.
-    (Tender type filtering in the legacy MBIE batch runner in bidders.py line ~857
-    explicitly INCLUDES those types via an OR clause; this runner is consistent
-    with that intent.)
+    When generate_bidder_intelligence() returns [] (no candidates from MBIE/web),
+    any stale ach_analysis rows for that notice are deleted so the display falls
+    through to Pipeline A rather than showing old wrong results.
     """
     enriched_ids = db.fetchall(
         """
@@ -1118,9 +963,15 @@ def run_ach_for_enriched(force: bool = False) -> dict:
                 store_ach_results(nid, bidders)
                 counts["processed"] += 1
             else:
-                logger.warning(
-                    "ACH batch: zero bidders returned for notice %s "
-                    "(both ACH and MBIE fallback exhausted)",
+                # No candidates found — clear any stale ach_analysis rows so display
+                # falls through to Pipeline A rather than showing old wrong results
+                db.execute(
+                    "DELETE FROM bidder_pool "
+                    "WHERE notice_id = %s AND match_type = 'ach_analysis'",
+                    (nid,),
+                )
+                logger.info(
+                    "ACH notice %s: no candidates — cleared stale ach_analysis rows",
                     nid,
                 )
                 counts["failed"] += 1
@@ -1147,7 +998,6 @@ def _parse_conf_str(conf_str: str) -> tuple[str, int]:
         wins = int(parts[1]) if len(parts) > 1 else 0
     except ValueError:
         wins = 0
-    # Handle legacy "high"/"low" values from the old system
     if badge_type in ("high", "low"):
         badge_type = "category_match" if badge_type == "high" else "no_mbie"
         wins = 0
@@ -1208,12 +1058,10 @@ def render_ach_card(b: dict) -> str:
     size_raw   = b.get("size") or "medium"
     size_label = size_raw.capitalize()
 
-    # Parse MBIE badge
     conf_str   = b.get("context_confidence") or "no_mbie:0"
     badge_type, wins = _parse_conf_str(conf_str)
     mbie_badge = _mbie_badge_html(badge_type, wins)
 
-    # Parse reasoning: "CAPMATCH:{match} | evidence1 | evidence2 | ⚡ discriminator"
     reasoning_raw = b.get("reasoning") or ""
     parts = [r.strip() for r in reasoning_raw.split("|") if r.strip()]
 
@@ -1247,13 +1095,11 @@ def render_ach_card(b: dict) -> str:
     return (
         f'<div style="background:var(--surf2);border:1px solid var(--card-border);'
         f'border-radius:7px;padding:.75rem .9rem;margin-bottom:.55rem;">'
-        # Header row: name + MBIE badge
         f'<div style="display:flex;justify-content:space-between;align-items:flex-start;'
         f'gap:.5rem;margin-bottom:.35rem;">'
         f'<span style="font-size:.83rem;font-weight:700;color:var(--text);">{name}</span>'
         f'{mbie_badge}'
         f'</div>'
-        # Probability pill + size + capability badge
         f'<div style="display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;margin-bottom:.5rem;">'
         f'<span style="font-size:.68rem;font-weight:700;letter-spacing:.05em;'
         f'text-transform:uppercase;padding:.12rem .5rem;border-radius:4px;'
@@ -1262,7 +1108,6 @@ def render_ach_card(b: dict) -> str:
         f'<span style="font-size:.68rem;color:var(--muted);">{size_label}</span>'
         f'{cap_badge}'
         f'</div>'
-        # Evidence bullets + discriminator
         f'{bullets_html}'
         f'{discriminator_html}'
         f'</div>'
