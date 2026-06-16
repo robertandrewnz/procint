@@ -247,13 +247,18 @@ TITLE_KEYWORD_SECTOR_EXCLUSIONS: list[tuple[list[str], set[str]]] = [
          "bridge maintenance", "drainage works", "earthworks"],
         {"ICT", "health", "legal", "aerospace", "cybersecurity"},
     ),
-    # Psychometric / cognitive assessment keywords — exclude physical-security firms
+    # Psychometric / cognitive assessment keywords — exclude physical-security,
+    # engineering and defence-hardware firms. A psychometric/cognitive testing
+    # notice is an HR-assessment service: even when tagged 'defence' (NZDF buyer)
+    # the bidders are NOT aerospace/defence primes (Lockheed, Boeing, Rolls-Royce)
+    # or security-guard firms — they are assessment vendors surfaced via web search.
     (
         ["cognitive ability", "psychometric", "aptitude test", "ability testing",
          "personality assessment", "behavioural assessment", "talent assessment",
          "psychometric testing", "cognitive testing", "assessment tools",
          "workforce assessment", "recruitment assessment"],
-        {"security", "construction", "civil", "roading", "infrastructure", "FM"},
+        {"security", "construction", "civil", "roading", "infrastructure", "FM",
+         "defence", "aerospace", "utilities", "cybersecurity"},
     ),
 ]
 
