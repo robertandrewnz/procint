@@ -274,6 +274,33 @@ TITLE_KEYWORD_SECTOR_EXCLUSIONS: list[tuple[list[str], set[str]]] = [
         {"security", "construction", "civil", "roading", "infrastructure", "FM",
          "defence", "aerospace", "utilities", "cybersecurity"},
     ),
+    # Environmental science / ecology keywords — exclude ICT, security, aerospace.
+    # Environmental notices attract civil/infrastructure firms via broad sector overlap
+    # but the service is specialist science, not civil works.
+    (
+        ["environmental assessment", "ecology", "ecological", "biodiversity",
+         "wetland", "habitat", "freshwater ecology", "environmental monitoring",
+         "environmental impact", "soil contamination", "groundwater", "air quality",
+         "environmental management", "native species"],
+        {"ICT", "security", "aerospace", "cybersecurity", "defence"},
+    ),
+    # HR / organisational development / training keywords — exclude physical sectors,
+    # defence hardware, and aerospace. OD/training is professional services.
+    (
+        ["leadership training", "change management", "organisational development",
+         "workforce planning", "executive coaching", "learning and development",
+         "culture change", "employee engagement", "people development",
+         "leadership development", "training programme", "organisational change"],
+        {"security", "construction", "civil", "roading", "infrastructure", "FM",
+         "defence", "aerospace", "utilities"},
+    ),
+    # Translation / language services — exclude physical, defence, ICT.
+    (
+        ["translation services", "interpreting services", "language services",
+         "sign language", "tē reo", "te reo maori", "naati", "nzsl"],
+        {"construction", "civil", "roading", "infrastructure", "FM",
+         "defence", "aerospace", "security"},
+    ),
 ]
 
 # ── Specialist sectors ─────────────────────────────────────────────────────────

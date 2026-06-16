@@ -54,6 +54,47 @@ PROBABILITY_COLOURS = {
 }
 
 
+# ── Domain-specific seed lists ────────────────────────────────────────────────
+# Hardcoded lists of known NZ providers per service domain. Injected into the
+# ACH prompt when title keywords match the domain, grounding Claude's reasoning
+# in real NZ market participants rather than training-knowledge associations.
+# Title-keyword detection takes priority over sector tag so a psychometric notice
+# tagged 'defence' gets assessment-firm seeds, not defence primes.
+
+_PSYCHOMETRIC_FIRMS = [
+    "People Central", "Clevry", "Hudson NZ", "Hays New Zealand",
+    "Chandler Macleod NZ", "SHL New Zealand", "Aon Assessment Solutions",
+    "Team Management Systems NZ", "Human Synergistics NZ",
+    "Saville Assessment", "Thomas International NZ",
+    "HP Profiling Solutions", "Criterion Works NZ", "Talogy NZ",
+    "Korn Ferry NZ", "Central Testing Services NZ",
+]
+
+_LEGAL_FIRMS = [
+    "Bell Gully", "Chapman Tripp", "Russell McVeagh",
+    "MinterEllisonRuddWatts", "Simpson Grierson", "Buddle Findlay",
+    "DLA Piper NZ", "Chen Palmer", "Dentons Kensington Swan",
+    "Franks Ogilvie", "Heaney & Partners", "Cavell Leitch",
+    "Wynn Williams", "Gallaway Cook Allan", "Lane Neave",
+]
+
+_HEALTH_CLINICAL_FIRMS = [
+    "Orion Health", "Fisher & Paykel Healthcare", "Pacific Radiology",
+    "Telstra Health NZ", "Labtests Auckland", "NZ Clinical Research",
+    "Healthpoint NZ", "CompuMed NZ", "Cubex Health",
+    "Medtech Global NZ", "Toniq NZ", "MyIndici",
+    "Momentum Consulting Health", "Zedmed NZ",
+]
+
+_ENV_SCIENCE_FIRMS = [
+    "Tonkin + Taylor", "Pattle Delamore Partners", "GHD New Zealand",
+    "AECOM New Zealand", "Beca", "Stantec NZ", "Jacobs NZ",
+    "Morphum Environmental", "Mott MacDonald NZ",
+    "Environmental Management Services NZ", "RPS Group NZ",
+    "Hill Laboratories", "AsureQuality", "EnviroNZ",
+    "Woods Environmental NZ",
+]
+
 # ── CSV candidate pool (for ICT / Cybersecurity seeding) ──────────────────────
 
 _CSV_CANDIDATES: dict[str, list[str]] = {}
@@ -88,14 +129,53 @@ def _load_csv_candidates() -> dict[str, list[str]]:
     return result
 
 
-def _sector_candidates(sector_tag: str) -> list[str]:
+def _sector_candidates(sector_tag: str, title: str = "") -> tuple:
     """
-    Return known NZ firms from bidders.csv that are relevant to ICT or
-    Cybersecurity notices.  Returns empty list for all other sectors.
+    Return (firms_list, domain_label) for the ACH seed list injection.
+
+    Title-keyword detection takes priority over sector tag — a psychometric
+    notice tagged 'defence' gets assessment-firm seeds, not defence primes.
+    Returns ([], "") if no domain match.
     """
+    title_lower = title.lower()
+
+    # Psychometric / cognitive / HR assessment
+    if any(kw in title_lower for kw in [
+        "psychometric", "cognitive ability", "aptitude test", "ability testing",
+        "personality assessment", "behavioural assessment", "talent assessment",
+        "recruitment assessment", "cognitive testing", "assessment tools",
+        "workforce assessment", "psychometric testing",
+    ]):
+        return _PSYCHOMETRIC_FIRMS, "PSYCHOMETRIC/ASSESSMENT"
+
+    # Legal services
+    if any(kw in title_lower for kw in [
+        "legal services", "legal advice", "solicitor", "barrister",
+        "counsel", "law firm", "litigation", "conveyancing", "judicial",
+    ]):
+        return _LEGAL_FIRMS, "LEGAL"
+
+    # Health / clinical IT and services
+    if any(kw in title_lower for kw in [
+        "clinical", "surgical", "pharmaceutical", "pathology", "radiology",
+        "diagnostic", "patient care", "health information", "medical device",
+        "electronic health record", "patient management system",
+    ]):
+        return _HEALTH_CLINICAL_FIRMS, "HEALTH/CLINICAL"
+
+    # Environmental science / ecology
+    if any(kw in title_lower for kw in [
+        "environmental assessment", "ecology", "ecological", "biodiversity",
+        "wetland", "environmental monitoring", "habitat", "freshwater",
+        "environmental impact", "environmental management", "soil contamination",
+        "groundwater", "air quality",
+    ]):
+        return _ENV_SCIENCE_FIRMS, "ENVIRONMENTAL SCIENCE"
+
+    # ICT / Cybersecurity — fall back to CSV lookup
     s = (sector_tag or "").lower()
     if not any(k in s for k in ("ict", "cyber", "security", "defence")):
-        return []
+        return [], ""
     candidates = _load_csv_candidates()
     seen: set[str] = set()
     firms: list[str] = []
@@ -104,7 +184,7 @@ def _sector_candidates(sector_tag: str) -> list[str]:
             if f not in seen:
                 seen.add(f)
                 firms.append(f)
-    return firms[:30]
+    return firms[:30], "ICT/CYBERSECURITY"
 
 
 # ── Step 1: Requirements extraction ───────────────────────────────────────────
@@ -182,67 +262,70 @@ def _format_requirements_summary(reqs: dict) -> str:
 
 _ACH_SYSTEM = """\
 You are a New Zealand government procurement intelligence analyst. Identify the 3 most \
-likely bidding organisations for a specific NZ government contract using the Analysis of \
-Competing Hypotheses (ACH) framework.
+likely bidding organisations for a specific NZ government contract.
+
+PRIMARY RULE — THE SERVICE TYPE IN THE TITLE IS YOUR ONLY ANCHOR:
+The notice title describes the SPECIFIC SERVICE being purchased. Always start by identifying \
+what service the title describes, then find NZ firms that provide THAT specific service.
+
+The contracting agency name is secondary context only — it indicates compliance requirements \
+and procurement sector, NOT what kind of firm bids. A well-known agency does NOT mean you \
+should default to that agency's typical industry partners. Examples:
+  • NZDF procuring "Cognitive Ability Testing" → bidders are HR/psychometric assessment firms
+  • A hospital procuring "grounds maintenance" → bidders are landscaping firms
+  • Police procuring "translation services" → bidders are language service providers
+  • MBIE procuring "legal services" → bidders are law firms
+NEVER let the agency name override the service type in the title.
 
 Your reasoning MUST follow these four steps in sequence:
 
-STEP 1 — CAPABILITY ANALYSIS
-State precisely what operational, technical, and statutory capabilities this contract demands. \
-Do not use generic sector labels. For example: not "security services" but \
-"Dog Control Act enforcement officer designation, animal impounding infrastructure, \
-after-hours patrol SLA compliance, rural district coverage across X km²". \
-State exactly what licences, designations, or specialist infrastructure are required.
+STEP 1 — SERVICE TYPE IDENTIFICATION
+State precisely what the title is asking for — the specific service, product, or capability \
+being purchased. Not the sector or agency context. Then state what operational, technical, \
+and statutory capabilities providing that service requires. Use precise language: not \
+"testing services" but "psychometric / cognitive ability test instruments, validated NZ \
+norm groups, accredited test administrators, scoring and reporting platform." Not \
+"security services" but "Dog Control Act enforcement officer designation, animal impounding \
+infrastructure, after-hours patrol SLA, rural district coverage across X km²."
 
 STEP 2 — FIRM IDENTIFICATION
-Identify NZ firms that demonstrably have those SPECIFIC capabilities based on:
-- Known service delivery in this exact service category (not adjacent sectors)
-- Documented council or government contracts in this specific type of work
-- Public capability statements or known operational presence
+Identify NZ firms that demonstrably provide THAT SPECIFIC SERVICE based on:
+- Known delivery of this exact service type (not adjacent sectors)
+- Documented government contracts for this specific type of work
+- Public capability statements or known operational presence in this service category
 Do NOT include firms active in an adjacent sector without the specific capability. \
-A corporate IT security firm is NOT a match for animal control without documented council \
-animal control contracts. A surveillance technology vendor is NOT a match for field patrol services. \
-A corrections-technology firm is NOT a match for local government enforcement work.
-IMPORTANT: The contracting agency is the BUYER, not a bidder. Never list the council or \
-government agency as a bidder. If you believe the incumbent is unknown, say \
-"Unknown incumbent (likely regional contractor)" rather than naming the council.
+A defence prime (aircraft, missiles, ship systems) is NOT a match for cognitive ability \
+testing. A corporate IT firm is NOT a match for animal control. A construction company \
+is NOT a match for HR assessment services.
+IMPORTANT: The contracting agency is the BUYER, not a bidder. Never list the agency as a bidder.
 
 STEP 3 — GEOGRAPHIC AND SCALE FIT
 For each candidate:
-- Geographic coverage: does this firm deliver services in this specific district or region?
-- Scale fit: small district councils (under 50,000 population) are often better served by \
-regional operators than major national firms who may price themselves out or deprioritise small contracts.
-- Incumbency signals: any public signals of an existing operator in this area?
+- Geographic coverage: does this firm deliver services in this district or region?
+- Scale fit: small contracts may suit regional operators over major national firms.
+- Incumbency signals: any public signals of an existing operator?
 
 STEP 4 — CONFIDENCE CALIBRATION AND RANKING
 Apply this rule strictly:
 - "High" ONLY if the firm has BOTH documented capability in this specific service type \
 AND confirmed geographic presence. If either is uncertain → maximum "Medium".
 - "Medium" = capability inferred from adjacent work OR capability confirmed but geography uncertain.
-- "Medium-Low" = sector presence but no evidence of this specific capability, or \
-working from title/agency alone without full specification.
+- "Medium-Low" = sector presence but no evidence of this specific capability.
 
 capability_match values:
-- "confirmed": documented council or government contracts in this exact service category
-- "inferred": adjacent capability with plausible transfer, but not confirmed for this service type
-- "unknown": operates in the broad sector but no evidence of this specific service
+- "confirmed": documented government contracts in this exact service category
+- "inferred": adjacent capability with plausible transfer, not confirmed for this service type
+- "unknown": broad sector presence only, no evidence of this specific service
 
 FIRM NAME FORMAT — strictly enforced:
-- Use the organisation's common NZ trading name only. Examples: "Datacom", "Spark NZ", \
-"Leighs Construction", "Orion Health".
-- Maximum 50 characters.
-- No parenthetical explanations: NOT "Nuance Communications (Microsoft subsidiary)".
-- No technology stack descriptions embedded in the name: NOT "Google Cloud (Speech-to-Text stack)".
+- Use the organisation's common NZ trading name only. Maximum 50 characters.
+- No parenthetical explanations. No technology stack descriptions in the name.
 - No hedging phrases: NOT "Verbit.ai (or equivalent provider)".
-- If a global firm, use its recognised NZ entity name: "Microsoft NZ", "IBM NZ", "Cisco NZ".
-- If only a global brand is known and no NZ entity name exists, use the global brand name alone.
+- If a global firm, use its recognised NZ entity name: "Microsoft NZ", "IBM NZ".
 
-CRITICAL INSTRUCTION: You MUST always return exactly 3 bidder hypotheses. Even when the \
-contract notice is sparse or lacks a description, produce your best 3 hypotheses based on \
-the notice title, agency name, region, and your knowledge of the NZ market for this service type. \
-When data is limited, set probability to "Medium-Low" and capability_match to "unknown" — \
-but still name real NZ organisations. Never return an error, refusal, or fewer than 3 bidders. \
-If you are uncertain about a firm, use "Medium-Low / unknown" rather than omitting them.
+CRITICAL: You MUST always return exactly 3 bidder hypotheses. When data is limited, use \
+"Medium-Low" / "unknown" — but name real NZ organisations that provide THIS specific service. \
+Never return fewer than 3 bidders.
 
 Return ONLY valid JSON — no text outside the JSON block:
 {"bidders": [\
@@ -268,22 +351,22 @@ def _build_ach_prompt(notice: dict, requirements_summary: str) -> str:
     }
     value_str = value_labels.get(value_band, value_band)
 
-    # Inject known NZ firm list for ICT / Cybersecurity notices.
-    # Government cybersecurity contracts are often not published in MBIE award data,
-    # so Claude's training knowledge must be anchored with the known NZ market players.
+    # Domain-specific seed list: grounds ACH in real NZ market participants.
+    # Title-keyword detection takes priority over sector tag so a psychometric
+    # notice tagged 'defence' gets assessment-firm seeds rather than defence primes.
     candidates_block = ""
-    candidates = _sector_candidates(sector)
+    candidates, domain_label = _sector_candidates(sector, title)
     if candidates:
         candidates_block = (
-            "\n\nKNOWN NZ ICT/CYBERSECURITY FIRMS (from NZ procurement database — "
-            "evaluate each against the specific requirements above and include only "
-            "those with genuine capability match; do not include all firms by default):\n"
+            f"\n\nKNOWN NZ {domain_label} PROVIDERS — from NZ procurement database. "
+            f"Evaluate each against the specific service described in the title above. "
+            f"Include only those with genuine capability match for THAT service:\n"
             + "\n".join(f"- {c}" for c in candidates)
         )
 
     return (
-        f"Notice title: {title}\n"
-        f"Agency: {agency}\n"
+        f"SERVICE BEING PROCURED (primary anchor): {title}\n"
+        f"Contracting agency (compliance/sector context only): {agency}\n"
         f"Region / scope: {region}\n"
         f"Sector classification: {sector}\n"
         f"Contract value: {value_str}\n\n"
@@ -492,6 +575,71 @@ def _run_ach_reasoning(notice: dict, requirements_summary: str) -> list[dict]:
         )
 
     return bidders
+
+
+# ── ACH relevance gate ────────────────────────────────────────────────────────
+# Validates that ACH-identified firms plausibly relate to the service described
+# in the notice title. Prevents agency-anchored hallucinations (e.g. aerospace
+# primes returned for a cognitive testing RFI at NZDF) from being stored and
+# hiding correct Pipeline A (MBIE/web search) results at display time.
+
+_GATE_STOP = frozenset({
+    "the", "and", "for", "of", "in", "to", "a", "an", "at", "by", "or",
+    "with", "from", "new", "zealand", "nz", "government", "contract",
+    "services", "service", "project", "works", "supply", "provision",
+    "request", "proposal", "nzdf", "ministry", "department", "authority",
+    "into", "via", "its", "this", "that",
+})
+
+
+def _gate_title_keywords(title: str) -> list:
+    """Extract meaningful service-domain keywords from notice title."""
+    words = re.findall(r"[a-zA-Z]{3,}", title.lower())
+    return [w for w in words if w not in _GATE_STOP][:10]
+
+
+def _ach_relevance_gate(bidders: list, notice_title: str) -> bool:
+    """
+    Return True if ACH results are plausibly relevant to the notice service type.
+
+    For each ACH firm, checks that its evidence, discriminator, or name contains
+    at least one keyword from the notice title. If >50% of firms have zero overlap,
+    the gate fails — ACH has likely anchored on the agency rather than the service.
+
+    Returns True (pass) when the title has too few evaluable keywords.
+    """
+    kws = _gate_title_keywords(notice_title)
+    if len(kws) < 2 or not bidders:
+        return True  # insufficient signal; give benefit of the doubt
+
+    failed = 0
+    for b in bidders:
+        name_text = (b.get("name") or b.get("firm_name") or "").lower()
+        evidence = b.get("evidence") or []
+        discriminator = b.get("discriminator") or ""
+        reasoning_raw = b.get("reasoning") or ""
+        # Handle both fresh ACH dicts (evidence list) and stored DB rows (pipe-separated)
+        parts = [p.strip() for p in reasoning_raw.split("|") if p.strip()
+                 and not p.strip().startswith("CAPMATCH:")]
+
+        all_text = " ".join([
+            name_text,
+            " ".join(str(e) for e in evidence),
+            discriminator,
+            " ".join(parts),
+        ]).lower()
+
+        if not any(kw in all_text for kw in kws):
+            failed += 1
+
+    passes = failed <= len(bidders) // 2
+    if not passes:
+        logger.warning(
+            "ACH relevance gate FAILED for %r: %d/%d firms have no keyword "
+            "overlap with title service domain (kws=%s)",
+            notice_title[:70], failed, len(bidders), kws[:5],
+        )
+    return passes
 
 
 # ── Step 3: Category-gated MBIE enrichment ────────────────────────────────────
@@ -791,6 +939,19 @@ def generate_bidder_intelligence(
             notice_id, pre_enrichment_count, agency_name,
         )
         return _mbie_fallback_bidders(notice)
+
+    # Step 4 — Relevance gate: verify ACH results match the service domain.
+    # If >50% of firms have no keyword overlap with the title, ACH has anchored
+    # on the agency rather than the service (e.g. defence primes for cognitive testing).
+    # Returning [] causes run_ach_for_enriched to skip store_ach_results, leaving
+    # Pipeline A (MBIE/web search) results visible in _fetch_top_bidders.
+    if not _ach_relevance_gate(results, notice.get("title") or ""):
+        logger.warning(
+            "ACH notice %s: relevance gate FAILED — discarding %d ACH result(s). "
+            "Pipeline A (MBIE/web search) results will be displayed instead.",
+            notice_id, len(results),
+        )
+        return []
 
     logger.info(
         "ACH complete for notice %s: %d bidder(s) — %s",

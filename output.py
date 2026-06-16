@@ -128,7 +128,7 @@ def _fetch_top_bidders(notice_id: str) -> list[dict]:
     When ACH rows are present, they are returned directly (already curated to 3).
     When absent, falls back to the deduplicated MBIE/CSV pool with exclusion logic.
     """
-    # ── Prefer ACH results ──────────────────────────────────────────────────
+    # ── Prefer ACH results — only if they pass the relevance gate ──────────
     try:
         ach_rows = db.fetchall(
             """
@@ -143,7 +143,24 @@ def _fetch_top_bidders(notice_id: str) -> list[dict]:
             (notice_id,),
         )
         if ach_rows:
-            return [dict(r) for r in ach_rows]
+            # Gate check: verify stored ACH rows still match the notice service domain.
+            # Handles notices processed before the gate was introduced.
+            from bidder_intelligence import _ach_relevance_gate
+            notice_title_for_gate = ""
+            try:
+                _t = db.fetchone(
+                    "SELECT title FROM raw_notices WHERE notice_id = %s", (notice_id,)
+                )
+                notice_title_for_gate = (_t or {}).get("title") or ""
+            except Exception:
+                pass
+            if _ach_relevance_gate([dict(r) for r in ach_rows], notice_title_for_gate):
+                return [dict(r) for r in ach_rows]
+            logger.info(
+                "ACH rows for %s failed relevance gate at display time — "
+                "falling back to Pipeline A results",
+                notice_id,
+            )
     except Exception as exc:
         logger.warning("ACH bidder fetch failed for %s: %s", notice_id, exc)
 
