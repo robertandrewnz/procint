@@ -3950,7 +3950,9 @@ function wlClearSearch(){
                     if _ach_relevance_gate(ach_rows, notice_title_for_gate):
                         bidders_by_notice[nid] = ach_rows[:3]
                         continue
-                    # Gate failed — fall through to Pipeline A exclusion path
+                    # Gate failed — strip ACH rows (stored with empty sector, bypass
+                    # exclusion logic) and fall through to Pipeline A rows only
+                    rows = [r for r in rows if r.get("match_type") != "ach_analysis"]
                 # Legacy path: apply exclusions + dedup on MBIE/CSV rows
                 ctx = notice_ctx_map.get(nid, {})
                 is_specialist = _notice_is_specialist(ctx) if ctx else False
