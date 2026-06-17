@@ -1063,6 +1063,84 @@ def run_ach_for_enriched(force: bool = False) -> dict:
     return counts
 
 
+# ── Batch runner: unprocessed notices ─────────────────────────────────────────
+
+def run_ach_for_unprocessed(batch_size: int = 10, delay: float = 2.0) -> dict:
+    """
+    Run ACH for every notice that has enriched_notices data but zero ach_analysis rows.
+
+    Processes in batches of `batch_size` with `delay` seconds between batches so
+    we don't hammer the Claude API after a bulk migration cleared the pool.
+    """
+    import time
+
+    rows = db.fetchall(
+        """
+        SELECT e.notice_id, r.title, r.agency, r.description,
+               p.sector_tag, p.value_band, p.geographic_scope,
+               r.category_raw
+          FROM enriched_notices e
+          JOIN raw_notices r  ON r.notice_id  = e.notice_id
+          JOIN parsed_notices p ON p.notice_id = e.notice_id
+         WHERE NOT EXISTS (
+               SELECT 1 FROM bidder_pool bp
+                WHERE bp.notice_id  = e.notice_id
+                  AND bp.match_type = 'ach_analysis'
+         )
+         ORDER BY e.enriched_at DESC
+        """
+    )
+
+    total = len(rows)
+    logger.info("ACH --all: %d notice(s) have no ach_analysis rows", total)
+
+    counts = {"processed": 0, "failed": 0}
+
+    for batch_start in range(0, total, batch_size):
+        batch = rows[batch_start : batch_start + batch_size]
+        batch_num = batch_start // batch_size + 1
+        batch_total = (total + batch_size - 1) // batch_size
+        logger.info(
+            "ACH --all: batch %d/%d (%d notice(s))",
+            batch_num, batch_total, len(batch),
+        )
+
+        for row in batch:
+            nid = row["notice_id"]
+            try:
+                notice = {
+                    "notice_id":        nid,
+                    "title":            row.get("title") or "",
+                    "agency":           row.get("agency") or "",
+                    "description":      row.get("description") or "",
+                    "sector_tag":       row.get("sector_tag") or "other",
+                    "value_band":       row.get("value_band") or "unknown",
+                    "geographic_scope": row.get("geographic_scope"),
+                    "category_raw":     row.get("category_raw") or "",
+                }
+                bidders = generate_bidder_intelligence(notice)
+                if bidders:
+                    store_ach_results(nid, bidders)
+                    counts["processed"] += 1
+                    logger.info("ACH --all: %s → %d bidder(s) stored", nid, len(bidders))
+                else:
+                    logger.info("ACH --all: %s → no candidates identified", nid)
+                    counts["failed"] += 1
+            except Exception as exc:
+                logger.error("ACH --all: %s failed: %s", nid, exc)
+                counts["failed"] += 1
+
+        if batch_start + batch_size < total:
+            logger.info("ACH --all: sleeping %.0fs before next batch…", delay)
+            time.sleep(delay)
+
+    logger.info(
+        "ACH --all complete — processed=%d failed/empty=%d total=%d",
+        counts["processed"], counts["failed"], total,
+    )
+    return counts
+
+
 # ── Rendering ──────────────────────────────────────────────────────────────────
 
 def _parse_conf_str(conf_str: str) -> tuple[str, int]:
@@ -1267,6 +1345,8 @@ if __name__ == "__main__":
                     help="Force regeneration even when not stale")
     ap.add_argument("--show-reasoning", action="store_true",
                     help="Log requirements extraction + raw ACH output before JSON")
+    ap.add_argument("--all",            action="store_true",
+                    help="Run ACH for all notices with no ach_analysis rows (batch mode)")
     args = ap.parse_args()
 
     if args.notice_id:
@@ -1289,6 +1369,9 @@ if __name__ == "__main__":
             print(json.dumps(bidders, indent=2))
     elif args.run_enriched:
         result = run_ach_for_enriched(force=args.force)
+        print(json.dumps(result, indent=2))
+    elif args.all:
+        result = run_ach_for_unprocessed()
         print(json.dumps(result, indent=2))
     else:
         ap.print_help()
