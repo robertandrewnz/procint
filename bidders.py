@@ -366,6 +366,19 @@ _STOP = frozenset({
     "provision", "request", "proposal",
 })
 
+# Words too generic to trigger a meaningful UNSPSC category match on their own.
+# "testing" matches "Laboratory and Testing Equipment"; "management" matches dozens
+# of unrelated categories. These are filtered out before the MBIE category query.
+_MBIE_CAT_STOP = frozenset({
+    "test", "testing", "assessment", "management", "equipment", "maintenance",
+    "supplies", "installation", "operation", "operations", "support",
+    "delivery", "system", "systems", "solution", "solutions", "platform",
+    "data", "information", "performance", "quality", "control", "programme",
+    "program", "review", "audit", "monitoring", "reporting", "analysis",
+    "development", "implementation", "administration", "coordination",
+    "planning", "design", "survey", "professional",
+})
+
 
 def _title_keywords(title: str) -> list[str]:
     """Extract meaningful multi-word and single-word phrases from a notice title."""
@@ -391,12 +404,15 @@ def _mbie_bidders_for_notice(notice: dict) -> list[dict]:
     title = notice.get("title") or ""
     title_kws = _title_keywords(title)
 
-    # Primary: UNSPSC category match (most specific)
+    # Primary: UNSPSC category match (most specific).
+    # Strip generic procurement words that collide with unrelated UNSPSC categories
+    # (e.g. "testing" → "Laboratory and Testing Equipment" for cognitive assessments).
+    distinctive_kws = [kw for kw in title_kws if kw not in _MBIE_CAT_STOP]
     cat_results = get_suppliers_by_category(
-        unspsc_desc_keywords=title_kws,
+        unspsc_desc_keywords=distinctive_kws,
         agency_name=agency,
         limit=20,
-    )
+    ) if distinctive_kws else []
 
     # Secondary: sector + agency match
     sector_results = get_suppliers_by_sector_and_agency(

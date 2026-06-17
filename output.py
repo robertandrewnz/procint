@@ -187,10 +187,6 @@ def _fetch_top_bidders(notice_id: str) -> list[dict]:
         FROM   bidder_pool
         WHERE  notice_id = %s AND match_type != 'ach_analysis'
         ORDER  BY
-            CASE match_type
-                WHEN 'mbie_evidence' THEN 0
-                ELSE 1
-            END,
             COALESCE(relevance_score, 0) DESC,
             CASE strategic_importance
                 WHEN 'high'   THEN 1
