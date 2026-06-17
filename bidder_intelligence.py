@@ -1,29 +1,32 @@
 """
 bidder_intelligence.py — ACH (Analysis of Competing Hypotheses) bidder analysis.
 
-Correct architecture:
+Three-stage architecture:
 
-  Step 1 — Candidate identification from data only
-            MBIE historical awards and web search are the only two sources that
-            generate firm names.  Web search fires when MBIE returns fewer than
-            3 relevant results, using the notice title as the search anchor.
-            CSV bidder lists are NOT used — they generate sector-matched noise.
+  Stage 1 — Web search identifies candidates
+            Web search is the SOLE firm identification source.  The query
+            anchors on the notice title ("companies providing [TITLE] New Zealand").
+            Returns up to 5 named commercial providers.  Government entities are
+            filtered before the candidate list is finalised.
+            CSV bidder lists and MBIE category matching are NOT used for
+            firm identification.
 
-  Step 2 — ACH assessment of the candidate pool
-            Claude receives the identified candidates and applies structured
-            hypothesis analysis: who has strongest capability evidence, who has
-            existing agency relationships, who is best positioned.
-            Claude does NOT generate new firm names — it only ranks and reasons
-            about the provided candidates.
+  Stage 2 — MBIE validates and contextualises
+            For each web-identified firm, MBIE award history is queried per-firm:
+              • Total NZ government contracts won (any sector)
+              • Contracts won with this specific agency
+              • Primary sector in MBIE records
+            This is METADATA ONLY — not used to rank, filter, or replace firms.
+            A firm with no MBIE history receives a "no history" note.  ACH sees
+            this metadata and uses it for evidence assessment.
 
-  Step 3 — MBIE enrichment
-            Each assessed firm is cross-checked against MBIE awards.
-            Badge type signals category relevance, not confirmation of the ranking.
-              • "category_match"     → ✓ MBIE confirmed — N wins in this category
-              • "unrelated_category" → ⚠ MBIE present — wins in other categories
-              • "no_mbie"            → Training knowledge — no MBIE record
+  Stage 3 — ACH assesses and ranks
+            Claude receives Stage 1 candidates with their Stage 2 MBIE metadata.
+            Assesses: capability match, evidence strength, agency relationship,
+            competitive position.  Produces ranked list with probability band.
+            Claude does NOT add any firm not in the Stage 1 candidate list.
 
-  If Step 1 produces no candidates, nothing is stored and nothing is shown.
+  If Stage 1 finds no candidates, nothing is stored and nothing is shown.
   ACH never invents firm names.
 
 Caching:
@@ -230,70 +233,152 @@ def _fuzzy_name_match(a: str, b: str) -> bool:
 
 def _identify_candidates(notice: dict) -> list[dict]:
     """
-    Identify candidate bidders from MBIE historical awards and web search only.
+    Stage 1: Web search is the sole firm identification source.
 
-    Always runs live — never reads stale Pipeline A rows from bidder_pool.
-    Stale web_inferred rows from old Layer 1 runs may contain wrong firms
-    (anchored on sector tag rather than notice title), so reusing them would
-    feed bad candidates into the ACH assessment.
-
-    CSV (bidders.csv) is deliberately excluded — it generates sector-matched
-    noise that causes agency-anchored pollution (e.g. defence primes for a
-    cognitive testing RFI at NZDF).
+    MBIE and CSV are not used to generate firm names.  MBIE validates and
+    contextualises candidates after identification (Stage 2 in
+    generate_bidder_intelligence).  Always runs live.
     """
     return _identify_candidates_live(notice)
 
 
 def _identify_candidates_live(notice: dict) -> list[dict]:
-    """Run MBIE + web search live and return the combined candidate list."""
-    from bidders import (
-        _mbie_available, _mbie_bidders_for_notice, _firm_is_excluded,
-        _web_search_bidders, _is_government_entity,
-    )
+    """
+    Stage 1: Web search is the sole firm identification source.
+
+    MBIE is not queried here.  It runs in Stage 2 (per-firm validation)
+    after the candidate list is finalised.  This eliminates false positives
+    from MBIE category matching (e.g. "testing" → lab equipment suppliers
+    for a cognitive assessment notice).
+    """
+    from bidders import _web_search_bidders, _is_government_entity
     from canonical_suppliers import canonical_name, deduplicate_bidders
 
     notice_id     = notice.get("notice_id", "?")
     notice_sector = notice.get("sector_tag") or "other"
     candidates: list[dict] = []
-    mbie_canonical: set[str] = set()
 
-    # Source 1: MBIE historical awards
-    if _mbie_available():
-        mbie_rows = _mbie_bidders_for_notice(notice)
-        for r in mbie_rows:
-            r_sectors = [s.strip() for s in (r.get("sector") or "").split("|") if s.strip()]
-            if _firm_is_excluded(r_sectors, notice, r.get("firm_name", "")):
-                continue
-            if _is_government_entity(r.get("firm_name", "")):
-                continue
-            cn = canonical_name(r.get("firm_name", ""))
-            r["canonical_name"] = cn
-            r["match_type"] = "mbie_evidence"
-            candidates.append(r)
-            mbie_canonical.add(cn.lower())
-        logger.debug("ACH notice %s: %d MBIE candidate(s)", notice_id, len(candidates))
+    web_rows = _web_search_bidders(
+        notice.get("title") or "",
+        notice.get("agency") or "",
+        notice_sector,
+    )
+    for r in web_rows:
+        if _is_government_entity(r.get("firm_name", "")):
+            logger.debug("Stage 1: skipping government entity %r", r.get("firm_name"))
+            continue
+        cn = canonical_name(r.get("firm_name", ""))
+        r["canonical_name"] = cn
+        candidates.append(r)
 
-    # Source 2: web search — fires when MBIE < 3 relevant results
-    if len(candidates) < 3:
-        web_rows = _web_search_bidders(
-            notice.get("title") or "",
-            notice.get("agency") or "",
-            notice_sector,
-        )
-        for r in web_rows:
-            cn = canonical_name(r.get("firm_name", ""))
-            if cn.lower() in mbie_canonical:
-                continue
-            if _is_government_entity(r.get("firm_name", "")):
-                continue
-            r["canonical_name"] = cn
-            candidates.append(r)
-        logger.debug(
-            "ACH notice %s: web search added %d candidate(s) (total %d)",
-            notice_id, len(web_rows), len(candidates),
-        )
+    logger.info(
+        "ACH notice %s: Stage 1 (web search) identified %d candidate(s): %s",
+        notice_id,
+        len(candidates),
+        ", ".join(c.get("canonical_name") or c.get("firm_name", "?") for c in candidates),
+    )
 
-    return deduplicate_bidders(candidates)[:8]
+    return deduplicate_bidders(candidates)[:5]
+
+
+# ── Stage 2: MBIE per-firm validation ─────────────────────────────────────────
+
+def _enrich_candidates_with_mbie(candidates: list[dict], notice: dict) -> list[dict]:
+    """
+    Stage 2: Query MBIE per firm to attach validation metadata.
+
+    Does NOT add new firm names — only enriches web search candidates with:
+      • Total NZ government contracts won (any sector)
+      • Contracts won with this specific agency
+      • Primary sector(s) in MBIE records
+
+    A firm with no MBIE history is not penalised — it receives a "no history"
+    note that ACH uses as context.  MBIE data does not affect candidate ranking
+    or inclusion decisions.
+    """
+    from bidders import _mbie_available
+
+    if not candidates:
+        return candidates
+
+    if not _mbie_available():
+        logger.debug("Stage 2: MBIE unavailable — skipping per-firm validation")
+        return candidates
+
+    agency = (notice.get("agency") or "").strip()
+
+    for c in candidates:
+        firm_name = c.get("canonical_name") or c.get("firm_name") or ""
+        firm_kw   = (firm_name.split()[0] if firm_name else "").lower()
+        if not firm_kw:
+            continue
+
+        total_wins = 0
+        agency_wins = 0
+        sectors    = ""
+
+        try:
+            # Total wins across all sectors
+            any_row = db.fetchone(
+                """
+                SELECT COUNT(DISTINCT n.rfx_id) AS wins,
+                       STRING_AGG(DISTINCT c2.sector_tag, ', '
+                                  ORDER BY c2.sector_tag) AS sectors
+                  FROM mbie_award_notices n
+                  JOIN mbie_award_suppliers s  ON s.rfx_id  = n.rfx_id
+                  JOIN mbie_award_categories c2 ON c2.rfx_id = n.rfx_id
+                 WHERE n.is_awarded
+                   AND LOWER(s.business_name) LIKE LOWER(%s)
+                """,
+                (f"%{firm_kw}%",),
+            )
+            if any_row:
+                total_wins = int(any_row.get("wins") or 0)
+                sectors    = str(any_row.get("sectors") or "")
+
+            # Agency-specific wins
+            if agency and total_wins > 0:
+                agency_kw = (agency.split()[0] if agency else "").lower()
+                if agency_kw:
+                    agency_row = db.fetchone(
+                        """
+                        SELECT COUNT(DISTINCT n.rfx_id) AS agency_wins
+                          FROM mbie_award_notices n
+                          JOIN mbie_award_suppliers s ON s.rfx_id = n.rfx_id
+                         WHERE n.is_awarded
+                           AND LOWER(s.business_name) LIKE LOWER(%s)
+                           AND LOWER(n.agency_name)   LIKE LOWER(%s)
+                        """,
+                        (f"%{firm_kw}%", f"%{agency_kw}%"),
+                    )
+                    agency_wins = int((agency_row or {}).get("agency_wins") or 0)
+        except Exception as exc:
+            logger.debug("Stage 2 MBIE query failed for %r: %s", firm_name, exc)
+
+        c["mbie_total_wins"]     = total_wins
+        c["mbie_agency_wins"]    = agency_wins
+        c["mbie_primary_sector"] = sectors
+
+        # Append MBIE note so ACH sees government contract history
+        existing = c.get("reasoning") or []
+        if isinstance(existing, str):
+            existing = [p.strip() for p in existing.split("|") if p.strip()]
+
+        if total_wins > 0:
+            agency_clause = (
+                f", including {agency_wins} with {agency}"
+                if agency_wins > 0 and agency else ""
+            )
+            mbie_note = f"MBIE: {total_wins} NZ government contract(s) won{agency_clause}"
+            if sectors:
+                mbie_note += f" — recorded sector(s): {sectors}"
+        else:
+            mbie_note = "MBIE: no NZ government contract history found"
+
+        c["reasoning"] = list(existing) + [mbie_note]
+
+    logger.debug("Stage 2: MBIE enrichment complete for %d candidate(s)", len(candidates))
+    return candidates
 
 
 # ── Step 2: ACH assessment ─────────────────────────────────────────────────────
@@ -365,27 +450,26 @@ def _build_ach_assessment_prompt(
     lines = []
     for i, c in enumerate(candidates, 1):
         name = c.get("canonical_name") or c.get("firm_name") or "?"
-        src  = c.get("match_type") or "unknown"
-        src_label = {
-            "mbie_evidence": "MBIE historical awards",
-            "web_inferred":  "web search",
-        }.get(src, src)
 
-        # Pull the most useful description from whatever field is populated
-        desc = ""
+        # Collect context parts: web search description + MBIE metadata
+        context_parts: list[str] = []
         reasoning = c.get("reasoning") or []
-        if isinstance(reasoning, list) and reasoning:
-            desc = " — " + str(reasoning[0])[:120]
+        if isinstance(reasoning, list):
+            for r in reasoning:
+                r_str = str(r).strip()
+                if r_str:
+                    context_parts.append(r_str[:120])
         elif isinstance(reasoning, str) and reasoning:
-            # Pipe-separated stored reasoning — take first useful part
-            parts = [p.strip() for p in reasoning.split("|")
-                     if p.strip() and not p.strip().startswith("CAPMATCH:")]
-            if parts:
-                desc = " — " + parts[0][:120]
-        if not desc and c.get("company_context"):
-            desc = " — " + str(c["company_context"])[:120]
+            for p in reasoning.split("|"):
+                p = p.strip()
+                if p and not p.startswith("CAPMATCH:"):
+                    context_parts.append(p[:120])
 
-        lines.append(f"{i}. {name} (source: {src_label}){desc}")
+        if not context_parts and c.get("company_context"):
+            context_parts.append(str(c["company_context"])[:120])
+
+        desc = (" — " + "; ".join(context_parts[:3])) if context_parts else ""
+        lines.append(f"{i}. {name}{desc}")
 
     candidates_block = "\n".join(lines)
 
@@ -690,12 +774,13 @@ def generate_bidder_intelligence(
     """
     Run ACH bidder analysis for *notice*.
 
-    Step 1 — Identify candidates from MBIE + web search (data only, no CSV)
-    Step 2 — Extract specific capability requirements
-    Step 3 — ACH assessment: Claude ranks provided candidates, adds no new names
-    Step 4 — MBIE enrichment: category-gated badges applied post-hoc
+    Stage 1 — Web search identifies candidates (sole firm identification source)
+    Stage 2 — MBIE per-firm validation attached as metadata (does not add/remove firms)
+    Stage 3 — Requirements extraction
+    Stage 4 — ACH assessment: Claude ranks provided candidates, adds no new names
+    Stage 5 — MBIE display badges applied post-hoc
 
-    Returns [] if Step 1 finds no candidates.  Nothing is stored and nothing
+    Returns [] if Stage 1 finds no candidates.  Nothing is stored and nothing
     is shown rather than having ACH invent firms.
     """
     notice_id     = notice.get("notice_id", "?")
@@ -707,18 +792,18 @@ def generate_bidder_intelligence(
         notice_id, notice_sector, agency_name,
     )
 
-    # Step 1 — Candidate identification (MBIE + web search only)
+    # Stage 1 — Candidate identification (web search only)
     candidates = _identify_candidates(notice)
     if not candidates:
         logger.info(
-            "ACH skip notice %s: no candidates from MBIE or web search — "
+            "ACH skip notice %s: web search found no candidates — "
             "returning [] so display shows nothing",
             notice_id,
         )
         return []
 
     logger.info(
-        "ACH notice %s: %d candidate(s) — %s",
+        "ACH notice %s: %d candidate(s) identified — %s",
         notice_id,
         len(candidates),
         ", ".join(
@@ -729,7 +814,7 @@ def generate_bidder_intelligence(
 
     if show_reasoning:
         logger.info(
-            "=== CANDIDATES for %s ===\n%s",
+            "=== STAGE 1 CANDIDATES for %s ===\n%s",
             notice_id,
             json.dumps(
                 [{"name": c.get("canonical_name") or c.get("firm_name"),
@@ -739,14 +824,30 @@ def generate_bidder_intelligence(
             ),
         )
 
-    # Step 2 — Requirements extraction
+    # Stage 2 — MBIE per-firm validation (metadata only; does not add/remove firms)
+    candidates = _enrich_candidates_with_mbie(candidates, notice)
+
+    if show_reasoning:
+        logger.info(
+            "=== STAGE 2 MBIE ENRICHMENT for %s ===\n%s",
+            notice_id,
+            json.dumps(
+                [{"name": c.get("canonical_name") or c.get("firm_name"),
+                  "mbie_total": c.get("mbie_total_wins", 0),
+                  "mbie_agency": c.get("mbie_agency_wins", 0)}
+                 for c in candidates],
+                indent=2,
+            ),
+        )
+
+    # Stage 3 — Requirements extraction
     reqs = _extract_requirements(notice)
     reqs_summary = _format_requirements_summary(reqs)
 
     if show_reasoning:
         logger.info("=== REQUIREMENTS for %s ===\n%s", notice_id, reqs_summary)
 
-    # Step 3 — ACH assessment of the candidate pool
+    # Stage 4 — ACH assessment of the candidate pool
     bidders_raw = _run_ach_assessment(candidates, notice, reqs_summary)
 
     if show_reasoning:
@@ -761,7 +862,7 @@ def generate_bidder_intelligence(
         )
         return []
 
-    # Step 4 — MBIE enrichment (badges only; does not change ranking)
+    # Stage 5 — MBIE display badges (does not change ranking)
     results = _apply_mbie_enrichment(bidders_raw, notice_sector, agency_name=agency_name)
 
     if not results:

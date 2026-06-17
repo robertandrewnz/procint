@@ -631,8 +631,16 @@ def _notice_card(rank: int, item: dict, bidders: list[dict]) -> str:
         f'<div class="flag-item"><span class="flag-icon">⚠</span>{f}</div>' for f in flags
     ) if flags else '<div class="flag-item no-flags">No red flags identified</div>'
 
-    bidders_html = "".join(_bidder_card(b) for b in bidders) if bidders else \
-        '<div class="bidder-row"><span class="bidder-meta">No bidder data</span></div>'
+    if bidders:
+        bidders_html = "".join(_bidder_card(b) for b in bidders)
+        if 0 < len(bidders) < 3:
+            bidders_html += (
+                f'<div style="font-size:.72rem;color:var(--muted);font-style:italic;'
+                f'margin-top:.5rem;">Limited field — {len(bidders)} provider(s) identified '
+                f'for this service type in the NZ market.</div>'
+            )
+    else:
+        bidders_html = '<div class="bidder-row"><span class="bidder-meta">No bidder data</span></div>'
 
     actions = _recommended_actions(item)
     actions_html = "".join(

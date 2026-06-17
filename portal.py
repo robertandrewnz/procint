@@ -4094,6 +4094,13 @@ function wlClearSearch(){
                     bidders_html = "".join(_render_bidder(b) for b in bidders)
                 except Exception:
                     bidders_html = "".join(_bidder_card(b) for b in bidders)
+                if 0 < len(bidders) < 3:
+                    bidders_html += (
+                        f'<div style="font-size:.7rem;color:var(--muted);'
+                        f'font-style:italic;margin-top:.5rem;">'
+                        f'Limited field \u2014 {len(bidders)} provider(s) identified '
+                        f'for this service type in the NZ market.</div>'
+                    )
             else:
                 bidders_html = '<div style="font-size:.8rem;color:var(--muted);">No bidder data available.</div>'
 
