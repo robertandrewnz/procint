@@ -37,7 +37,13 @@ Respond ONLY with a valid JSON object — no preamble, no markdown fences. Use t
 
 USER_PROMPT_TEMPLATE = """Analyse this New Zealand government procurement notice and return a JSON object with exactly these keys:
 
-"summary": A 3-sentence plain language summary of what is being procured, who the buyer is, and the likely contract scope. Write as if briefing a busy partner.
+"summary": A 3-sentence plain language summary of what is being procured, who the buyer is, and the contract scope. Write as if briefing a busy partner.
+
+CRITICAL RULES FOR SUMMARY:
+1. THE OVERVIEW TEXT IS AUTHORITATIVE. If overview text is provided, the summary MUST be derived from that text — not inferred or generalised from the title alone. The title is a label; the overview is the ground truth.
+2. DO NOT EXPAND SCOPE. Do not generalise or broaden what the overview explicitly states. If the overview says "RNZN officers navigating naval vessels," write exactly that — not "maritime navigation," "military personnel," or "defence training." Match the specificity of the overview.
+3. PRESERVE NAMED ENTITIES. Any specific named organisations (e.g. RNZN, NZDF, SmartProcure), roles (e.g. watchkeeping officers, navigating officers), systems, platforms, or environments mentioned in the overview MUST appear in the summary if they are relevant to understanding what is being procured. Do not substitute generic terms for specific ones.
+4. IF NO OVERVIEW: If the overview field is empty or says "Not provided," you may summarise from the title and other fields — but clearly reflect that detail is limited.
 
 "evaluation_weighting": Your best inference of how the evaluation panel will actually weight criteria — even if not explicitly stated. Reference any stated criteria and supplement with sector norms. One concise paragraph.
 
@@ -204,3 +210,41 @@ def run_enrichment() -> int:
 
     logger.info("Enrichment complete: %d notices enriched", count)
     return count
+
+
+if __name__ == "__main__":
+    import argparse
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(message)s")
+    ap = argparse.ArgumentParser(description="AI enrichment — run full cycle or re-enrich a specific notice")
+    ap.add_argument("--notice-id", help="Re-enrich a specific notice ID (bypasses threshold filter)")
+    args = ap.parse_args()
+
+    if args.notice_id:
+        row = db.fetchone(
+            """
+            SELECT r.notice_id, r.title, r.agency, r.description, r.overview_text,
+                   r.category_raw,
+                   p.sector_tag, p.value_band, p.close_date,
+                   p.days_until_close, p.evaluation_criteria,
+                   p.briefing_date, p.questions_deadline,
+                   p.registration_deadline, p.procurement_stage
+              FROM raw_notices r
+              JOIN parsed_notices p ON p.notice_id = r.notice_id
+             WHERE r.notice_id = %s
+            """,
+            (args.notice_id,),
+        )
+        if not row:
+            print(f"Notice {args.notice_id} not found in raw_notices + parsed_notices")
+        else:
+            notice = dict(row)
+            logger.info("Re-enriching notice %s: %s", notice["notice_id"], notice.get("title"))
+            result = _enrich_notice(notice)
+            if result:
+                _store_enrichment(args.notice_id, result)
+                import json as _json
+                print(_json.dumps(result, indent=2))
+            else:
+                print("Enrichment failed — check logs above")
+    else:
+        run_enrichment()
