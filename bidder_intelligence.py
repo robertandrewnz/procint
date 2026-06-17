@@ -862,6 +862,16 @@ def store_ach_results(notice_id: str, bidders: list[dict]) -> None:
                      relevance_score, match_type, reasoning,
                      company_context, context_confidence)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (notice_id, firm_name) DO UPDATE SET
+                    sector               = EXCLUDED.sector,
+                    size                 = EXCLUDED.size,
+                    strategic_importance = EXCLUDED.strategic_importance,
+                    intelligence_maturity = EXCLUDED.intelligence_maturity,
+                    relevance_score      = EXCLUDED.relevance_score,
+                    match_type           = EXCLUDED.match_type,
+                    reasoning            = EXCLUDED.reasoning,
+                    company_context      = EXCLUDED.company_context,
+                    context_confidence   = EXCLUDED.context_confidence
                 """,
                 (
                     notice_id,
