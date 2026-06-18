@@ -1067,14 +1067,16 @@ def run_ach_for_enriched(force: bool = False) -> dict:
 
 # ── Batch runner: unprocessed notices ─────────────────────────────────────────
 
-def run_ach_for_unprocessed(batch_size: int = 10, delay: float = 2.0) -> dict:
+def run_ach_for_unprocessed(batch_size: int = 5, delay: float = 15.0) -> dict:
     """
     Run ACH for every notice that has enriched_notices data but zero ach_analysis rows.
 
-    Processes in batches of `batch_size` with `delay` seconds between batches so
-    we don't hammer the Claude API after a bulk migration cleared the pool.
+    Processes in batches of `batch_size` with `delay` seconds between batches.
+    On HTTP 400 errors (rate-limit signals) waits 30 s and retries once before
+    marking the notice as failed.
     """
     import time
+    import anthropic as _anthropic
 
     rows = db.fetchall(
         """
@@ -1109,29 +1111,44 @@ def run_ach_for_unprocessed(batch_size: int = 10, delay: float = 2.0) -> dict:
 
         for row in batch:
             nid = row["notice_id"]
-            try:
-                notice = {
-                    "notice_id":        nid,
-                    "title":            row.get("title") or "",
-                    "agency":           row.get("agency") or "",
-                    "description":      row.get("description") or "",
-                    "overview_text":    row.get("overview_text") or "",
-                    "sector_tag":       row.get("sector_tag") or "other",
-                    "value_band":       row.get("value_band") or "unknown",
-                    "geographic_scope": row.get("geographic_scope"),
-                    "category_raw":     row.get("category_raw") or "",
-                }
-                bidders = generate_bidder_intelligence(notice)
-                if bidders:
-                    store_ach_results(nid, bidders)
-                    counts["processed"] += 1
-                    logger.info("ACH --all: %s → %d bidder(s) stored", nid, len(bidders))
-                else:
-                    logger.info("ACH --all: %s → no candidates identified", nid)
+            notice = {
+                "notice_id":        nid,
+                "title":            row.get("title") or "",
+                "agency":           row.get("agency") or "",
+                "description":      row.get("description") or "",
+                "overview_text":    row.get("overview_text") or "",
+                "sector_tag":       row.get("sector_tag") or "other",
+                "value_band":       row.get("value_band") or "unknown",
+                "geographic_scope": row.get("geographic_scope"),
+                "category_raw":     row.get("category_raw") or "",
+            }
+
+            for attempt in (1, 2):
+                try:
+                    bidders = generate_bidder_intelligence(notice)
+                    if bidders:
+                        store_ach_results(nid, bidders)
+                        counts["processed"] += 1
+                        logger.info("ACH --all: %s → %d bidder(s) stored", nid, len(bidders))
+                    else:
+                        logger.info("ACH --all: %s → no candidates identified", nid)
+                        counts["failed"] += 1
+                    break  # success or clean empty — don't retry
+                except _anthropic.APIStatusError as exc:
+                    if exc.status_code == 400 and attempt == 1:
+                        logger.warning(
+                            "ACH --all: %s got HTTP 400 (attempt %d) — waiting 30s then retrying",
+                            nid, attempt,
+                        )
+                        time.sleep(30)
+                        continue
+                    logger.error("ACH --all: %s failed (attempt %d): %s", nid, attempt, exc)
                     counts["failed"] += 1
-            except Exception as exc:
-                logger.error("ACH --all: %s failed: %s", nid, exc)
-                counts["failed"] += 1
+                    break
+                except Exception as exc:
+                    logger.error("ACH --all: %s failed: %s", nid, exc)
+                    counts["failed"] += 1
+                    break
 
         if batch_start + batch_size < total:
             logger.info("ACH --all: sleeping %.0fs before next batch…", delay)
