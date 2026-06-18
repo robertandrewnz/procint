@@ -262,6 +262,7 @@ def _identify_candidates_live(notice: dict) -> list[dict]:
         notice.get("title") or "",
         notice.get("agency") or "",
         notice_sector,
+        overview_text=notice.get("overview_text") or notice.get("description") or "",
     )
     for r in web_rows:
         if _is_government_entity(r.get("firm_name", "")):
@@ -1006,8 +1007,8 @@ def run_ach_for_enriched(force: bool = False) -> dict:
     enriched_ids = db.fetchall(
         """
         SELECT e.notice_id, r.title, r.agency, r.description,
-               p.sector_tag, p.value_band, p.geographic_scope,
-               r.category_raw
+               r.overview_text, r.category_raw,
+               p.sector_tag, p.value_band, p.geographic_scope
           FROM enriched_notices e
           JOIN raw_notices r ON r.notice_id = e.notice_id
           JOIN parsed_notices p ON p.notice_id = e.notice_id
@@ -1030,6 +1031,7 @@ def run_ach_for_enriched(force: bool = False) -> dict:
                 "title":            row.get("title") or "",
                 "agency":           row.get("agency") or "",
                 "description":      row.get("description") or "",
+                "overview_text":    row.get("overview_text") or "",
                 "sector_tag":       row.get("sector_tag") or "other",
                 "value_band":       row.get("value_band") or "unknown",
                 "geographic_scope": row.get("geographic_scope"),
@@ -1077,8 +1079,8 @@ def run_ach_for_unprocessed(batch_size: int = 10, delay: float = 2.0) -> dict:
     rows = db.fetchall(
         """
         SELECT e.notice_id, r.title, r.agency, r.description,
-               p.sector_tag, p.value_band, p.geographic_scope,
-               r.category_raw
+               r.overview_text, r.category_raw,
+               p.sector_tag, p.value_band, p.geographic_scope
           FROM enriched_notices e
           JOIN raw_notices r  ON r.notice_id  = e.notice_id
           JOIN parsed_notices p ON p.notice_id = e.notice_id
@@ -1113,6 +1115,7 @@ def run_ach_for_unprocessed(batch_size: int = 10, delay: float = 2.0) -> dict:
                     "title":            row.get("title") or "",
                     "agency":           row.get("agency") or "",
                     "description":      row.get("description") or "",
+                    "overview_text":    row.get("overview_text") or "",
                     "sector_tag":       row.get("sector_tag") or "other",
                     "value_band":       row.get("value_band") or "unknown",
                     "geographic_scope": row.get("geographic_scope"),
@@ -1352,7 +1355,7 @@ if __name__ == "__main__":
     if args.notice_id:
         row = db.fetchone(
             """SELECT r.notice_id, r.title, r.agency, r.description,
-                      r.category_raw,
+                      r.overview_text, r.category_raw,
                       p.sector_tag, p.value_band, p.geographic_scope
                FROM raw_notices r JOIN parsed_notices p ON p.notice_id=r.notice_id
                WHERE r.notice_id=%s""",

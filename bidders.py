@@ -159,10 +159,20 @@ def _firm_is_excluded(firm_sectors: list[str], notice: dict,
 
 # ── Web search firm identification ────────────────────────────────────────────
 
-def _web_search_bidders(notice_title: str, agency: str, sector: str) -> list[dict]:
+def _web_search_bidders(
+    notice_title: str,
+    agency: str,
+    sector: str,
+    overview_text: str = "",
+) -> list[dict]:
     """
     Use Claude with web_search to identify commercial providers for the notice.
     Web search is the sole firm identification source in the new architecture.
+
+    When overview_text is supplied, it is used as the primary search anchor so
+    that operational specifics (e.g. "RNZN officers navigating naval vessels")
+    drive the query rather than the generic notice title.
+
     Returns a list of dicts compatible with bidder_pool storage,
     with match_type='web_inferred'.
     """
@@ -170,14 +180,35 @@ def _web_search_bidders(notice_title: str, agency: str, sector: str) -> list[dic
         import anthropic as _anthropic
         _client = _anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
+        overview_clean = (overview_text or "").strip()
+        use_overview   = len(overview_clean) > 80
+
+        if use_overview:
+            overview_snippet = overview_clean[:500]
+            service_block = (
+                f"Overview (authoritative — use this as your search anchor):\n"
+                f"\"\"\"\n{overview_snippet}\n\"\"\"\n\n"
+                f"Notice title (generic label only — do NOT use as the search anchor): '{notice_title}'\n\n"
+                f"Extract the most specific service description from the overview — "
+                f"the exact type of service, who it serves, and in what operational context — "
+                f"and build your web searches from those specifics.\n"
+                f"For example: if the overview says 'RNZN officers navigating naval vessels', "
+                f"search for 'RNZN naval navigation training New Zealand providers', "
+                f"NOT 'Navigation Training Services New Zealand providers'."
+            )
+        else:
+            service_block = (
+                f"Service: '{notice_title}'\n\n"
+                f"Search for: '{notice_title} New Zealand providers', "
+                f"'{notice_title} companies New Zealand government'."
+            )
+
         prompt = (
-            f"Search for New Zealand companies that provide this specific service:\n"
-            f"'{notice_title}'\n\n"
+            f"Find New Zealand commercial companies that provide this service for government contracts.\n\n"
+            f"{service_block}\n\n"
             f"This is for a New Zealand government procurement contract. "
-            f"Find commercial providers that deliver this exact type of service — "
-            f"anchor your search on what the service IS, not the sector or agency.\n\n"
-            f"Search for: '{notice_title} New Zealand providers', "
-            f"'{notice_title} companies New Zealand government'.\n\n"
+            f"Anchor your search on what the service IS — use the operational specifics, "
+            f"not the sector or the agency name.\n\n"
             f"Return up to 5 named commercial providers operating in New Zealand. "
             f"For each, provide the exact trading name and a brief description of their capability.\n\n"
             f"Format each entry as: '[Company Name] — [capability description]'\n\n"
@@ -268,6 +299,7 @@ def score_bidders_for_notice(
         notice.get("title") or "",
         notice.get("agency") or "",
         notice.get("sector_tag") or "other",
+        overview_text=notice.get("overview_text") or notice.get("description") or "",
     )
     filtered = [r for r in web_results if not _is_government_entity(r.get("firm_name", ""))]
     return deduplicate_bidders(filtered)
