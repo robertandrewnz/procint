@@ -192,7 +192,7 @@ _CONSTRUCTION_TITLE_SIGNALS = frozenset({
 })
 
 
-def _extract_construction_anchor(title: str, agency: str, sector: str) -> str | None:
+def _extract_construction_anchor(title: str, agency: str, sector: str) -> Optional[str]:
     """
     For construction-sector or trade notices with project-specific titles,
     extract a generic trade-type search anchor.
