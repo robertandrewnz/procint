@@ -33,7 +33,6 @@ SECTORS = [
     "infrastructure",
     "construction",
     "FM",
-    "cybersecurity",
     "ICT",
     "defence",
     "health",
@@ -46,13 +45,12 @@ SECTORS = [
 
 # ── Classification confidence thresholds ──────────────────────────────────────
 # Minimum keyword match count for HIGH confidence per sector.
-# Sectors with unique/specific keywords (cybersecurity, defence) need only 1 match.
+# Sectors with unique/specific keywords (defence) need only 1 match.
 # Sectors with generic vocabulary need 2+ to reduce false positives.
 SECTOR_HIGH_THRESHOLD: dict[str, int] = {
     "infrastructure":     2,
     "construction":       2,
     "FM":                 2,
-    "cybersecurity":      1,   # highly specific terms — 1 match is definitive
     "ICT":                2,
     "defence":            1,   # NZDF/RNZAF/military are unambiguous
     "health":             2,
@@ -103,31 +101,10 @@ SECTOR_KEYWORDS: dict[str, list[str]] = {
         "building services contract", "FM services",
         "estate management", "asset management services",
     ],
-    # ── Cybersecurity ─────────────────────────────────────────────────────────
-    # Highly specific terms — 1 match is sufficient (threshold = 1).
-    # IMPORTANT: only include terms that are unambiguously cyber/infosec.
-    # Generic terms like "security operations", "security audit",
-    # "security assessment", "security monitoring", and "incident response"
-    # have been removed — they appear in FM, utilities, health, and advisory
-    # notices and caused widespread false positives.
-    "cybersecurity": [
-        "cyber security", "cybersecurity", "cyber resilience",
-        "security operations centre", "security operations center",
-        "SOC", "SIEM",
-        "penetration testing", "pen testing",
-        "information security", "infosec",
-        "CISO", "zero trust", "IRAP", "NZISM",
-        "vulnerability assessment", "vulnerability management",
-        "threat detection", "threat intelligence",
-        "MSSP", "managed security services", "managed security services provider",
-        "managed security", "managed detection",
-        "endpoint protection", "endpoint security",
-        "identity management", "identity and access",
-        "security uplift",
-    ],
-    # ── ICT ───────────────────────────────────────────────────────────────────
-    # Digital and technology. "network" removed (too generic — hits road network,
-    # water network, bus network). "cyber" moved to cybersecurity.
+    # ── ICT (includes cybersecurity / infosec) ────────────────────────────────
+    # Digital, technology, and information security. Cybersecurity is no longer
+    # a standalone sector — all infosec procurement is classified as ICT.
+    # "network" excluded (too generic — hits road/water/bus network).
     "ICT": [
         "information technology", "digital transformation",
         "ICT services", "ICT platform", "ICT infrastructure",
@@ -144,6 +121,20 @@ SECTOR_KEYWORDS: dict[str, list[str]] = {
         "machine learning", "artificial intelligence", "AI solution",
         "natural language processing", "NLP",
         "speech recognition", "voice recognition", "text recognition",
+        # Cybersecurity / infosec terms (merged from former cybersecurity sector)
+        "cyber security", "cybersecurity", "cyber resilience",
+        "security operations centre", "security operations center",
+        "SOC", "SIEM",
+        "penetration testing", "pen testing",
+        "information security", "infosec",
+        "CISO", "zero trust", "IRAP", "NZISM",
+        "vulnerability assessment", "vulnerability management",
+        "threat detection", "threat intelligence",
+        "MSSP", "managed security services", "managed security services provider",
+        "managed security", "managed detection",
+        "endpoint protection", "endpoint security",
+        "identity management", "identity and access",
+        "security uplift",
     ],
     # ── Defence ──────────────────────────────────────────────────────────────
     # Military and national security. 1 match is sufficient (threshold = 1).
@@ -387,7 +378,6 @@ INFERRED_CONTRACT_DURATIONS: dict = {
     # ICT and digital
     "ICT":                   {"min": 12, "typical": 24, "max": 48},
     "ict":                   {"min": 12, "typical": 24, "max": 48},
-    "cybersecurity":         {"min": 12, "typical": 24, "max": 36},
     # Construction (project-based, shorter)
     "construction":          {"min":  6, "typical": 18, "max": 36},
     # Professional services and advisory

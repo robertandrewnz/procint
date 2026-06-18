@@ -40,7 +40,7 @@ _SECTOR_ALIASES: dict[str, str] = {
     "infra":                "infrastructure",
     "roads":                "infrastructure",
     "roading":              "infrastructure",
-    "cyber":                "cybersecurity",
+    "cyber":                "ICT",
     "ict":                  "ICT",
     "it":                   "ICT",
     "professional services":"professional_services",
@@ -171,14 +171,14 @@ def _pass1(title: str, description: str) -> dict | None:
 _CLAUDE_SYSTEM = (
     "You are a New Zealand government procurement sector classifier. "
     "Classify the procurement notice into EXACTLY ONE sector from this list:\n"
-    "infrastructure, construction, FM, cybersecurity, ICT, defence, health, "
+    "infrastructure, construction, FM, ICT, defence, health, "
     "advisory, security, professional_services, utilities, other\n\n"
     "Definitions:\n"
     "  infrastructure — civil / roading / water / bridge / horizontal infrastructure\n"
     "  construction   — building works, fitout, refurbishment, school property\n"
     "  FM             — facilities management, cleaning, grounds, building maintenance\n"
-    "  cybersecurity  — pen testing, SOC, SIEM, infosec, zero trust\n"
-    "  ICT            — software, cloud, digital transformation, ERP, data platforms\n"
+    "  ICT            — software, cloud, digital transformation, ERP, data platforms, "
+                       "cybersecurity, pen testing, SOC, SIEM, infosec, zero trust\n"
     "  defence        — NZDF, military, RNZAF, RNZN\n"
     "  health         — clinical, hospital, nursing, aged care, mental health\n"
     "  advisory       — consulting, policy, evaluation, research services\n"

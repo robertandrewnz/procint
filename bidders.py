@@ -104,13 +104,12 @@ def _mbie_available() -> bool:
 # Kept for backward compatibility with portal.py and output.py which import
 # _notice_is_specialist.  No longer used for firm filtering.
 
-SPECIALIST_SECTORS: set[str] = {"aerospace", "cybersecurity", "health", "legal"}
+SPECIALIST_SECTORS: set[str] = {"aerospace", "health", "legal"}
 
 SPECIALIST_FLAG_MAP: dict[str, str] = {
-    "aerospace":    "aerospace",
-    "cybersecurity": "cybersecurity",
-    "health":       "health_tech",
-    "legal":        "legal",
+    "aerospace": "aerospace",
+    "health":    "health_tech",
+    "legal":     "legal",
 }
 
 
@@ -132,7 +131,7 @@ def _notice_is_specialist(notice: dict) -> Optional[str]:
                  "mssp", "managed security", "security operations centre",
                  "managed security services"]
     if any(kw in title for kw in CYBER_KWS):
-        return "cybersecurity"
+        return "ICT"
     LEGAL_KWS = ["legal services", "legal advice", "solicitor", "barrister",
                  "counsel", "law firm", "litigation"]
     if any(kw in title for kw in LEGAL_KWS):

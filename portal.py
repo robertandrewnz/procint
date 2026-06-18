@@ -854,7 +854,7 @@ _SECTOR_DISPLAY: dict[str, str] = {
     "construction":         "Construction",
     "defence":              "Defence",
     "health":               "Health",
-    "cybersecurity":        "Cybersecurity",
+    "cybersecurity":        "ICT",
     "security":             "Security",
     "advisory":             "Advisory",
     "utilities":            "Utilities",
@@ -2528,8 +2528,6 @@ def _load_demo_manifest() -> dict:
 
 # Sector metadata mirrored from generate_demo_content (no import to avoid slowdown)
 _DEMO_SECTOR_META = {
-    "cybersecurity": {"label": "Cybersecurity",        "icon": "🔒",
-                      "tagline": "Government security assessments, pen testing & compliance advisory"},
     "FM":            {"label": "Facilities Management", "icon": "🏗",
                       "tagline": "FM contracts for local government, social housing and public estates"},
     "construction":  {"label": "Construction",          "icon": "🏛",
@@ -2851,7 +2849,7 @@ def demo_file(filepath: str):
 # Sector slug → canonical sector key (for clean /demo/<slug> URLs)
 _DEMO_SLUG_MAP = {
     "fm":             "FM",
-    "cybersecurity":  "cybersecurity",
+    "cybersecurity":  "ICT",
     "construction":   "construction",
     "defence":        "defence",
     "ict":            "ICT",
@@ -6804,7 +6802,7 @@ def admin_audit_firm_sectors():
             """
             SELECT supplier_name, primary_sector, total_wins
               FROM supplier_win_history
-             WHERE primary_sector NOT IN ('ICT','cybersecurity','advisory','other')
+             WHERE primary_sector NOT IN ('ICT','advisory','other')
                AND total_wins >= 1
              ORDER BY total_wins DESC
             """
@@ -6823,7 +6821,7 @@ def admin_audit_firm_sectors():
             """
             SELECT supplier_name, primary_sector, total_wins
               FROM supplier_win_history
-             WHERE primary_sector IN ('ICT','cybersecurity','advisory','health')
+             WHERE primary_sector IN ('ICT','advisory','health')
                AND total_wins >= 2
              ORDER BY total_wins DESC
              LIMIT 100
@@ -6909,7 +6907,7 @@ def admin_apply_ict_reclassifications():
             """
             SELECT supplier_name, primary_sector
               FROM supplier_win_history
-             WHERE primary_sector NOT IN ('ICT','cybersecurity','advisory','other')
+             WHERE primary_sector NOT IN ('ICT','advisory','other')
                AND total_wins >= 1
              ORDER BY total_wins DESC
             """
@@ -8148,7 +8146,7 @@ def admin_demo_review():
     MANIFEST_PATH = ROOT / "output" / "artefacts" / "demo" / "manifest.json"
 
     FIRM_SECTOR = {
-        "Sentinel Digital": "cybersecurity", "Cityworks NZ": "FM",
+        "Sentinel Digital": "ICT", "Cityworks NZ": "FM",
         "Meridian Civil": "construction",    "Apex Engineering": "defence",
         "Korepath Systems": "ICT",           "Southern Civil Group": "infrastructure",
         "MedTech Solutions NZ": "health",
