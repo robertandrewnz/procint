@@ -50,6 +50,51 @@ _SECTOR_ALIASES: dict[str, str] = {
 ALL_SECTORS = list(config.SECTOR_KEYWORDS.keys())
 
 
+# ── Pass 0: UNSPSC code recognition ───────────────────────────────────────────
+# Maps the leading two digits of an 8-digit UNSPSC code to a sector tag.
+# When a notice description or title contains a recognisable UNSPSC code,
+# that is treated as a high-confidence classification signal and Pass 1/2 are
+# skipped.  Covers the most common mis-classified code families first.
+
+_UNSPSC_PREFIX_SECTOR: dict[str, str] = {
+    # Construction / facilities
+    "72": "construction",       # Building and Facility Construction and Maintenance
+    "73": "construction",       # Industrial Production and Manufacturing Services
+    # FM / facilities management
+    "76": "FM",                 # Domestic and Personal Services
+    # Advisory / management consulting
+    "80": "advisory",           # Management Advisory and Consulting Services
+    # Engineering / research (professional services)
+    "81": "professional_services",
+    # Public utilities
+    "83": "utilities",          # Public Utilities and Public Sector Related Services
+    # Healthcare and pharmaceuticals
+    "42": "health",             # Medical Equipment and Accessories
+    "51": "health",             # Drugs and Pharmaceutical Products
+    "85": "health",             # Healthcare Services
+    # Education / training
+    "86": "professional_services",
+    # Defence / national security
+    "92": "defence",            # National Defence and Military
+    # Civic / politics → other
+    "93": "other",              # Politics and Civic Affairs
+}
+
+
+def _unspsc_pass0(text: str) -> str | None:
+    """
+    Scan *text* for 8-digit UNSPSC codes.  If any are found, return the
+    sector for the most-frequent code prefix.  Returns None when no codes
+    are detected so the caller falls through to keyword/Claude classification.
+    """
+    from collections import Counter
+    codes = re.findall(r"\b([4-9][0-9])\d{6}\b", text)
+    if not codes:
+        return None
+    prefix = Counter(codes).most_common(1)[0][0]
+    return _UNSPSC_PREFIX_SECTOR.get(prefix)
+
+
 # ── Pass 1 helpers ─────────────────────────────────────────────────────────────
 
 def _kw_matches(kw: str, text_lower: str) -> bool:
@@ -246,8 +291,22 @@ def classify_notice(
     desc  = (notice_description or "").strip()
     agency = (notice_agency or "").strip()
 
+    # ── Pass 0: UNSPSC code recognition ──────────────────────────────────────
+    unspsc_sector = _unspsc_pass0(f"{title} {desc}")
+    if unspsc_sector:
+        result: dict | None = {
+            "sector":      unspsc_sector,
+            "confidence":  "high",
+            "method":      "unspsc",
+            "match_count": 1,
+            "reasoning":   f"UNSPSC code prefix detected in notice text → '{unspsc_sector}'.",
+        }
+    else:
+        result = None
+
     # ── Pass 1 ────────────────────────────────────────────────────────────────
-    result = _pass1(title, desc)
+    if result is None:
+        result = _pass1(title, desc)
 
     # ── Pass 2 ────────────────────────────────────────────────────────────────
     if result is None:
@@ -348,6 +407,7 @@ def resolve_sector_conflict(
 def run_reclassify_all(
     only_unclassified: bool = False,
     delay_between_claude: float = 0.3,
+    sector_filter: "Optional[str]" = None,
 ) -> dict:
     """
     Pass every existing parsed_notice through the full three-pass classifier.
@@ -357,23 +417,30 @@ def run_reclassify_all(
                            classification_method set (faster incremental run).
         delay_between_claude: Seconds to sleep between Claude API calls to
                               avoid rate-limit bursts.
+        sector_filter: When set, only reclassify notices currently tagged with
+                       this sector (e.g. "cybersecurity", "health").
 
     Returns:
         {"keyword": n, "claude": n, "fallback": n, "total": n,
          "corrected": n, "needs_review": n}
     """
-    where = (
-        "WHERE p.classification_method IS NULL"
-        if only_unclassified
-        else ""
-    )
+    clauses = []
+    params: list = []
+    if only_unclassified:
+        clauses.append("p.classification_method IS NULL")
+    if sector_filter:
+        clauses.append("p.sector_tag = %s")
+        params.append(sector_filter)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+
     rows = db.fetchall(
         f"""
         SELECT p.notice_id, p.sector_tag, r.title, r.description, r.agency
           FROM parsed_notices p
           JOIN raw_notices r ON r.notice_id = p.notice_id
         {where}
-        """
+        """,
+        params or None,
     )
     total = len(rows)
     logger.info(
@@ -511,6 +578,12 @@ if __name__ == "__main__":
         metavar="TITLE",
         help="Test classify a single notice title (prints result)",
     )
+    ap.add_argument(
+        "--sector",
+        metavar="SECTOR",
+        help="Only reclassify notices currently tagged with this sector "
+             "(e.g. cybersecurity, health).  Use with --reclassify-all.",
+    )
     args = ap.parse_args()
 
     if args.test:
@@ -522,7 +595,10 @@ if __name__ == "__main__":
         print(json.dumps(r, indent=2))
 
     elif args.reclassify_all or args.incremental:
-        result = run_reclassify_all(only_unclassified=args.incremental)
+        result = run_reclassify_all(
+            only_unclassified=args.incremental,
+            sector_filter=args.sector or None,
+        )
         print(json.dumps(result, indent=2))
     else:
         ap.print_help()

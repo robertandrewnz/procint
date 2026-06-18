@@ -105,21 +105,25 @@ SECTOR_KEYWORDS: dict[str, list[str]] = {
     ],
     # ── Cybersecurity ─────────────────────────────────────────────────────────
     # Highly specific terms — 1 match is sufficient (threshold = 1).
+    # IMPORTANT: only include terms that are unambiguously cyber/infosec.
+    # Generic terms like "security operations", "security audit",
+    # "security assessment", "security monitoring", and "incident response"
+    # have been removed — they appear in FM, utilities, health, and advisory
+    # notices and caused widespread false positives.
     "cybersecurity": [
         "cyber security", "cybersecurity", "cyber resilience",
         "security operations centre", "security operations center",
-        "security operations", "SOC", "SIEM",
+        "SOC", "SIEM",
         "penetration testing", "pen testing",
         "information security", "infosec",
         "CISO", "zero trust", "IRAP", "NZISM",
         "vulnerability assessment", "vulnerability management",
         "threat detection", "threat intelligence",
-        "incident response", "security audit", "security assessment",
         "MSSP", "managed security services", "managed security services provider",
         "managed security", "managed detection",
         "endpoint protection", "endpoint security",
         "identity management", "identity and access",
-        "security monitoring", "security uplift",
+        "security uplift",
     ],
     # ── ICT ───────────────────────────────────────────────────────────────────
     # Digital and technology. "network" removed (too generic — hits road network,
