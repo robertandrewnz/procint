@@ -157,6 +157,90 @@ def _firm_is_excluded(firm_sectors: list[str], notice: dict,
     return False
 
 
+# ── Construction trade-type extraction ────────────────────────────────────────
+# Maps title keyword sets → generic trade search label (most-specific first).
+# Used when the notice title is a project reference ("Roofing Works at X School")
+# rather than a service description — searching the raw title returns nothing.
+
+_CONSTRUCTION_TRADE_MAP: list[tuple[frozenset, str]] = [
+    (frozenset({"roofing", "re-roof", "roof repair", "roof replacement"}), "roofing contractors"),
+    (frozenset({"demolition"}),                                             "demolition contractors"),
+    (frozenset({"electrical", "rewire", "switchboard"}),                    "electrical contractors"),
+    (frozenset({"plumbing", "drainage", "sanitary", "gasfitting"}),         "plumbing contractors"),
+    (frozenset({"insulation"}),                                             "insulation contractors"),
+    (frozenset({"painting", "decorating", "repaint"}),                     "painting contractors"),
+    (frozenset({"flooring", "carpet", "tiling", "vinyl"}),                 "flooring contractors"),
+    (frozenset({"fencing", "fence"}),                                      "fencing contractors"),
+    (frozenset({"concrete", "paving", "asphalt"}),                         "concrete and paving contractors"),
+    (frozenset({"earthworks", "earthmoving", "siteworks"}),                "civil contractors"),
+    (frozenset({"civil works", "civil contractor"}),                        "civil contractors"),
+    (frozenset({"fitout", "fit-out", "fit out",
+                "refurbishment", "refurb",
+                "upgrade", "renovation", "remodel",
+                "alteration"}),                                             "commercial fitout and refurbishment contractors"),
+    (frozenset({"main contractor", "building works",
+                "construction works", "new build"}),                       "commercial building contractors"),
+]
+
+# Title keywords that indicate a construction/trade notice even when sector tag differs
+_CONSTRUCTION_TITLE_SIGNALS = frozenset({
+    "contractor", "roofing", "demolition", "refurbishment", "fitout",
+    "fit-out", "upgrade", "building works", "construction works", "civil works",
+    "electrical works", "plumbing", "earthworks", "siteworks", "painting works",
+    "flooring", "concrete", "insulation", "fencing", "main contractor",
+    "alteration", "new build", "re-roof",
+})
+
+
+def _extract_construction_anchor(title: str, agency: str, sector: str) -> str | None:
+    """
+    For construction-sector or trade notices with project-specific titles,
+    extract a generic trade-type search anchor.
+
+    Returns a string like "roofing contractors New Zealand schools" or None
+    if this notice doesn't look like a construction/trade procurement.
+    """
+    title_lower  = title.lower()
+    agency_lower = (agency or "").lower()
+
+    is_construction = (
+        sector == "construction"
+        or any(kw in title_lower for kw in _CONSTRUCTION_TITLE_SIGNALS)
+    )
+    if not is_construction:
+        return None
+
+    # Identify the most specific trade type
+    trade = "commercial building contractors"  # default when sector is construction but no keyword hits
+    for keywords, label in _CONSTRUCTION_TRADE_MAP:
+        if any(kw in title_lower for kw in keywords):
+            trade = label
+            break
+
+    # Determine procurement context for better search targeting
+    combined = title_lower + " " + agency_lower
+    if (
+        "education" in agency_lower
+        or "school" in combined
+        or "college" in combined
+        or "primary" in combined
+        or "intermediate" in combined
+        or "kura" in combined
+    ):
+        context = "New Zealand schools"
+    elif (
+        "health" in agency_lower
+        or "hospital" in combined
+        or "hauora" in combined
+        or "district health" in agency_lower
+    ):
+        context = "New Zealand health sector"
+    else:
+        context = "New Zealand government"
+
+    return f"{trade} {context}"
+
+
 # ── Web search firm identification ────────────────────────────────────────────
 
 def _web_search_bidders(
@@ -180,10 +264,23 @@ def _web_search_bidders(
         import anthropic as _anthropic
         _client = _anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
-        overview_clean = (overview_text or "").strip()
-        use_overview   = len(overview_clean) > 80
+        # Priority 1: construction/trade notices — project titles are useless as search anchors
+        construction_anchor = _extract_construction_anchor(notice_title, agency, sector)
 
-        if use_overview:
+        overview_clean = (overview_text or "").strip()
+        use_overview   = len(overview_clean) > 80 and not construction_anchor
+
+        if construction_anchor:
+            service_block = (
+                f"Notice title (project reference — do NOT search this verbatim): '{notice_title}'\n"
+                f"Extracted trade/service type: '{construction_anchor}'\n\n"
+                f"The notice title is a project-specific reference, not a service description. "
+                f"Search for NZ commercial firms that provide the extracted trade type above.\n"
+                f"Search for: '{construction_anchor}', "
+                f"'{construction_anchor} subcontractors', "
+                f"'{construction_anchor.split(' New Zealand')[0]} NZ government contracts'."
+            )
+        elif use_overview:
             overview_snippet = overview_clean[:500]
             service_block = (
                 f"Overview (authoritative — use this as your search anchor):\n"
