@@ -70,7 +70,7 @@ def pick_third_notice() -> tuple:
           JOIN scored_notices s ON s.notice_id = r.notice_id
          WHERE p.sector_tag IN ('ICT', 'advisory')
            AND s.composite_score >= 60
-           AND p.days_until_close > 0
+           AND (p.days_until_close IS NULL OR p.days_until_close >= 0)
          ORDER BY s.composite_score DESC
          LIMIT 1
         """,

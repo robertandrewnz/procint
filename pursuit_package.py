@@ -579,6 +579,61 @@ _RETENDER_SIGNALS: frozenset = frozenset({
     "re-tender", "retender", "go to market",
 })
 
+# Sector-specific fallback hints for when direct contract searches return nothing.
+# These are appended to the prompt to guide broadening searches.
+_SECTOR_FALLBACK_HINTS: dict = {
+    "defence": (
+        "\n\nSECTOR FALLBACK — DEFENCE/MILITARY:\n"
+        "If direct contract-name searches return nothing, try these named-contractor searches:\n"
+        "- 'Serco {agency} contract New Zealand' / 'Serco {agency} training'\n"
+        "- 'Babcock {agency} contract New Zealand'\n"
+        "- 'L3 Technologies {agency} New Zealand'\n"
+        "- '{agency} training services contractor New Zealand'\n"
+        "- '{agency} annual report supplier New Zealand'\n"
+        "Any confirmed relationship between a named contractor and {agency} for the relevant "
+        "service category is a MEDIUM-confidence incumbent signal.\n"
+    ),
+    "FM": (
+        "\n\nSECTOR FALLBACK — FACILITIES MANAGEMENT:\n"
+        "If direct searches return nothing, try:\n"
+        "- 'Programmed {agency} facilities contract New Zealand'\n"
+        "- 'ISS Facility Services {agency} New Zealand'\n"
+        "- 'Ventia {agency} contract New Zealand'\n"
+        "- 'Downer {agency} facilities New Zealand'\n"
+        "Any confirmed FM contract between a named contractor and {agency} is a MEDIUM signal.\n"
+    ),
+    "ICT": (
+        "\n\nSECTOR FALLBACK — ICT / DIGITAL SERVICES:\n"
+        "If direct service-name searches return nothing, also search for the TECHNOLOGY ECOSYSTEM:\n"
+        "What existing systems or infrastructure does {agency} use that this service would "
+        "integrate with or replace?\n"
+        "- For audio/transcription/speech services at courts or justice agencies:\n"
+        "  Search 'For The Record {agency} New Zealand' and 'FTR court recording {agency} NZ'\n"
+        "  (For The Record / Tyler Technologies provides court audio management in NZ courts)\n"
+        "- For data/analytics services: Search '{agency} data platform New Zealand provider'\n"
+        "- For cloud/infrastructure: Search '{agency} cloud provider New Zealand contract'\n"
+        "- Try: 'Datacom {agency} contract', 'Spark {agency} contract', 'Fujitsu {agency} NZ'\n"
+        "Name any related infrastructure provider found, noting they provide a related (not identical) service.\n"
+    ),
+    "health": (
+        "\n\nSECTOR FALLBACK — HEALTH TECHNOLOGY:\n"
+        "If direct searches return nothing, try:\n"
+        "- 'Orion Health {agency} contract New Zealand'\n"
+        "- 'InterSystems {agency} New Zealand'\n"
+        "- 'Accenture {agency} health New Zealand'\n"
+        "- '{agency} patient management system provider New Zealand'\n"
+    ),
+    "advisory": (
+        "\n\nSECTOR FALLBACK — ADVISORY / CONSULTING:\n"
+        "If direct searches return nothing, try:\n"
+        "- 'Deloitte {agency} contract New Zealand'\n"
+        "- 'KPMG {agency} New Zealand advisory'\n"
+        "- 'PwC {agency} contract New Zealand'\n"
+        "- 'EY {agency} New Zealand advisory'\n"
+        "- 'McKinsey {agency} New Zealand'\n"
+    ),
+}
+
 
 def _web_search_incumbent(
     agency: str,
@@ -587,110 +642,129 @@ def _web_search_incumbent(
     notice_text: str = "",
 ) -> str:
     """
-    Run three targeted search strategies to identify the named current contract holder
+    Run multiple targeted search strategies to identify the named current contract holder
     (incumbent) for this notice.
 
     Strategies:
-      1. Contract award search — "{agency} {service} contract awarded / supplier announcement"
-         Finds press releases, official award notices, media naming the contract holder.
-      2. Incumbent reference search — "{agency} {service} incumbent provider / current provider"
-         Finds direct references to who currently delivers the service.
-      3. Notice text signals — if notice text contains re-tender language, extract named
-         providers and search to confirm incumbency.
+      1. Contract award search — multiple query variations for award announcements.
+      2. Incumbent/current provider reference search — broader phrasing.
+      3. Technology ecosystem — for ICT/health/advisory: find related infrastructure
+         even when no direct incumbent exists for this exact service.
+      4. Notice text signals — if re-tender language detected, extract named providers.
+      5. Sector fallback — when all else fails, try known major NZ contractors for sector.
 
-    Always returns a non-empty string:
-      - "Named incumbent: [Firm] — [evidence]. Confidence: [High/Medium]. Source: [type]."
-      - "No named contract holder identified from public sources. Firms active in this market
-         who may hold or have held this contract: [Firm] — [context]; ..."
-      - Fallback string if the search call itself fails.
+    Always returns a non-empty string in Format A, B, or C.
     """
     try:
         client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
-        # Always use the notice title as service descriptor — it is more specific than sector.
-        # Sector-derived labels like "ICT services" or "defence services" produce generic results.
+        # Always use the notice title as service descriptor — more specific than sector label.
         service_desc = notice_title.strip() if notice_title.strip() else f"{sector} services"
 
         # Detect re-tender signals in the notice text
         notice_lower = (notice_text or "").lower()
         retender_detected = any(sig in notice_lower for sig in _RETENDER_SIGNALS)
 
-        # Log the strategies about to be run
         logger.info(
-            "INCUMBENT search START: agency=%r service=%r retender_detected=%s",
-            agency, service_desc[:70], retender_detected,
+            "INCUMBENT search START: agency=%r service=%r retender_detected=%s sector=%s",
+            agency, service_desc[:70], retender_detected, sector,
         )
         logger.info(
-            "INCUMBENT S1 queries: %r | %r",
-            f"{agency} {service_desc} contract awarded",
+            "INCUMBENT S1 queries: %r | %r | %r",
+            f"{agency} {service_desc} contract awarded New Zealand",
             f"{agency} {service_desc} supplier announcement",
+            f"{agency} {service_desc} provider New Zealand",
         )
         logger.info(
-            "INCUMBENT S2 queries: %r | %r",
-            f"{agency} {service_desc} incumbent provider",
+            "INCUMBENT S2 queries: %r | %r | %r",
+            f"{agency} {service_desc} incumbent",
             f"current {service_desc} provider {agency} New Zealand",
+            f"{agency} annual report {service_desc} New Zealand",
         )
 
-        # Strategy 3 block — only include when re-tender language detected
-        strategy3_block = ""
+        # Strategy 4 block — re-tender signals in notice text
+        retender_block = ""
         if retender_detected:
             notice_excerpt = notice_text[:800].strip()
-            logger.info("INCUMBENT S3: re-tender language detected — including notice text signals")
-            strategy3_block = (
-                f"\n\nSTRATEGY 3 — NOTICE TEXT SIGNALS:\n"
-                f"The notice text contains language suggesting an expiring or existing arrangement "
-                f"(re-tender signals detected). Relevant excerpt:\n\"\"\"\n{notice_excerpt}\n\"\"\"\n"
-                f"— Extract every named supplier, system, or provider mentioned in the text above.\n"
+            logger.info("INCUMBENT S4: re-tender language detected — including notice text signals")
+            retender_block = (
+                f"\n\nSTRATEGY 4 — NOTICE TEXT SIGNALS (re-tender detected):\n"
+                f"This notice contains language suggesting an expiring or existing arrangement. "
+                f"Relevant excerpt:\n\"\"\"\n{notice_excerpt}\n\"\"\"\n"
+                f"— Extract every named supplier, system, or provider mentioned above.\n"
                 f"— For each named entity, search: '[entity name] {agency} contract'\n"
                 f"— Also search: '{agency} {service_desc} existing contract New Zealand'\n"
                 f"— Any named entity in re-tender text is a strong incumbent candidate.\n"
             )
         elif notice_text.strip():
-            # Even without explicit signals, include notice context for passive scanning
             notice_excerpt = notice_text[:400].strip()
-            strategy3_block = (
-                f"\n\nNotice context (scan for any named providers or systems):\n"
+            retender_block = (
+                f"\n\nNotice context (passive scan for named providers):\n"
                 f"\"\"\"\n{notice_excerpt}\n\"\"\"\n"
                 f"If this text names any existing provider, system, or arrangement, "
                 f"search for that entity explicitly.\n"
             )
 
+        # Sector fallback block
+        raw_hint = _SECTOR_FALLBACK_HINTS.get(sector, "")
+        sector_fallback_block = raw_hint.replace("{agency}", agency) if raw_hint else ""
+        if sector_fallback_block:
+            logger.info("INCUMBENT: sector fallback block added for sector=%s", sector)
+
         prompt = (
             f"Identify who currently holds or has most recently held the contract to provide "
             f"'{service_desc}' for {agency} in New Zealand.\n\n"
-            f"This is a government procurement intelligence task. Run EXACTLY these three search "
-            f"strategies in sequence — stop early only if Strategy 1 returns high-confidence evidence:\n\n"
+            f"This is a government procurement intelligence task. Run ALL strategies below. "
+            f"Adapt the exact query phrasing as needed — these are starting points, not rigid strings. "
+            f"Stop early ONLY if Strategy 1 returns HIGH-confidence explicit award evidence.\n\n"
             f"STRATEGY 1 — CONTRACT AWARD SEARCH:\n"
-            f"Search 1a: '{agency} {service_desc} contract awarded'\n"
-            f"Search 1b: '{agency} {service_desc} supplier announcement'\n"
-            f"What to look for: press releases, official contract award announcements, NZ government "
-            f"supplier notices, or media coverage explicitly naming the awarded supplier. "
-            f"A named award is HIGH confidence incumbent evidence.\n\n"
-            f"STRATEGY 2 — INCUMBENT REFERENCE SEARCH:\n"
-            f"Search 2a: '{agency} {service_desc} incumbent provider'\n"
-            f"Search 2b: 'current {service_desc} provider {agency} New Zealand'\n"
-            f"What to look for: vendor case studies referencing {agency}, agency technology "
-            f"strategy documents or annual reports, NZ tech media, supplier websites, "
-            f"or LinkedIn posts mentioning current delivery of this service."
-            f"{strategy3_block}\n\n"
+            f"Try at least 3 query variations:\n"
+            f"- '{agency} {service_desc} contract awarded'\n"
+            f"- '{agency} {service_desc} supplier announcement New Zealand'\n"
+            f"- '{agency} {service_desc} provider New Zealand'\n"
+            f"- 'GETS {agency} contract award {service_desc} New Zealand'\n"
+            f"Also try shorter, broader service terms if the full title returns nothing "
+            f"(e.g., '{agency} training contract' if notice title is 'Navigation Training Services').\n"
+            f"Look for: press releases, official award announcements, NZ government supplier notices, "
+            f"media coverage explicitly naming the awarded supplier.\n\n"
+            f"STRATEGY 2 — INCUMBENT / CURRENT PROVIDER REFERENCE:\n"
+            f"Try at least 3 query variations:\n"
+            f"- '{agency} {service_desc} incumbent'\n"
+            f"- 'current {service_desc} provider {agency} New Zealand'\n"
+            f"- '{agency} annual report {service_desc}'\n"
+            f"- '{agency} {service_desc} case study New Zealand'\n"
+            f"Look for: vendor case studies, agency annual reports, NZ tech/sector media, "
+            f"supplier websites, LinkedIn posts mentioning current delivery.\n\n"
+            f"STRATEGY 3 — TECHNOLOGY ECOSYSTEM (always run for ICT, health, advisory, justice/court services):\n"
+            f"If this service relates to audio, transcription, recording, or speech technology at a "
+            f"justice/court/public safety agency:\n"
+            f"- Search 'For The Record {agency} court recording New Zealand'\n"
+            f"- Search 'FTR Tyler Technologies {agency} New Zealand'\n"
+            f"More generally: what existing systems or infrastructure does {agency} use that this "
+            f"service would integrate with or replace?\n"
+            f"- Search '{agency} existing [related technology] system New Zealand'\n"
+            f"Name any related-infrastructure provider found, noting it is related infrastructure "
+            f"rather than a direct incumbent for this exact service."
+            f"{retender_block}"
+            f"{sector_fallback_block}\n\n"
             f"CONFIDENCE RULES:\n"
             f"— HIGH: A press release, official notice, or supplier announcement explicitly names "
             f"the contract holder for this specific service.\n"
-            f"— MEDIUM: A vendor case study, agency website, or media coverage implies the "
-            f"supplier relationship without an explicit contract award announcement.\n"
-            f"— IMPORTANT: Do NOT conclude 'no incumbent found' simply because few results appear. "
-            f"If searches return any firms providing this type of service in NZ or to this agency, "
-            f"name them. Silence is less useful than naming market participants.\n\n"
-            f"MANDATORY RESPONSE FORMAT — use exactly one of these:\n\n"
-            f"FORMAT A — if a named contract holder is found (any confidence):\n"
+            f"— MEDIUM: A vendor case study, annual report, agency website, or media coverage implies "
+            f"the supplier relationship without an explicit contract award announcement.\n"
+            f"— IMPORTANT: Do NOT output Format C unless you have exhausted ALL strategies above "
+            f"and found absolutely no relevant suppliers, contractors, or infrastructure providers "
+            f"connected to {agency} and this service category. Format B (market participants) is "
+            f"always preferable to Format C (inconclusive). If even one relevant firm is found, use Format B.\n\n"
+            f"MANDATORY RESPONSE FORMAT — use exactly one:\n\n"
+            f"FORMAT A — named contract holder found (any confidence):\n"
             f"'Named incumbent: [Full Firm Name] — [2-3 sentences: what they provide, to whom, "
-            f"and the evidence basis]. Include parent company if foreign-owned and NZ distributor "
-            f"or delivery partner if applicable. Confidence: [High/Medium]. Source: [source type].'\n\n"
-            f"FORMAT B — if no named holder found but market active:\n"
+            f"and the evidence basis]. Confidence: [High/Medium]. Source: [source type].'\n\n"
+            f"FORMAT B — no named holder but market or ecosystem context found:\n"
             f"'No named contract holder identified from public sources. "
-            f"Firms active in this market who may hold or have held this contract: "
+            f"Firms active in this market or providing related infrastructure to {agency}: "
             f"[Firm 1] — [brief context]; [Firm 2] — [brief context].'\n\n"
-            f"FORMAT C — if searches return truly nothing relevant:\n"
+            f"FORMAT C — use ONLY if all strategies exhausted with zero relevant results:\n"
             f"'Incumbent search inconclusive for {agency} / {service_desc}. "
             f"Searches ran but returned no identifiable suppliers or contract holders. "
             f"Manual research recommended: check {agency} annual report, supplier panel register, "
@@ -701,8 +775,8 @@ def _web_search_incumbent(
 
         msg = client.messages.create(
             model=config.CLAUDE_MODEL_L3,
-            max_tokens=800,
-            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 6}],
+            max_tokens=1000,
+            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 10}],
             messages=[{"role": "user", "content": prompt}],
         )
 
