@@ -854,6 +854,59 @@ def _store_incumbent_in_bidder_pool(notice_id: str, firm_name: str, evidence: st
         logger.warning("_store_incumbent_in_bidder_pool failed: %s", exc)
 
 
+def _check_client_is_incumbent_web(
+    client_name: str,
+    agency: str,
+    service_desc: str,
+    incumbent_firm: str,
+) -> bool:
+    """
+    Use a targeted web search to confirm whether the client is (or recently was) the incumbent.
+
+    Called as a fallback when the first-word name-overlap fast-path doesn't match.
+    Returns True only on positive confirmation — defaults to False on any uncertainty or error.
+    """
+    try:
+        api_client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+        prompt = (
+            f"Is '{client_name}' the current or recent incumbent contract holder for "
+            f"'{service_desc}' at {agency} in New Zealand?\n\n"
+            f"Context: an independent search identified '{incumbent_firm}' as the likely incumbent. "
+            f"Check whether '{client_name}' and '{incumbent_firm}' are the same legal entity "
+            f"(e.g. one is the parent company, trading name, subsidiary, or rebranded name of the other), "
+            f"OR whether '{client_name}' independently holds this contract.\n\n"
+            f"Run these searches:\n"
+            f"1. '{client_name} {agency} contract New Zealand'\n"
+            f"2. '{client_name} {incumbent_firm} same company New Zealand'\n"
+            f"3. '{client_name} {service_desc} New Zealand government'\n\n"
+            f"Respond with exactly one of:\n"
+            f"YES — {client_name} holds/held this contract or is the same entity as {incumbent_firm}\n"
+            f"NO — {client_name} is a different entity and does not appear to hold this contract\n"
+            f"UNCERTAIN — search results are insufficient to determine"
+        )
+        msg = api_client.messages.create(
+            model=config.CLAUDE_MODEL_L3,
+            max_tokens=150,
+            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text_parts = [
+            block.text.strip()
+            for block in msg.content
+            if hasattr(block, "text") and block.text
+        ]
+        result = " ".join(text_parts).strip().lower()
+        is_incumbent = result.startswith("yes")
+        logger.info(
+            "CLIENT-IS-INCUMBENT web check: client=%r agency=%r result=%r → %s",
+            client_name[:40], agency[:40], result[:80], "YES" if is_incumbent else "NO/UNCERTAIN",
+        )
+        return is_incumbent
+    except Exception as exc:
+        logger.warning("_check_client_is_incumbent_web failed for %s: %s", client_name, exc)
+        return False
+
+
 def _call_claude(context: dict) -> Optional[dict]:
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
@@ -1747,7 +1800,7 @@ def _render_html(
         f'font-size:.68rem;color:#4ecca3;">MBIE Client Record</span>&ensp;'
         f'No government contract award history found for <strong>{_safe(client_name)}</strong> '
         f'in the MBIE dataset. This is a data absence, not a capability assessment. '
-        f'{"Win position re-assessed using authenticated tender documents." if analysis_type == "full" else "Win position is assessed on opportunity structure only."}</div>'
+        f'Win position is assessed on opportunity structure only.</div>'
     ) if ch.get('sector_wins', 0) == 0 else (
         f'<div style="background:#1a2d3a;border:1px solid #2d4a6a;border-radius:6px;'
         f'padding:.75rem 1rem;margin-bottom:.85rem;font-size:.8rem;color:#a8c8e0;">'
@@ -1939,14 +1992,23 @@ def generate_pursuit_package(
     _incumbent_firm = _extract_incumbent_firm_name(incumbent_research or "")
     if _incumbent_firm:
         _store_incumbent_in_bidder_pool(notice_id, _incumbent_firm, incumbent_research, sector)
-    # Detect client-is-incumbent (re-tender of own contract)
+    # Detect client-is-incumbent (re-tender of own contract).
+    # Fast path: first-word name overlap in the incumbent research string.
     client_is_incumbent = bool(
         _incumbent_firm
         and client_name
         and client_name.lower().split()[0] in (incumbent_research or "").lower()
     )
+    # Fallback: web search when fast-path doesn't match but an incumbent is identified.
+    if not client_is_incumbent and _incumbent_firm and client_name:
+        client_is_incumbent = _check_client_is_incumbent_web(
+            client_name,
+            agency,
+            notice.get("title") or "",
+            _incumbent_firm,
+        )
     if client_is_incumbent:
-        logger.info("INCUMBENT: client appears to be the identified incumbent — switching to defend/renewal framing")
+        logger.info("INCUMBENT: client confirmed as incumbent — switching to defend/renewal framing")
     agency_stats = _get_agency_stats(agency, sector)
     flags = _get_relevant_flags(agency, sector)
     citation = _mbie_citation(sector, agency)

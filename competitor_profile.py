@@ -73,8 +73,10 @@ def _inline_md(text: str) -> str:
 # ── Data assembly ─────────────────────────────────────────────────────────────
 
 def _get_competitor_data(name: str) -> dict:
-    _name_words = name.strip().split()
-    name_q = f"%{' '.join(_name_words[:2])}%" if len(_name_words) >= 2 else f"%{_name_words[0]}%"
+    # Full-name match: "%Total Sense Solutions%" will match "Total Sense Solutions Ltd"
+    # but NOT "Total Sense Ltd" — prevents cross-entity aggregation at retrieval.
+    # The sector-coherence gate (_validate_sector_coherence) remains as a secondary guard.
+    name_q = f"%{name.strip()}%"
 
     totals = db.fetchone(
         """
