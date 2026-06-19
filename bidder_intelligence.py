@@ -994,6 +994,59 @@ def store_ach_results(notice_id: str, bidders: list[dict]) -> None:
         logger.error("store_ach_results failed for %s: %s", notice_id, exc)
 
 
+def _run_incumbent_detection_for_notice(notice: dict) -> None:
+    """
+    Run incumbent web search and store result in bidder_pool.
+    Called after store_ach_results() in both ACH batch runners.
+    Skips silently if an incumbent_identified row already exists.
+    Never raises — all failures are logged as warnings.
+    """
+    notice_id = notice.get("notice_id", "?")
+
+    try:
+        existing = db.fetchone(
+            "SELECT firm_name FROM bidder_pool "
+            "WHERE notice_id = %s AND match_type = 'incumbent_identified' LIMIT 1",
+            (notice_id,),
+        )
+        if existing:
+            logger.debug(
+                "Incumbent already stored for notice %s (%s) — skipping",
+                notice_id, existing.get("firm_name"),
+            )
+            return
+    except Exception as exc:
+        logger.warning("Incumbent staleness check failed for %s: %s", notice_id, exc)
+        return
+
+    agency      = notice.get("agency") or ""
+    sector      = notice.get("sector_tag") or "other"
+    title       = notice.get("title") or ""
+    notice_text = (notice.get("overview_text") or notice.get("description") or "")[:2000]
+
+    try:
+        from pursuit_package import (
+            _web_search_incumbent,
+            _extract_incumbent_firm_name,
+            _store_incumbent_in_bidder_pool,
+        )
+        incumbent_research = _web_search_incumbent(agency, sector, title, notice_text)
+        logger.info(
+            "INCUMBENT (ACH batch) notice %s: %r",
+            notice_id, (incumbent_research or "")[:120],
+        )
+        firm_name = _extract_incumbent_firm_name(incumbent_research or "")
+        if firm_name:
+            _store_incumbent_in_bidder_pool(notice_id, firm_name, incumbent_research, sector)
+            logger.info(
+                "INCUMBENT stored for notice %s: %s", notice_id, firm_name,
+            )
+    except Exception as exc:
+        logger.warning(
+            "_run_incumbent_detection_for_notice failed for %s: %s", notice_id, exc,
+        )
+
+
 # ── Batch runner ───────────────────────────────────────────────────────────────
 
 def run_ach_for_enriched(force: bool = False) -> dict:
@@ -1054,6 +1107,7 @@ def run_ach_for_enriched(force: bool = False) -> dict:
                     nid,
                 )
                 counts["failed"] += 1
+            _run_incumbent_detection_for_notice(notice)
         except Exception as exc:
             logger.error("ACH batch failed for %s: %s", nid, exc)
             counts["failed"] += 1
@@ -1133,6 +1187,7 @@ def run_ach_for_unprocessed(batch_size: int = 5, delay: float = 15.0) -> dict:
                     else:
                         logger.info("ACH --all: %s → no candidates identified", nid)
                         counts["failed"] += 1
+                    _run_incumbent_detection_for_notice(notice)
                     break  # success or clean empty — don't retry
                 except _anthropic.APIStatusError as exc:
                     if exc.status_code == 400 and attempt == 1:
