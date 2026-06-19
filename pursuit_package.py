@@ -564,81 +564,189 @@ Return a JSON object with EXACTLY these keys:
 "recommended_actions": Array of 4-6 objects, each with "action" (imperative sentence), "timeframe" (e.g. "Today", "Within 48 hours", "Week 1", "Before close"), "priority" (Critical/High/Medium)."""
 
 
-def _web_search_incumbent(agency: str, sector: str, notice_title: str) -> Optional[str]:
+# ── Re-tender signal detection ────────────────────────────────────────────────
+
+_RETENDER_SIGNALS: frozenset = frozenset({
+    "returning to market", "return to market", "back to market",
+    "prior external provider", "prior provider", "existing external provider",
+    "existing arrangement", "existing contract", "existing agreement",
+    "current arrangement", "current provider", "current supplier",
+    "incumbent provider", "incumbent supplier",
+    "expiring contract", "contract expir", "contract renewal",
+    "previously provided", "has been providing", "currently provided",
+    "existing system", "existing solution", "existing platform",
+    "prior contract", "coming to an end", "new arrangement",
+    "re-tender", "retender", "go to market",
+})
+
+
+def _web_search_incumbent(
+    agency: str,
+    sector: str,
+    notice_title: str,
+    notice_text: str = "",
+) -> str:
     """
-    Use Claude with web_search to find who currently provides a service/system to this agency.
-    When sector is 'other'/'unknown', anchors on the notice title (the actual service description)
-    rather than the meaningless sector label.
-    Returns a short descriptive string (max 600 chars), or None.
+    Run three targeted search strategies to identify the named current contract holder
+    (incumbent) for this notice.
+
+    Strategies:
+      1. Contract award search — "{agency} {service} contract awarded / supplier announcement"
+         Finds press releases, official award notices, media naming the contract holder.
+      2. Incumbent reference search — "{agency} {service} incumbent provider / current provider"
+         Finds direct references to who currently delivers the service.
+      3. Notice text signals — if notice text contains re-tender language, extract named
+         providers and search to confirm incumbency.
+
+    Always returns a non-empty string:
+      - "Named incumbent: [Firm] — [evidence]. Confidence: [High/Medium]. Source: [type]."
+      - "No named contract holder identified from public sources. Firms active in this market
+         who may hold or have held this contract: [Firm] — [context]; ..."
+      - Fallback string if the search call itself fails.
     """
     try:
         client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-        # Use notice title as service anchor when sector is uncategorised
-        if sector.lower() in ("other", "unknown", ""):
-            service_desc = notice_title
-        else:
-            service_desc = f"{sector} services"
-        q1 = f"what system does {agency} currently use for {service_desc} New Zealand"
-        q2 = f"current {service_desc} provider {agency} New Zealand"
-        logger.info("INCUMBENT_DIAG web_search CALLED: agency=%r sector=%r", agency, sector)
-        logger.info("INCUMBENT_DIAG web_search Q1: %r", q1)
-        logger.info("INCUMBENT_DIAG web_search Q2: %r", q2)
-        logger.info("INCUMBENT_DIAG web_search TITLE: %r", notice_title)
-        prompt = (
-            f"I need to find who currently provides the {service_desc} system or service "
-            f"to {agency} in New Zealand.\n\n"
-            f"Search for:\n"
-            f"1. {q1}\n"
-            f"2. {q2}\n\n"
-            f"Look for: vendor websites, technology deployment announcements, NZ government IT "
-            f"publications, agency annual reports or technology strategies, case studies on vendor "
-            f"websites, NZ tech media coverage, and any mention of which specific products or "
-            f"suppliers are currently deployed at {agency}.\n\n"
-            f"Do NOT restrict your search to contract award records or GETS tender results — "
-            f"the existing supplier relationship may be publicly known through other means "
-            f"(e.g. vendor case studies, press releases, product references on agency websites).\n\n"
-            f"For any provider or system you identify, state ALL of:\n"
-            f"(1) the specific product or system name\n"
-            f"(2) the parent company (including if foreign-owned or acquired, "
-            f"e.g. 'Tyler Technologies acquired For The Record')\n"
-            f"(3) the NZ distributor, local reseller, or NZ-based delivery partner if applicable\n\n"
-            f"Format: '[System/Product] by [Parent Company], NZ distributor: [NZ Partner] "
-            f"— [source and context]'.\n"
-            f"If no credible evidence is found after searching, respond only with: "
-            f"'No incumbent identified.'"
+
+        # Always use the notice title as service descriptor — it is more specific than sector.
+        # Sector-derived labels like "ICT services" or "defence services" produce generic results.
+        service_desc = notice_title.strip() if notice_title.strip() else f"{sector} services"
+
+        # Detect re-tender signals in the notice text
+        notice_lower = (notice_text or "").lower()
+        retender_detected = any(sig in notice_lower for sig in _RETENDER_SIGNALS)
+
+        # Log the strategies about to be run
+        logger.info(
+            "INCUMBENT search START: agency=%r service=%r retender_detected=%s",
+            agency, service_desc[:70], retender_detected,
         )
+        logger.info(
+            "INCUMBENT S1 queries: %r | %r",
+            f"{agency} {service_desc} contract awarded",
+            f"{agency} {service_desc} supplier announcement",
+        )
+        logger.info(
+            "INCUMBENT S2 queries: %r | %r",
+            f"{agency} {service_desc} incumbent provider",
+            f"current {service_desc} provider {agency} New Zealand",
+        )
+
+        # Strategy 3 block — only include when re-tender language detected
+        strategy3_block = ""
+        if retender_detected:
+            notice_excerpt = notice_text[:800].strip()
+            logger.info("INCUMBENT S3: re-tender language detected — including notice text signals")
+            strategy3_block = (
+                f"\n\nSTRATEGY 3 — NOTICE TEXT SIGNALS:\n"
+                f"The notice text contains language suggesting an expiring or existing arrangement "
+                f"(re-tender signals detected). Relevant excerpt:\n\"\"\"\n{notice_excerpt}\n\"\"\"\n"
+                f"— Extract every named supplier, system, or provider mentioned in the text above.\n"
+                f"— For each named entity, search: '[entity name] {agency} contract'\n"
+                f"— Also search: '{agency} {service_desc} existing contract New Zealand'\n"
+                f"— Any named entity in re-tender text is a strong incumbent candidate.\n"
+            )
+        elif notice_text.strip():
+            # Even without explicit signals, include notice context for passive scanning
+            notice_excerpt = notice_text[:400].strip()
+            strategy3_block = (
+                f"\n\nNotice context (scan for any named providers or systems):\n"
+                f"\"\"\"\n{notice_excerpt}\n\"\"\"\n"
+                f"If this text names any existing provider, system, or arrangement, "
+                f"search for that entity explicitly.\n"
+            )
+
+        prompt = (
+            f"Identify who currently holds or has most recently held the contract to provide "
+            f"'{service_desc}' for {agency} in New Zealand.\n\n"
+            f"This is a government procurement intelligence task. Run EXACTLY these three search "
+            f"strategies in sequence — stop early only if Strategy 1 returns high-confidence evidence:\n\n"
+            f"STRATEGY 1 — CONTRACT AWARD SEARCH:\n"
+            f"Search 1a: '{agency} {service_desc} contract awarded'\n"
+            f"Search 1b: '{agency} {service_desc} supplier announcement'\n"
+            f"What to look for: press releases, official contract award announcements, NZ government "
+            f"supplier notices, or media coverage explicitly naming the awarded supplier. "
+            f"A named award is HIGH confidence incumbent evidence.\n\n"
+            f"STRATEGY 2 — INCUMBENT REFERENCE SEARCH:\n"
+            f"Search 2a: '{agency} {service_desc} incumbent provider'\n"
+            f"Search 2b: 'current {service_desc} provider {agency} New Zealand'\n"
+            f"What to look for: vendor case studies referencing {agency}, agency technology "
+            f"strategy documents or annual reports, NZ tech media, supplier websites, "
+            f"or LinkedIn posts mentioning current delivery of this service."
+            f"{strategy3_block}\n\n"
+            f"CONFIDENCE RULES:\n"
+            f"— HIGH: A press release, official notice, or supplier announcement explicitly names "
+            f"the contract holder for this specific service.\n"
+            f"— MEDIUM: A vendor case study, agency website, or media coverage implies the "
+            f"supplier relationship without an explicit contract award announcement.\n"
+            f"— IMPORTANT: Do NOT conclude 'no incumbent found' simply because few results appear. "
+            f"If searches return any firms providing this type of service in NZ or to this agency, "
+            f"name them. Silence is less useful than naming market participants.\n\n"
+            f"MANDATORY RESPONSE FORMAT — use exactly one of these:\n\n"
+            f"FORMAT A — if a named contract holder is found (any confidence):\n"
+            f"'Named incumbent: [Full Firm Name] — [2-3 sentences: what they provide, to whom, "
+            f"and the evidence basis]. Include parent company if foreign-owned and NZ distributor "
+            f"or delivery partner if applicable. Confidence: [High/Medium]. Source: [source type].'\n\n"
+            f"FORMAT B — if no named holder found but market active:\n"
+            f"'No named contract holder identified from public sources. "
+            f"Firms active in this market who may hold or have held this contract: "
+            f"[Firm 1] — [brief context]; [Firm 2] — [brief context].'\n\n"
+            f"FORMAT C — if searches return truly nothing relevant:\n"
+            f"'Incumbent search inconclusive for {agency} / {service_desc}. "
+            f"Searches ran but returned no identifiable suppliers or contract holders. "
+            f"Manual research recommended: check {agency} annual report, supplier panel register, "
+            f"or GETS historical awards for this service type.'\n\n"
+            f"Do NOT output a generic refusal. Run the searches, synthesise the results, "
+            f"and use one of the three formats above."
+        )
+
         msg = client.messages.create(
             model=config.CLAUDE_MODEL_L3,
-            max_tokens=600,
-            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 2}],
+            max_tokens=800,
+            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 6}],
             messages=[{"role": "user", "content": prompt}],
         )
-        logger.info("INCUMBENT_DIAG web_search RESPONSE: stop_reason=%r n_blocks=%d",
-                    msg.stop_reason, len(msg.content))
+
+        logger.info(
+            "INCUMBENT response: stop_reason=%r blocks=%d",
+            msg.stop_reason, len(msg.content),
+        )
         for i, block in enumerate(msg.content):
             btype = type(block).__name__
             if hasattr(block, "text"):
-                logger.info("INCUMBENT_DIAG block[%d] %s text=%r", i, btype, block.text[:200])
+                logger.info("INCUMBENT block[%d] %s: %r", i, btype, block.text[:200])
             elif hasattr(block, "name"):
                 inp = getattr(block, "input", {})
-                logger.info("INCUMBENT_DIAG block[%d] %s name=%r input=%r", i, btype, block.name, str(inp)[:200])
-            else:
-                logger.info("INCUMBENT_DIAG block[%d] %s (no text/name attr)", i, btype)
+                logger.info("INCUMBENT block[%d] %s: name=%r input=%r",
+                            i, btype, block.name, str(inp)[:200])
+
         result_parts = [
             block.text.strip()
             for block in msg.content
             if hasattr(block, "text") and block.text
         ]
         result = " ".join(result_parts).strip()
-        logger.info("INCUMBENT_DIAG assembled result=%r (len=%d)", result[:300], len(result))
-        passes = bool(result and "no incumbent identified" not in result.lower() and len(result) > 20)
-        logger.info("INCUMBENT_DIAG passes filter=%s → returning %r",
-                    passes, result[:120] if passes else None)
-        if passes:
-            return result[:600]
+
+        if not result:
+            fallback = (
+                f"Incumbent search ran but returned no text response — "
+                f"manual research recommended for {agency} / {service_desc}."
+            )
+            logger.warning("INCUMBENT: empty result for %s / %s", agency, service_desc[:60])
+            return fallback
+
+        logger.info(
+            "INCUMBENT RESULT for %s / %s: %r",
+            agency, service_desc[:40], result[:250],
+        )
+        return result[:1000]
+
     except Exception as exc:
         logger.warning("_web_search_incumbent failed for %s/%s: %s", agency, sector, exc)
-    return None
+        return (
+            f"Incumbent search failed ({exc.__class__.__name__}) — "
+            f"manual research required for {agency} / {notice_title}."
+        )
+
 
 
 def _call_claude(context: dict) -> Optional[dict]:
@@ -660,9 +768,10 @@ def _call_claude(context: dict) -> Optional[dict]:
         competitors_text = "No government contract award records found for this agency/sector combination. Market data is limited."
 
     # Incumbent / current system (always from doc scan or web research — never MBIE data)
-    inc_research = context.get("incumbent_research")
+    inc_research = context.get("incumbent_research") or ""
     inc_from_docs = context.get("incumbent_from_docs", False)
-    if inc_research and inc_from_docs:
+
+    if inc_from_docs and inc_research:
         incumbent_text = (
             f"Existing technology relationships identified from uploaded tender documents:\n"
             f"{inc_research}\n\n"
@@ -673,21 +782,50 @@ def _call_claude(context: dict) -> Optional[dict]:
             f"Name all identified vendors and systems explicitly. Do not characterise this as "
             f"'no named incumbent' — the document evidence identifies existing technology relationships."
         )
-    elif inc_research:
+    elif inc_research.startswith("Named incumbent:"):
+        # Web search returned a confident named contract holder
         incumbent_text = (
-            f"Research result: {inc_research}\n"
+            f"Web research result — named contract holder identified:\n"
+            f"{inc_research}\n\n"
+            f"IMPORTANT: This is the identified incumbent. In competitive_narrative and "
+            f"incumbent_assessment, name this entity explicitly. If the research names a parent "
+            f"company and/or NZ distributor (e.g. 'For The Record by Tyler Technologies, NZ "
+            f"distributor: Vega NZ'), name ALL entities — do not collapse to just the product name. "
+            f"Assess displacement difficulty specifically: how entrenched is this incumbent, "
+            f"what switching costs exist, and what would a new entrant need to do to displace them?"
+        )
+    elif inc_research.startswith("No named contract holder"):
+        # Web search found market participants but no confirmed holder
+        incumbent_text = (
+            f"Web research result — no named contract holder confirmed:\n"
+            f"{inc_research}\n\n"
+            f"IMPORTANT: In incumbent_assessment, state explicitly that no named contract holder "
+            f"was identified from public sources, then name the active market participants listed "
+            f"above as firms that may hold or have held this contract. Do NOT conclude there is no "
+            f"incumbent — this is an intelligence gap. Assess what it would mean if any of the "
+            f"named firms held the contract, and recommend how the client could confirm incumbency "
+            f"before close (e.g. direct agency enquiry, GETS historical awards, or tender debrief)."
+        )
+    elif inc_research and not inc_research.startswith("Incumbent search"):
+        # Web search returned something that doesn't match either standard format — use as-is
+        incumbent_text = (
+            f"Web research result:\n"
+            f"{inc_research}\n\n"
             f"IMPORTANT: In competitive_narrative and incumbent_assessment, name the parent company "
             f"and NZ distributor/reseller explicitly if they appear in the research above. "
             f"Do not omit corporate ownership or NZ distribution chain when the data is present."
         )
     else:
+        # Search ran but returned an error or inconclusive result
         incumbent_text = (
-            "No incumbent contract record is publicly available. "
-            "Based on the notice description, the agency is migrating from or augmenting an existing "
-            "system — vendors with existing technology relationships at this agency should be treated "
-            "as structural favourites regardless of absence from public award data."
+            f"{inc_research or 'Incumbent search did not run.'}\n\n"
+            f"IMPORTANT: In incumbent_assessment, state this as an intelligence gap — do NOT "
+            f"assume there is no incumbent. Most government service contracts have an existing "
+            f"provider. Recommend the client conduct direct enquiry with the agency or check "
+            f"GETS historical award notices to identify the current holder before submitting."
         )
-    logger.info("INCUMBENT_DIAG _call_claude incumbent_text=%r", incumbent_text[:200])
+
+    logger.info("INCUMBENT _call_claude text prefix=%r", incumbent_text[:120])
 
     # Client history note
     ch = context.get("client_history", {})
@@ -1655,33 +1793,33 @@ def generate_pursuit_package(
     incumbent = None
     incumbent_research = None
     incumbent_from_docs = False
-    logger.info("INCUMBENT_DIAG START: notice=%s agency=%r sector=%r title=%r has_extra_docs=%s",
+    logger.info("INCUMBENT START: notice=%s agency=%r sector=%r title=%r has_extra_docs=%s",
                 notice_id, agency, sector, (notice.get("title") or "")[:80], bool(extra_docs))
     if extra_docs:
-        logger.info("INCUMBENT_DIAG: extra_docs present (%d docs) — trying doc extraction first", len(extra_docs))
+        logger.info("INCUMBENT: extra_docs present (%d docs) — trying doc extraction first", len(extra_docs))
         incumbent_research = _extract_doc_incumbent(
             extra_docs, agency, notice.get("title") or ""
         )
-        logger.info("INCUMBENT_DIAG after doc extraction: incumbent_research=%r",
+        logger.info("INCUMBENT: after doc extraction: incumbent_research=%r",
                     incumbent_research[:80] if incumbent_research else None)
         if incumbent_research:
             incumbent_from_docs = True
             logger.info("Doc incumbent for %s: %s", agency, incumbent_research[:80])
     else:
-        logger.info("INCUMBENT_DIAG: no extra_docs — skipping doc extraction")
+        logger.info("INCUMBENT: no extra_docs — skipping doc extraction")
     if not incumbent_research:
-        logger.info("INCUMBENT_DIAG: incumbent_research is None/empty — calling web search")
+        logger.info("INCUMBENT: no doc extraction result — running web search")
+        _notice_text = (notice.get("overview_text") or notice.get("description") or "")[:2000]
         incumbent_research = _web_search_incumbent(
-            agency, sector, notice.get("title") or ""
+            agency, sector, notice.get("title") or "", _notice_text
         )
-        logger.info("INCUMBENT_DIAG after web search: incumbent_research=%r",
+        logger.info("INCUMBENT web result for %s/%s: %r", agency, sector,
                     incumbent_research[:80] if incumbent_research else None)
-        if incumbent_research:
-            logger.info("Web incumbent for %s/%s: %s", agency, sector, incumbent_research[:80])
     else:
-        logger.info("INCUMBENT_DIAG: incumbent_research already set from docs — skipping web search")
-    logger.info("INCUMBENT_DIAG FINAL incumbent_research=%r from_docs=%s",
-                incumbent_research[:120] if incumbent_research else None, incumbent_from_docs)
+        logger.info("INCUMBENT: doc extraction found result — skipping web search")
+    logger.info("INCUMBENT FINAL: from_docs=%s result=%r",
+                incumbent_from_docs,
+                (incumbent_research or "")[:120])
     agency_stats = _get_agency_stats(agency, sector)
     flags = _get_relevant_flags(agency, sector)
     citation = _mbie_citation(sector, agency)
