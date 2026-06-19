@@ -822,6 +822,37 @@ def _web_search_incumbent(
         )
 
 
+def _extract_incumbent_firm_name(incumbent_research: str) -> Optional[str]:
+    if not incumbent_research.startswith("Named incumbent:"):
+        return None
+    m = re.match(r"Named incumbent:\s*([^—\-]+)", incumbent_research)
+    if not m:
+        return None
+    return m.group(1).strip() or None
+
+
+def _store_incumbent_in_bidder_pool(notice_id: str, firm_name: str, evidence: str, sector: str) -> None:
+    try:
+        db.execute(
+            """
+            INSERT INTO bidder_pool
+                (notice_id, firm_name, match_type, relevance_score, strategic_importance,
+                 intelligence_maturity, reasoning, company_context, sector)
+            VALUES (%s, %s, 'incumbent_identified', 0.95, 'high', 'strong', %s, %s, %s)
+            ON CONFLICT (notice_id, firm_name) DO UPDATE SET
+                match_type = 'incumbent_identified',
+                relevance_score = 0.95,
+                strategic_importance = 'high',
+                intelligence_maturity = 'strong',
+                reasoning = EXCLUDED.reasoning,
+                company_context = EXCLUDED.company_context
+            """,
+            (notice_id, firm_name, evidence[:200], evidence[:500], sector),
+        )
+        logger.info("INCUMBENT stored in bidder_pool: notice=%s firm=%s", notice_id, firm_name)
+    except Exception as exc:
+        logger.warning("_store_incumbent_in_bidder_pool failed: %s", exc)
+
 
 def _call_claude(context: dict) -> Optional[dict]:
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
@@ -922,6 +953,16 @@ def _call_claude(context: dict) -> Optional[dict]:
             )
     else:
         client_data_note = f"Client has {ch['sector_wins']} confirmed sector wins in MBIE data since {str(ch.get('sector_first_win', ''))[:4]}."
+
+    # Defend/renewal framing when client is the identified incumbent
+    if context.get("client_is_incumbent"):
+        client_data_note += (
+            " NOTE: The client appears to be the identified current incumbent for this contract. "
+            "Frame the win position as a DEFEND/RENEWAL scenario, not a new entrant bid. "
+            "The key risk is displacement by a challenger, not failing to win a new contract. "
+            "go_nogo_rationale should address: how strong is the retention position? "
+            "What challenger threats are credible? What does the client need to demonstrate to retain?"
+        )
 
     # Firm profile (provided for demo/well-known clients to give Claude context)
     fp = context.get("firm_profile") or {}
@@ -1706,7 +1747,7 @@ def _render_html(
         f'font-size:.68rem;color:#4ecca3;">MBIE Client Record</span>&ensp;'
         f'No government contract award history found for <strong>{_safe(client_name)}</strong> '
         f'in the MBIE dataset. This is a data absence, not a capability assessment. '
-        f'Win position is assessed on opportunity structure only.</div>'
+        f'{"Win position re-assessed using authenticated tender documents." if analysis_type == "full" else "Win position is assessed on opportunity structure only."}</div>'
     ) if ch.get('sector_wins', 0) == 0 else (
         f'<div style="background:#1a2d3a;border:1px solid #2d4a6a;border-radius:6px;'
         f'padding:.75rem 1rem;margin-bottom:.85rem;font-size:.8rem;color:#a8c8e0;">'
@@ -1894,6 +1935,18 @@ def generate_pursuit_package(
     logger.info("INCUMBENT FINAL: from_docs=%s result=%r",
                 incumbent_from_docs,
                 (incumbent_research or "")[:120])
+    # Store named incumbent in bidder_pool so watchlist displays it
+    _incumbent_firm = _extract_incumbent_firm_name(incumbent_research or "")
+    if _incumbent_firm:
+        _store_incumbent_in_bidder_pool(notice_id, _incumbent_firm, incumbent_research, sector)
+    # Detect client-is-incumbent (re-tender of own contract)
+    client_is_incumbent = bool(
+        _incumbent_firm
+        and client_name
+        and client_name.lower().split()[0] in (incumbent_research or "").lower()
+    )
+    if client_is_incumbent:
+        logger.info("INCUMBENT: client appears to be the identified incumbent — switching to defend/renewal framing")
     agency_stats = _get_agency_stats(agency, sector)
     flags = _get_relevant_flags(agency, sector)
     citation = _mbie_citation(sector, agency)
@@ -1957,6 +2010,7 @@ def generate_pursuit_package(
         "tender_posture": tender_posture,
         "is_live_bid": is_live_bid,
         "analysis_type": analysis_type,
+        "client_is_incumbent": client_is_incumbent,
     }
 
     # 2. Call Claude

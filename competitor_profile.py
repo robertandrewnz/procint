@@ -73,7 +73,8 @@ def _inline_md(text: str) -> str:
 # ── Data assembly ─────────────────────────────────────────────────────────────
 
 def _get_competitor_data(name: str) -> dict:
-    name_q = f"%{name.split()[0]}%"
+    _name_words = name.strip().split()
+    name_q = f"%{' '.join(_name_words[:2])}%" if len(_name_words) >= 2 else f"%{_name_words[0]}%"
 
     totals = db.fetchone(
         """
@@ -291,6 +292,68 @@ def _client_has_mbie_records(client_name: Optional[str]) -> bool:
     return int((row or {}).get("wins") or 0) > 0
 
 
+def _get_notice_context_for_profile(notice_id: str) -> Optional[dict]:
+    """Fetch notice data and known intelligence for listing-anchored profile context."""
+    try:
+        notice = db.fetchone(
+            """
+            SELECT r.notice_id, r.title, r.agency, r.overview_text,
+                   p.sector_tag
+              FROM raw_notices r
+              LEFT JOIN parsed_notices p ON p.notice_id = r.notice_id
+             WHERE r.notice_id = %s
+            """,
+            (notice_id,),
+        )
+        if not notice:
+            return None
+
+        # Pull known incumbent from bidder_pool
+        inc_row = db.fetchone(
+            """
+            SELECT firm_name, company_context
+              FROM bidder_pool
+             WHERE notice_id = %s AND match_type = 'incumbent_identified'
+             ORDER BY relevance_score DESC NULLS LAST
+             LIMIT 1
+            """,
+            (notice_id,),
+        )
+
+        # Pull top 3 non-incumbent bidders
+        bidder_rows = db.fetchall(
+            """
+            SELECT firm_name
+              FROM bidder_pool
+             WHERE notice_id = %s AND match_type != 'incumbent_identified'
+             ORDER BY relevance_score DESC NULLS LAST
+             LIMIT 3
+            """,
+            (notice_id,),
+        )
+
+        sector = notice.get("sector_tag") or "other"
+        title = notice.get("title") or ""
+        agency = notice.get("agency") or ""
+
+        # Derive sector_context from notice data
+        derived_sector = f"{sector} — {title[:60]} — {agency}" if title else f"{sector} procurement — {agency}"
+
+        return {
+            "notice_id": notice_id,
+            "title": title,
+            "agency": agency,
+            "sector_tag": sector,
+            "derived_sector_context": derived_sector,
+            "incumbent_firm": (inc_row or {}).get("firm_name"),
+            "incumbent_evidence": (inc_row or {}).get("company_context") or "",
+            "other_bidders": [r["firm_name"] for r in (bidder_rows or [])],
+        }
+    except Exception as exc:
+        logger.warning("_get_notice_context_for_profile failed for %s: %s", notice_id, exc)
+        return None
+
+
 def _get_head_to_head(competitor_name: str, client_name: str) -> list[dict]:
     """Find agencies where both competitor and client have MBIE records."""
     comp_q = f"%{competitor_name.split()[0]}%"
@@ -504,6 +567,7 @@ def _generate_structured_profile(
     extra_docs: Optional[list] = None,
     client_has_mbie_data: bool = False,
     mbie_excluded: bool = False,
+    notice_context: Optional[dict] = None,
 ) -> Optional[dict]:
     """Call Claude to generate structured five-part competitive intelligence profile."""
     name = data.get("name", "Unknown")
@@ -614,9 +678,33 @@ def _generate_structured_profile(
             f"{sector_context}, with appropriate uncertainty where knowledge is limited.\n\n"
         )
 
+    # Notice context block — injected when profile is anchored to a specific listing
+    notice_context_block = ""
+    if notice_context:
+        nc = notice_context
+        incumbent_line = (
+            f"Known incumbent: {nc['incumbent_firm']} ({nc['incumbent_evidence'][:120]})"
+            if nc.get("incumbent_firm") else "Known incumbent: Not identified from public sources"
+        )
+        bidders_line = (
+            f"Other likely bidders for this notice: {', '.join(nc['other_bidders'])}"
+            if nc.get("other_bidders") else "Other likely bidders: Not yet identified"
+        )
+        notice_context_block = (
+            f"=== NOTICE CONTEXT (this profile is anchored to a specific GETS opportunity) ===\n"
+            f"GETS Notice: {nc['notice_id']} — {nc['title']}\n"
+            f"Agency: {nc['agency']}\n"
+            f"{incumbent_line}\n"
+            f"{bidders_line}\n"
+            f"IMPORTANT: Assess {name} specifically in relation to this opportunity. The disruption_opportunities "
+            f"and threat_assessment sections must speak to {name}'s position in THIS specific bid context — "
+            f"not as a generic market participant. Where the incumbent is identified, assess whether {name} "
+            f"can credibly displace them.\n\n"
+        )
+
     system = _COMPETITOR_SYSTEM.format(sector_context=sector_context)
 
-    prompt = _COMPETITOR_PROMPT.format(
+    prompt = notice_context_block + _COMPETITOR_PROMPT.format(
         competitor_name=name,
         client_name=client_name,
         sector_context=sector_context,
@@ -1189,6 +1277,16 @@ def generate_competitor_profile(
     if not is_demo:
         _assert_real_client(client_name)
 
+    # When notice_id is provided, fetch notice context for listing-anchored analysis
+    notice_context = None
+    if notice_id:
+        notice_context = _get_notice_context_for_profile(notice_id)
+        if notice_context:
+            # Auto-derive sector_context from notice if not explicitly provided
+            if not sector_context or not sector_context.strip():
+                sector_context = notice_context["derived_sector_context"]
+                logger.info("sector_context auto-derived from notice %s: %r", notice_id, sector_context)
+
     if not sector_context or not sector_context.strip():
         raise ValueError(
             "sector_context is required — cannot generate a competitor profile without "
@@ -1250,6 +1348,7 @@ def generate_competitor_profile(
         extra_docs=extra_docs,
         client_has_mbie_data=client_has_mbie_data,
         mbie_excluded=mbie_excluded,
+        notice_context=notice_context,
     )
     if not analysis:
         logger.warning("Claude synthesis failed — rendering profile with MBIE data only")

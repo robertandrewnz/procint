@@ -3919,8 +3919,10 @@ function wlClearSearch(){
                   FROM bidder_pool b
                  WHERE b.notice_id IN ({placeholders})
                  ORDER BY b.notice_id,
-                          -- ACH rows always first
-                          CASE b.match_type WHEN 'ach_analysis' THEN 0 ELSE 1 END,
+                          CASE b.match_type
+                               WHEN 'ach_analysis' THEN 0
+                               WHEN 'incumbent_identified' THEN 0
+                               ELSE 1 END,
                           b.relevance_score DESC NULLS LAST
                 """,
                 tuple(notice_ids),
@@ -4986,16 +4988,17 @@ def gw_request():
 
         elif rtype == "competitor":
             # ── Competitor profile: automated generation ──────────────────────
-            firm_name      = request.form.get("firm_name", "").strip()
-            comp_context   = request.form.get("comp_context", "").strip()
-            sector_context = request.form.get("sector_context", "").strip()
+            firm_name       = request.form.get("firm_name", "").strip()
+            comp_context    = request.form.get("comp_context", "").strip()
+            sector_context  = request.form.get("sector_context", "").strip()
+            comp_notice_id  = request.form.get("comp_notice_id", "").strip()
             client_org_comp = request.form.get("client_org", "").strip()
             if firm_name and not client_org_comp:
                 ok_msg = '<div class="al al-er">Please enter your organisation name — this is required for the competitive analysis.</div>'
-            elif firm_name and not sector_context:
+            elif firm_name and not sector_context and not comp_notice_id:
                 ok_msg = (
-                    '<div class="al al-er">Please specify the procurement sector — '
-                    'this is required to frame the competitive analysis.</div>'
+                    '<div class="al al-er">Please supply either a GETS Notice ID (recommended) or '
+                    'a procurement sector — at least one is required to frame the competitive analysis.</div>'
                 )
             elif firm_name:
                 try:
@@ -5019,7 +5022,8 @@ def gw_request():
                     comp_portal_url = portal_base + url_for("gw_competitors")
 
                     def _generate_competitor(req_id, firm, context, sector, client_id,
-                                             client_name, client_email, slug, portal_url):
+                                             client_name, client_email, slug, portal_url,
+                                             notice_id=None):
                         try:
                             if req_id:
                                 db.execute(
@@ -5035,6 +5039,7 @@ def gw_request():
                                 client_name=client_name,
                                 sector_context=sector,
                                 output_dir=output_dir,
+                                notice_id=notice_id,
                             )
                             if req_id:
                                 try:
@@ -5078,6 +5083,7 @@ def gw_request():
                         args=(comp_req_id, firm_name, comp_context, sector_context,
                               current_user.id, client_org_comp, current_user.email,
                               current_user.slug, comp_portal_url),
+                        kwargs={"notice_id": comp_notice_id or None},
                         daemon=True, name=f"comp-{firm_name[:20]}",
                     ).start()
 
@@ -5170,10 +5176,18 @@ def gw_request():
         f'<input name="firm_name" class="fc2" placeholder="e.g. Bastion, Kordia, Datacom" required></div>'
         f'<div class="fg"><label class="fl">Your organisation *</label>'
         f'<input name="client_org" class="fc2" value="{org_val}" placeholder="Your firm name" required></div>'
-        f'<div class="fg"><label class="fl">Procurement sector *</label>'
+        f'<div class="fg"><label class="fl">GETS Notice ID <span style="background:var(--gold);color:#fff;'
+        f'font-size:.6rem;font-weight:700;padding:.1rem .4rem;border-radius:3px;margin-left:.4rem;'
+        f'letter-spacing:.04em;">RECOMMENDED</span></label>'
+        f'<input name="comp_notice_id" class="fc2" placeholder="e.g. 34279032">'
+        f'<div class="fh">Anchors the profile to the specific opportunity — pulls incumbent data, '
+        f'likely bidders, and evaluation context automatically.</div></div>'
+        f'<div class="fg"><label class="fl">Procurement sector '
+        f'<span style="color:var(--muted);font-weight:400;">(or enter Notice ID above)</span></label>'
         f'<input name="sector_context" class="fc2" '
-        f'placeholder="e.g. government cybersecurity and SOC services, ICT infrastructure, facilities management" required>'
-        f'<div class="fh">Required — frames the competitive analysis around the sector where you compete against this firm.</div></div>'
+        f'placeholder="e.g. government cybersecurity and SOC services, ICT infrastructure, facilities management">'
+        f'<div class="fh">Required if no Notice ID supplied — frames the competitive analysis '
+        f'around the sector where you compete against this firm.</div></div>'
         f'<div class="fg"><label class="fl">Additional context <span style="color:var(--muted);font-weight:400;">(optional)</span></label>'
         f'<textarea name="comp_context" class="fc2" rows="3" '
         f'placeholder="e.g. Particularly interested in their contract history with Auckland Council, or their approach to central government ICT panels..."></textarea></div>'

@@ -546,7 +546,14 @@ def _bidder_card(b: dict) -> str:
     confidence = b.get("context_confidence") or "unknown"
 
     # Evidence source badge
-    if match_type == "mbie_evidence":
+    if match_type == "incumbent_identified":
+        src_badge = (
+            '<span class="bidder-src-badge" '
+            'style="background:#1E2D40;color:#fff;border:1px solid #2A9D8F;'
+            'font-size:.62rem;font-weight:700;padding:.12rem .45rem;'
+            'border-radius:4px;letter-spacing:.04em;">INCUMBENT</span>'
+        )
+    elif match_type == "mbie_evidence":
         src_badge = ('<span class="bidder-src-badge bidder-src-mbie">'
                      '&#10003; MBIE historical</span>')
     elif match_type == "web_inferred":
