@@ -227,24 +227,31 @@ def save_output(
                 "save_output: client_name column missing — retrying without it. "
                 "Run ensure_tables() to fix. Error: %s", _exc
             )
-            execute(
-                """
-                INSERT INTO pipeline_outputs
-                       (output_type, run_date, filename, content, content_bytes,
-                        client_slug, notice_id, storage_path)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (output_type, run_date, filename) DO UPDATE
-                  SET content       = EXCLUDED.content,
-                      content_bytes = EXCLUDED.content_bytes,
-                      storage_path  = EXCLUDED.storage_path,
-                      client_slug   = EXCLUDED.client_slug,
-                      notice_id     = EXCLUDED.notice_id
-                """,
-                (output_type, run_date, filename, content, content_bytes,
-                 client_slug, notice_id, storage_path),
-            )
+            try:
+                execute(
+                    """
+                    INSERT INTO pipeline_outputs
+                           (output_type, run_date, filename, content, content_bytes,
+                            client_slug, notice_id, storage_path)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (output_type, run_date, filename) DO UPDATE
+                      SET content       = EXCLUDED.content,
+                          content_bytes = EXCLUDED.content_bytes,
+                          storage_path  = EXCLUDED.storage_path,
+                          client_slug   = EXCLUDED.client_slug,
+                          notice_id     = EXCLUDED.notice_id
+                    """,
+                    (output_type, run_date, filename, content, content_bytes,
+                     client_slug, notice_id, storage_path),
+                )
+            except Exception as _retry_exc:
+                logger.exception(
+                    "save_output FAILED (retry without client_name) for %s/%s/%s: %s",
+                    output_type, client_slug, filename, _retry_exc,
+                )
+                raise
         else:
-            logger.error(
+            logger.exception(
                 "save_output FAILED for %s/%s/%s: %s",
                 output_type, client_slug, filename, _exc,
             )

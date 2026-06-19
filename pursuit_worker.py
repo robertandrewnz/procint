@@ -103,8 +103,8 @@ def _generate(
     """Runs in a background thread. Does not raise — all errors are logged."""
     logger.info("WORKER: Starting pursuit package req_id=%s notice=%s client=%s",
                 req_id, notice_id, client_id)
-    _set_status(req_id, "generating")
     try:
+        _set_status(req_id, "generating")
         from pursuit_package import generate_pursuit_package, _artefact_dir
 
         output_dir = _artefact_dir(client_name)
