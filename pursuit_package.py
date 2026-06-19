@@ -445,6 +445,8 @@ COMPETITIVE NARRATIVE RULE: Generate competitive_narrative first as a full analy
 
 AUTHENTICATED DOCUMENTS RULE: When an "=== AUTHENTICATED TENDER DOCUMENTS ===" section is present, treat it as the primary source of truth about the tender scope, evaluation criteria, timeline, and requirements. It supersedes any inferences from the public notice overview. Prioritise and synthesise the document content throughout your analysis — especially in the executive summary, evaluation cone, and recommended actions. Reference specific document content where it strengthens or changes the assessment. If the documents reveal information not present in the public notice (e.g. detailed evaluation weighting, mandatory site visits, specific technical requirements), highlight this in the analysis.
 
+FULL ANALYSIS VERDICT RULE: When authenticated tender documents are present AND they contain evaluation criteria, weightings, mandatory requirements, or pre-conditions — you MUST re-evaluate go_nogo, strategic_fit_score, and the competitive position using those specific criteria. Do NOT anchor the verdict to the Stage 1 "opportunity structure only" assessment. Specifically: (1) go_nogo_rationale must reference specific document content — evaluation criteria weightings, mandatory requirements, or pre-conditions found in the documents; (2) client_specific_factors must assess the client against the documented evaluation criteria, not just state "no MBIE history"; (3) Do NOT use the phrase "assessed on opportunity structure only" when documents specify evaluation criteria. The authenticated documents ARE the basis for a more informed verdict — use them.
+
 TENDER TYPE RULE: The "Tender Strategic Posture" field tells you what kind of procurement this is. Adapt ALL sections accordingly:
 - "Market shaping" (RFI/NOI/market research): This is NOT a live bid. Set go_nogo to "MARKET ENGAGEMENT". Frame go_nogo_rationale as a market intelligence recommendation, not a bid decision. Do NOT generate urgency language, teaming time pressure, or "limited time to respond" red flags. executive_summary must NOT use GO/NO-GO language. In risk_register and red_flags, suppress procurement-timeline and bid-submission risks — flag information gaps and engagement risks instead. recommended_actions must focus entirely on: attending market engagement events, submitting a well-positioned RFI response to shape requirements, building agency awareness and relationships — NOT bid preparation, proposal logistics, or teaming agreements. strategic_fit_score should reflect engagement value, not win probability. opportunity_structure_assessment should assess market shaping opportunity, not competitive bid dynamics.
 - "Qualification stage" (ROI/EOI): The goal is to make the shortlist, not win the contract. Frame go_nogo around whether the EOI/ROI is worth pursuing. recommended_actions should focus on EOI/ROI quality, capability demonstration, and relationship building — not full bid preparation.
@@ -689,12 +691,23 @@ def _call_claude(context: dict) -> Optional[dict]:
 
     # Client history note
     ch = context.get("client_history", {})
+    is_full_analysis = context.get("analysis_type") == "full"
+    has_docs = bool(context.get("extra_docs"))
     if ch.get("sector_wins", 0) == 0:
-        client_data_note = (
-            f"No government contract award history is held for {context['client_name']} in the MBIE dataset. "
-            "This is a data absence, not a capability assessment. Win position must be assessed on opportunity structure only. "
-            "Do not infer capabilities, sector experience, or relationships from the absence of MBIE records."
-        )
+        if is_full_analysis and has_docs:
+            client_data_note = (
+                f"No government contract award history is held for {context['client_name']} in the MBIE dataset. "
+                "Authenticated tender documents are present — assess this client's position against "
+                "the specific evaluation criteria, requirements, and pre-conditions in those documents. "
+                "Do NOT anchor the verdict to opportunity structure only — use the document content as "
+                "the basis for a specific, criteria-driven assessment."
+            )
+        else:
+            client_data_note = (
+                f"No government contract award history is held for {context['client_name']} in the MBIE dataset. "
+                "This is a data absence, not a capability assessment. Win position must be assessed on opportunity structure only. "
+                "Do not infer capabilities, sector experience, or relationships from the absence of MBIE records."
+            )
     else:
         client_data_note = f"Client has {ch['sector_wins']} confirmed sector wins in MBIE data since {str(ch.get('sector_first_win', ''))[:4]}."
 
@@ -1731,6 +1744,7 @@ def generate_pursuit_package(
         "extra_docs": extra_docs or [],
         "tender_posture": tender_posture,
         "is_live_bid": is_live_bid,
+        "analysis_type": analysis_type,
     }
 
     # 2. Call Claude

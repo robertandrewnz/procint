@@ -209,6 +209,88 @@ def _get_competitor_data(name: str) -> dict:
     }
 
 
+# ── Sector coherence validation ───────────────────────────────────────────────
+
+_SECTOR_CONTEXT_TAGS: dict = {
+    "ICT":          frozenset({"ict", "software", "technology", "digital", "cyber", "saas",
+                                "cloud", "data", "system", "monitoring", "tracking", "safety",
+                                "lone worker", "platform", "security", "surveillance",
+                                "communications", "network", "ai", "automation"}),
+    "construction": frozenset({"construction", "civil", "building", "infrastructure",
+                                "roofing", "fitout", "refurbishment", "demolition",
+                                "earthworks", "structural", "architectural"}),
+    "health":       frozenset({"health", "medical", "clinical", "pharmaceutical",
+                                "aged care", "hospital", "nursing", "dental", "wellbeing"}),
+    "defence":      frozenset({"defence", "defense", "military", "nzdf", "navy", "army",
+                                "air force", "rnzaf", "rnzn"}),
+    "advisory":     frozenset({"advisory", "consulting", "strategy", "management consulting",
+                                "policy", "audit", "legal", "professional services"}),
+    "FM":           frozenset({"facilities", "cleaning", "maintenance", "property", "fm",
+                                "catering", "security guard", "grounds", "waste"}),
+    "infrastructure": frozenset({"utilities", "transport", "road", "water",
+                                  "wastewater", "energy", "stormwater", "drainage"}),
+}
+
+_NEUTRAL_MBIE_SECTORS = frozenset({"other", "advisory"})
+
+
+def _validate_sector_coherence(
+    mbie_sectors: list,
+    sector_context: str,
+    total_wins: int,
+) -> tuple:
+    """
+    Check that dominant MBIE award sector matches the identified domain.
+    Returns (coherent: bool, warning_message: str).
+    When False, MBIE data should be excluded — probable name collision.
+    Requires >= 3 wins before flagging, to avoid false positives on thin data.
+    """
+    if not mbie_sectors or total_wins < 3:
+        return True, ""
+
+    dominant_tag = (mbie_sectors[0].get("sector_tag") or "").lower()
+    if not dominant_tag or dominant_tag in _NEUTRAL_MBIE_SECTORS:
+        return True, ""
+
+    ctx_lower = sector_context.lower()
+    expected: set = set()
+    for tag, keywords in _SECTOR_CONTEXT_TAGS.items():
+        if any(kw in ctx_lower for kw in keywords):
+            expected.add(tag.lower())
+
+    if not expected or dominant_tag in expected:
+        return True, ""
+
+    dominant_count = mbie_sectors[0].get("wins", 0)
+    dominant_val = _fmt_value(mbie_sectors[0].get("value"))
+    dominant_display = mbie_sectors[0].get("sector_tag", dominant_tag)
+    return False, (
+        f"MBIE award history matched by name shows dominant sector: {dominant_display} "
+        f"({dominant_count} wins, {dominant_val}). This does not match the identified domain "
+        f"({sector_context}). The matched MBIE records almost certainly belong to a different "
+        f"entity with a similar name — a common name-collision error in government procurement data. "
+        f"MBIE award data has been excluded from this profile to prevent false attribution. "
+        f"Manual verification recommended."
+    )
+
+
+def _client_has_mbie_records(client_name: Optional[str]) -> bool:
+    """Return True if the client has any MBIE award records."""
+    if not client_name or not client_name.strip():
+        return False
+    q = f"%{client_name.split()[0]}%"
+    row = db.fetchone(
+        """
+        SELECT COUNT(DISTINCT n.rfx_id) AS wins
+          FROM mbie_award_notices n
+          JOIN mbie_award_suppliers s ON s.rfx_id = n.rfx_id
+         WHERE n.is_awarded AND LOWER(s.business_name) LIKE LOWER(%s)
+        """,
+        (q,),
+    )
+    return int((row or {}).get("wins") or 0) > 0
+
+
 def _get_head_to_head(competitor_name: str, client_name: str) -> list[dict]:
     """Find agencies where both competitor and client have MBIE records."""
     comp_q = f"%{competitor_name.split()[0]}%"
@@ -349,7 +431,7 @@ Most recent win recorded: {last_win}
 This profile is for {client_name}, who is competing against {competitor_name} in \
 {sector_context} government procurement.
 
-Produce a JSON object with EXACTLY these keys:
+{rfp_requirements_section}{framing_instruction}{mbie_exclusion_notice}Produce a JSON object with EXACTLY these keys:
 
 "battle_card": Object with string values for each of these fields:
   "company_overview": 2-3 sentences on company background and market position \
@@ -419,6 +501,9 @@ def _generate_structured_profile(
     client_name: str,
     sector_context: str,
     data_quality: dict,
+    extra_docs: Optional[list] = None,
+    client_has_mbie_data: bool = False,
+    mbie_excluded: bool = False,
 ) -> Optional[dict]:
     """Call Claude to generate structured five-part competitive intelligence profile."""
     name = data.get("name", "Unknown")
@@ -476,6 +561,59 @@ def _generate_structured_profile(
             f"'no evident relationships' — these conclusions are not supported by thin data."
         )
 
+    # Build RFP requirements section from uploaded tender documents
+    rfp_requirements_section = ""
+    if extra_docs:
+        doc_parts = []
+        for doc in extra_docs[:3]:
+            text = (doc.get("text") or "").strip()[:4000]
+            if text:
+                doc_parts.append(f"--- {doc.get('file_name', 'Document')} ---\n{text}")
+        if doc_parts:
+            rfp_requirements_section = (
+                f"=== RFP REQUIREMENTS (from authenticated tender documents) ===\n"
+                f"The following tender documents have been provided. You MUST assess {name} "
+                f"specifically against each evaluation criterion, mandatory requirement, and "
+                f"technical specification present in these documents. For any criterion where "
+                f"data is insufficient to assess {name}, state this explicitly rather than "
+                f"omitting the assessment.\n\n"
+                + "\n\n".join(doc_parts)[:6000]
+                + "\n\n"
+            )
+
+    # Framing instruction: absolute vs relative depending on client MBIE data
+    if not client_has_mbie_data:
+        framing_instruction = (
+            f"FRAMING INSTRUCTION: {client_name} has no recorded government contract history "
+            f"in published award data. Assess {name} in absolute terms against the sector "
+            f"context and any RFP requirements above — do NOT use relative framing "
+            f"('compared to {client_name}', 'unlike {client_name}', etc.). "
+            f"The disruption_opportunities field should describe what any credible new entrant "
+            f"would need to do, not what {client_name} specifically would need to do given "
+            f"unknown capabilities. The profile must stand alone without reference to "
+            f"{client_name}'s history or capabilities.\n\n"
+        )
+    else:
+        framing_instruction = (
+            f"FRAMING INSTRUCTION: Where {client_name} has relevant contract history in the "
+            f"data above, use it for relative framing in disruption_opportunities and "
+            f"head-to-head context. For sections without comparative data, assess in absolute "
+            f"terms against the sector context.\n\n"
+        )
+
+    # MBIE exclusion notice when false match detected
+    mbie_exclusion_notice = ""
+    if mbie_excluded:
+        mbie_exclusion_notice = (
+            f"MBIE DATA EXCLUSION: The MBIE award history retrieved by name search has been "
+            f"excluded — the dominant MBIE sector does not match the identified domain "
+            f"({sector_context}), indicating a probable name collision with a different entity. "
+            f"All MBIE-derived statistics shown above (wins, values, agencies, sectors) MUST be "
+            f"treated as NOT belonging to {name}. Do not reference them in your analysis. "
+            f"Base all observations on market knowledge of {name} as a company operating in "
+            f"{sector_context}, with appropriate uncertainty where knowledge is limited.\n\n"
+        )
+
     system = _COMPETITOR_SYSTEM.format(sector_context=sector_context)
 
     prompt = _COMPETITOR_PROMPT.format(
@@ -494,6 +632,9 @@ def _generate_structured_profile(
         agency_lines=agency_lines,
         largest_line=largest_line,
         recent5_lines=recent5_lines,
+        rfp_requirements_section=rfp_requirements_section,
+        framing_instruction=framing_instruction,
+        mbie_exclusion_notice=mbie_exclusion_notice,
     )
 
     try:
@@ -645,6 +786,9 @@ def _render_profile_html(
     sector_context: str,
     data_quality: dict,
     h2h: Optional[list[dict]] = None,
+    mbie_excluded: bool = False,
+    mbie_exclusion_warning: str = "",
+    show_h2h: bool = True,
 ) -> str:
     totals = data.get("totals", {})
     name = data.get("name", "Unknown")
@@ -678,6 +822,17 @@ def _render_profile_html(
             f'caution — this firm may have substantial government relationships not visible '
             f'in open contract award data (panel arrangements, direct engagements, '
             f'classified or sensitive contracts).'
+            f'</div>'
+        )
+
+    # ── MBIE exclusion warning (false match) ─────────────────────────────────
+    mbie_exclusion_html = ""
+    if mbie_excluded and mbie_exclusion_warning:
+        mbie_exclusion_html = (
+            f'<div style="background:#fdecea;border:2px solid #c0392b;border-radius:8px;'
+            f'padding:.85rem 1.1rem;margin-bottom:1.5rem;font-size:.82rem;color:#7b1a1a;">'
+            f'<strong style="color:#c0392b;">⚠ MBIE Data Excluded — Probable Name Collision</strong><br>'
+            f'{_safe(mbie_exclusion_warning)}'
             f'</div>'
         )
 
@@ -726,7 +881,7 @@ def _render_profile_html(
 
     # ── Head-to-head section ─────────────────────────────────────────────────
     h2h_html = ""
-    if client_name and h2h:
+    if show_h2h and client_name and h2h:
         h2h_rows = ""
         for row in h2h:
             comp_wins = row.get("comp_wins", 0)
@@ -917,6 +1072,7 @@ def _render_profile_html(
 </div>
 
 {thin_warning_html}
+{mbie_exclusion_html}
 
 <div class="stat-grid">
   <div class="stat-box">
@@ -1011,6 +1167,8 @@ def generate_competitor_profile(
     sector_context: Optional[str] = None,
     output_dir: Optional[Path] = None,
     is_demo: bool = False,
+    extra_docs: Optional[list] = None,
+    notice_id: Optional[str] = None,
 ) -> Path:
     """
     Generate a structured competitor intelligence profile.
@@ -1018,10 +1176,14 @@ def generate_competitor_profile(
     Args:
         competitor_name:  Name of the competitor to profile.
         client_name:      Authenticated user's firm name — REQUIRED, must not be a demo name.
-        sector_context:   Procurement sector for framing (e.g. "government cybersecurity and SOC
-                          services"). REQUIRED for meaningful analysis.
+        sector_context:   Procurement sector for framing (e.g. "government ICT and safety monitoring").
+                          REQUIRED for meaningful analysis and sector coherence validation.
         output_dir:       Where to save the HTML file. Defaults to _artefact_dir(client_name).
         is_demo:          When True, skips the demo-name guard (used by generate_demo_content.py).
+        extra_docs:       Authenticated tender documents from a pursuit package upload (list of
+                          dicts with 'file_name' and 'text'). When provided, the competitor is
+                          assessed against the specific RFP requirements in those documents.
+        notice_id:        Optional notice ID for logging context.
     """
     # Guard: reject empty or demo client names (bypassed for demo content generation)
     if not is_demo:
@@ -1034,12 +1196,11 @@ def generate_competitor_profile(
         )
 
     logger.info(
-        "Generating competitor profile: competitor=%s client=%s sector=%s",
-        competitor_name, client_name, sector_context,
+        "Generating competitor profile: competitor=%s client=%s sector=%s notice=%s",
+        competitor_name, client_name, sector_context, notice_id,
     )
 
     data         = _get_competitor_data(competitor_name)
-    h2h          = _get_head_to_head(competitor_name, client_name)
     data_quality = _assess_data_quality(data.get("totals", {}))
 
     logger.info(
@@ -1048,11 +1209,47 @@ def generate_competitor_profile(
         _fmt_value(data_quality["total_value"]), data_quality["last_win_str"],
     )
 
+    # Fix 1: Validate that MBIE results belong to the correct entity (sector coherence)
+    mbie_sectors = data.get("sectors", [])
+    mbie_coherent, mbie_exclusion_warning = _validate_sector_coherence(
+        mbie_sectors, sector_context, data_quality["total_wins"]
+    )
+    mbie_excluded = not mbie_coherent
+    if mbie_excluded:
+        logger.warning(
+            "MBIE sector coherence FAILED for '%s' — excluding MBIE data. %s",
+            competitor_name, mbie_exclusion_warning[:120],
+        )
+        # Clear MBIE data to prevent false statistics appearing in the profile
+        data = {
+            **data,
+            "totals": {},
+            "sectors": [],
+            "agencies": [],
+            "regions": [],
+            "recent": [],
+            "value_dist": {},
+            "by_year": [],
+            "largest_contract": {},
+            "recent5": [],
+        }
+        data_quality = _assess_data_quality({})
+
+    # Fix 4: Check client MBIE records to decide absolute vs relative framing
+    client_has_mbie_data = _client_has_mbie_records(client_name) if not is_demo else True
+
+    # Head-to-head only meaningful when both entities have MBIE data
+    show_h2h = client_has_mbie_data and not mbie_excluded
+    h2h = _get_head_to_head(competitor_name, client_name) if show_h2h else []
+
     analysis = _generate_structured_profile(
         data=data,
         client_name=client_name,
         sector_context=sector_context,
         data_quality=data_quality,
+        extra_docs=extra_docs,
+        client_has_mbie_data=client_has_mbie_data,
+        mbie_excluded=mbie_excluded,
     )
     if not analysis:
         logger.warning("Claude synthesis failed — rendering profile with MBIE data only")
@@ -1064,6 +1261,9 @@ def generate_competitor_profile(
         sector_context=sector_context,
         data_quality=data_quality,
         h2h=h2h,
+        mbie_excluded=mbie_excluded,
+        mbie_exclusion_warning=mbie_exclusion_warning,
+        show_h2h=show_h2h,
     )
 
     if output_dir is None:
