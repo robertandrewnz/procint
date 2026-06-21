@@ -5942,38 +5942,16 @@ def admin_briefs():
 @login_required
 @admin_required
 def admin_pipeline():
-    msg = ""
     if request.method == "POST":
         stage = request.form.get("stage", "")
         _demo_force = request.form.get("force") == "1"
-        print("DEBUG admin_pipeline POST received, stage =", stage, flush=True)
 
-        # ── Diagnostic probe: bare INSERT, no try/except, surfaces 500 on failure ─
-        if stage == "incumbent_all":
-            print("DEBUG incumbent_all branch reached", flush=True)
-            db.execute(
-                "INSERT INTO pipeline_runs "
-                "    (stage, triggered_by, status, finished_at, summary) "
-                "VALUES ('incumbent_all', 'admin_test', 'complete', NOW(), "
-                "        'diagnostic test row — DB write probe')"
-            )
-            msg = (f'<div class="al al-ok">Diagnostic test row written — '
-                   f'check Recent Runs below for an admin_test row.</div>')
-        # ── End diagnostic probe ─────────────────────────────────────────────
-
-        elif stage in ("layer1", "layer2", "ach_enriched", "ach_unprocessed", "watch_brief", "demo_content"):
+        if stage in ("layer1", "layer2", "ach_enriched", "ach_unprocessed",
+                     "incumbent_all", "watch_brief", "demo_content"):
             import threading as _thr
 
-            labels = {
-                "layer1": "Layer 1", "layer2": "Layer 2",
-                "ach_enriched": "ACH (refresh stale)", "ach_unprocessed": "ACH (catch up new)",
-                "incumbent_all": "Incumbent Detection — All Notices",
-                "watch_brief": "Watch Briefs", "demo_content": "Demo Content",
-            }
-
-            # Insert the run record in the main thread BEFORE starting the
-            # background thread so it exists in the DB when the page renders.
-            # This ensures _has_running is True and auto-refresh activates.
+            # Insert pipeline_runs row synchronously so it exists when the
+            # redirect lands and the GET renders Recent Runs.
             _run_id = None
             try:
                 _row = db.fetchone(
@@ -5995,8 +5973,6 @@ def admin_pipeline():
                         summary = "layer1 completed"
                         status = "complete"
                     elif s == "layer2":
-                        # Call layer2_pipeline.main() directly so exceptions propagate
-                        # (scheduler wrapper absorbs them, masking failures as complete)
                         import layer2_pipeline
                         layer2_pipeline.main()
                         summary = "layer2 completed"
@@ -6030,33 +6006,31 @@ def admin_pipeline():
                                 summary = f"Error: {result['error'][:300]}"
                                 status = "failed"
                             else:
-                                gen = result.get("generated", 0)
-                                sent = result.get("sent", 0)
-                                failed = result.get("failed", 0)
+                                gen     = result.get("generated", 0)
+                                sent    = result.get("sent", 0)
+                                failed  = result.get("failed", 0)
                                 skipped = result.get("skipped", 0)
-                                errs = result.get("errors", [])
-                                summary = (f"generated={gen} sent={sent} failed={failed} "
-                                           f"skipped={skipped}")
+                                errs    = result.get("errors", [])
+                                summary = (f"generated={gen} sent={sent} "
+                                           f"failed={failed} skipped={skipped}")
                                 if errs:
                                     summary += f" | {'; '.join(errs[:3])}"
                                 status = "complete" if sent > 0 else (
-                                    "failed" if failed > 0 else "complete"
-                                )
+                                    "failed" if failed > 0 else "complete")
                         else:
                             summary = "watch_brief completed"
                             status = "complete"
                     elif s == "demo_content":
                         from generate_demo_content import main as _gen_demo
-                        stats = _gen_demo(force=_demo_force)
-                        total = stats.get("total", 0)
+                        stats  = _gen_demo(force=_demo_force)
+                        total  = stats.get("total", 0)
                         by_sec = stats.get("by_sector", {})
                         detail = " | ".join(f"{k}:{v}" for k, v in by_sec.items())
-                        summary = f"{total} artefacts across {stats.get('sectors',0)} sectors — {detail}"
+                        summary = (f"{total} artefacts across "
+                                   f"{stats.get('sectors',0)} sectors — {detail}")
                         status = "complete" if total > 0 else "failed"
                         if total == 0:
-                            logger.error(
-                                "demo_content run produced 0 artefacts — check individual sector logs above"
-                            )
+                            logger.error("demo_content produced 0 artefacts")
                 except Exception as exc:
                     summary = str(exc)[:500]
                     status = "failed"
@@ -6065,7 +6039,8 @@ def admin_pipeline():
                     if run_id:
                         try:
                             db.execute(
-                                "UPDATE pipeline_runs SET status=%s, summary=%s, finished_at=NOW() "
+                                "UPDATE pipeline_runs "
+                                "SET status=%s, summary=%s, finished_at=NOW() "
                                 "WHERE id=%s",
                                 (status, summary, run_id),
                             )
@@ -6074,9 +6049,11 @@ def admin_pipeline():
 
             t = _thr.Thread(target=_run_stage, args=(stage, _run_id), daemon=True)
             t.start()
-            msg = (f'<div class="al al-ok" id="pipeline-msg">'
-                   f'<strong>{labels.get(stage, stage)} started</strong> — running in background. '
-                   f'This page will refresh automatically every 15 seconds until complete.</div>')
+            # POST-Redirect-GET: the fresh GET will see the 'running' row
+            # and activate the 15-second auto-refresh.
+            return redirect(url_for("admin_pipeline"))
+
+    msg = ""
 
     # Recent runs
     try:
