@@ -1002,6 +1002,7 @@ def _run_incumbent_detection_for_notice(notice: dict) -> None:
     Never raises — all failures are logged as warnings.
     """
     notice_id = notice.get("notice_id", "?")
+    logger.info("INCUMBENT check: notice %s", notice_id)
 
     try:
         existing = db.fetchone(
@@ -1010,19 +1011,23 @@ def _run_incumbent_detection_for_notice(notice: dict) -> None:
             (notice_id,),
         )
         if existing:
-            logger.debug(
-                "Incumbent already stored for notice %s (%s) — skipping",
+            logger.info(
+                "INCUMBENT skip: notice %s already has %r",
                 notice_id, existing.get("firm_name"),
             )
             return
     except Exception as exc:
-        logger.warning("Incumbent staleness check failed for %s: %s", notice_id, exc)
+        logger.warning("INCUMBENT staleness check failed for %s: %s", notice_id, exc)
         return
 
     agency      = notice.get("agency") or ""
     sector      = notice.get("sector_tag") or "other"
     title       = notice.get("title") or ""
     notice_text = (notice.get("overview_text") or notice.get("description") or "")[:2000]
+    logger.info(
+        "INCUMBENT search: notice %s agency=%r sector=%r title=%r",
+        notice_id, agency, sector, title[:60],
+    )
 
     try:
         from pursuit_package import (
@@ -1032,14 +1037,42 @@ def _run_incumbent_detection_for_notice(notice: dict) -> None:
         )
         incumbent_research = _web_search_incumbent(agency, sector, title, notice_text)
         logger.info(
-            "INCUMBENT (ACH batch) notice %s: %r",
-            notice_id, (incumbent_research or "")[:120],
+            "INCUMBENT raw result notice %s: %r",
+            notice_id, (incumbent_research or "")[:200],
         )
         firm_name = _extract_incumbent_firm_name(incumbent_research or "")
         if firm_name:
-            _store_incumbent_in_bidder_pool(notice_id, firm_name, incumbent_research, sector)
             logger.info(
-                "INCUMBENT stored for notice %s: %s", notice_id, firm_name,
+                "INCUMBENT extracted for notice %s: %r — writing to bidder_pool",
+                notice_id, firm_name,
+            )
+            _store_incumbent_in_bidder_pool(notice_id, firm_name, incumbent_research, sector)
+            # Confirm the row actually landed
+            try:
+                stored = db.fetchone(
+                    "SELECT firm_name FROM bidder_pool "
+                    "WHERE notice_id = %s AND match_type = 'incumbent_identified' LIMIT 1",
+                    (notice_id,),
+                )
+                if stored:
+                    logger.info(
+                        "INCUMBENT DB confirmed: notice %s → %r stored OK",
+                        notice_id, firm_name,
+                    )
+                else:
+                    logger.warning(
+                        "INCUMBENT DB MISS: notice %s — _store_incumbent_in_bidder_pool "
+                        "ran without error but row not found in DB after write",
+                        notice_id,
+                    )
+            except Exception as verify_exc:
+                logger.warning(
+                    "INCUMBENT DB verify failed for %s: %s", notice_id, verify_exc,
+                )
+        else:
+            logger.info(
+                "INCUMBENT: no named incumbent extracted for notice %s — result: %r",
+                notice_id, (incumbent_research or "")[:120],
             )
     except Exception as exc:
         logger.warning(

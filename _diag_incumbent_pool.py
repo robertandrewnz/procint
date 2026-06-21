@@ -1,10 +1,13 @@
 """
-Diagnostic: bidder_pool rows for a given notice, plus incumbent search dry-run.
+Diagnostic: bidder_pool rows for a given notice, plus incumbent search.
 
 Usage:
-    railway run python3 _diag_incumbent_pool.py [notice_id]
+    railway run python3 _diag_incumbent_pool.py [notice_id] [--store]
 
 Default notice: 34279032
+
+Flags:
+    --store   Actually write the incumbent to bidder_pool (default: dry-run only)
 """
 import sys
 import logging
@@ -13,7 +16,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(
 
 import db
 
-NOTICE_ID = sys.argv[1] if len(sys.argv) > 1 else "34279032"
+args = sys.argv[1:]
+STORE = "--store" in args
+args = [a for a in args if not a.startswith("--")]
+NOTICE_ID = args[0] if args else "34279032"
+
 DIVIDER = "\n" + "=" * 72 + "\n"
 
 
@@ -83,19 +90,20 @@ print()
 print(f"  → match_type='incumbent_identified' rows: {len(incumbent_rows)}")
 
 
-# ── 3. Dry-run incumbent web search ──────────────────────────────────────────
-section("3. Dry-run _web_search_incumbent()")
+# ── 3. Incumbent web search ───────────────────────────────────────────────────
+mode = "STORING to DB" if STORE else "DRY-RUN (pass --store to write to DB)"
+section(f"3. _web_search_incumbent()  [{mode}]")
 
-agency      = row.get("agency") or ""
-sector      = row.get("sector_tag") or "other"
-title       = row.get("title") or ""
+agency            = row.get("agency") or ""
+sector            = row.get("sector_tag") or "other"
+title             = row.get("title") or ""
 notice_text_trunc = (row.get("overview_text") or row.get("description") or "")[:2000]
 
 print(f"  Inputs:")
-print(f"    agency:  {agency!r}")
-print(f"    sector:  {sector!r}")
-print(f"    title:   {title!r}")
-print(f"    text len:{len(notice_text_trunc)} chars")
+print(f"    agency:   {agency!r}")
+print(f"    sector:   {sector!r}")
+print(f"    title:    {title!r}")
+print(f"    text len: {len(notice_text_trunc)} chars")
 print()
 print("  Running _web_search_incumbent() — this may take 30-60 seconds ...")
 print()
@@ -118,14 +126,37 @@ try:
     print(f"  _extract_incumbent_firm_name → {firm_name!r}")
 
     if firm_name:
-        print()
-        print("  Would store in bidder_pool — NOT storing (diagnostic only).")
+        if STORE:
+            print()
+            print(f"  --store flag set — writing {firm_name!r} to bidder_pool ...")
+            try:
+                _store_incumbent_in_bidder_pool(NOTICE_ID, firm_name, result or "", sector)
+                # Confirm write
+                stored = db.fetchone(
+                    "SELECT firm_name, match_type, relevance_score FROM bidder_pool "
+                    "WHERE notice_id = %s AND match_type = 'incumbent_identified' LIMIT 1",
+                    (NOTICE_ID,),
+                )
+                if stored:
+                    print(f"  ✓ DB confirmed: {stored['firm_name']} stored with "
+                          f"match_type={stored['match_type']} score={stored['relevance_score']}")
+                else:
+                    print("  ✗ DB MISS: _store_incumbent_in_bidder_pool ran but row not found after write")
+                    print("    Check whether the ON CONFLICT clause silently prevented insert.")
+            except Exception as store_exc:
+                print(f"  ✗ Store raised: {store_exc}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print()
+            print(f"  Dry-run: would store {firm_name!r} — re-run with --store to write.")
     else:
         print()
-        if result and result.startswith("Named incumbent:"):
-            print("  Result starts with 'Named incumbent:' but _extract failed — regex issue?")
-        elif result and "No named incumbent" in result:
-            print("  No named incumbent found — Format C response. Nothing would be stored.")
+        if result and "No named incumbent" in result:
+            print("  No named incumbent found — Format C response. Nothing to store.")
+        elif result and "Named Incumbent:" in result or result and "Named incumbent:" in result:
+            print("  WARNING: result contains 'Named incumbent:' but extraction returned None.")
+            print("  Check _extract_incumbent_firm_name logic.")
         else:
             print("  Unexpected result format — check raw result above.")
 
