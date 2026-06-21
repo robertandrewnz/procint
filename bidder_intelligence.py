@@ -994,14 +994,42 @@ def store_ach_results(notice_id: str, bidders: list[dict]) -> None:
         logger.error("store_ach_results failed for %s: %s", notice_id, exc)
 
 
+def _log_incumbent_detection(
+    notice_id: str,
+    agency: str,
+    title: str,
+    firm_found: "str | None",
+    stored: bool,
+    error_message: "str | None" = None,
+) -> None:
+    """Write one row to incumbent_detection_log. Never raises."""
+    try:
+        db.execute(
+            """
+            INSERT INTO incumbent_detection_log
+                (notice_id, agency, title, firm_found, stored, error_message)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (notice_id, agency[:200] if agency else None,
+             title[:300] if title else None,
+             firm_found, stored,
+             error_message[:500] if error_message else None),
+        )
+    except Exception as log_exc:
+        logger.warning("incumbent_detection_log write failed: %s", log_exc)
+
+
 def _run_incumbent_detection_for_notice(notice: dict) -> None:
     """
     Run incumbent web search and store result in bidder_pool.
     Called after store_ach_results() in both ACH batch runners.
     Skips silently if an incumbent_identified row already exists.
-    Never raises — all failures are logged as warnings.
+    Never raises — all failures are logged as warnings and written to
+    incumbent_detection_log for post-hoc diagnosis.
     """
     notice_id = notice.get("notice_id", "?")
+    agency    = notice.get("agency") or ""
+    title     = notice.get("title") or ""
     logger.info("INCUMBENT check: notice %s", notice_id)
 
     try:
@@ -1018,16 +1046,20 @@ def _run_incumbent_detection_for_notice(notice: dict) -> None:
             return
     except Exception as exc:
         logger.warning("INCUMBENT staleness check failed for %s: %s", notice_id, exc)
+        _log_incumbent_detection(notice_id, agency, title, None, False,
+                                 f"staleness check failed: {exc}")
         return
 
-    agency      = notice.get("agency") or ""
     sector      = notice.get("sector_tag") or "other"
-    title       = notice.get("title") or ""
     notice_text = (notice.get("overview_text") or notice.get("description") or "")[:2000]
     logger.info(
         "INCUMBENT search: notice %s agency=%r sector=%r title=%r",
         notice_id, agency, sector, title[:60],
     )
+
+    firm_name  = None
+    stored_ok  = False
+    error_msg  = None
 
     try:
         from pursuit_package import (
@@ -1049,35 +1081,37 @@ def _run_incumbent_detection_for_notice(notice: dict) -> None:
             _store_incumbent_in_bidder_pool(notice_id, firm_name, incumbent_research, sector)
             # Confirm the row actually landed
             try:
-                stored = db.fetchone(
+                verified = db.fetchone(
                     "SELECT firm_name FROM bidder_pool "
                     "WHERE notice_id = %s AND match_type = 'incumbent_identified' LIMIT 1",
                     (notice_id,),
                 )
-                if stored:
+                if verified:
+                    stored_ok = True
                     logger.info(
                         "INCUMBENT DB confirmed: notice %s → %r stored OK",
                         notice_id, firm_name,
                     )
                 else:
+                    error_msg = "store ran without error but row missing after write"
                     logger.warning(
-                        "INCUMBENT DB MISS: notice %s — _store_incumbent_in_bidder_pool "
-                        "ran without error but row not found in DB after write",
-                        notice_id,
+                        "INCUMBENT DB MISS: notice %s — %s", notice_id, error_msg,
                     )
             except Exception as verify_exc:
-                logger.warning(
-                    "INCUMBENT DB verify failed for %s: %s", notice_id, verify_exc,
-                )
+                error_msg = f"DB verify failed: {verify_exc}"
+                logger.warning("INCUMBENT DB verify failed for %s: %s", notice_id, verify_exc)
         else:
             logger.info(
                 "INCUMBENT: no named incumbent extracted for notice %s — result: %r",
                 notice_id, (incumbent_research or "")[:120],
             )
     except Exception as exc:
+        error_msg = str(exc)
         logger.warning(
             "_run_incumbent_detection_for_notice failed for %s: %s", notice_id, exc,
         )
+    finally:
+        _log_incumbent_detection(notice_id, agency, title, firm_name, stored_ok, error_msg)
 
 
 # ── Batch runner ───────────────────────────────────────────────────────────────

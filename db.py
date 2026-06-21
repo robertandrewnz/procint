@@ -186,6 +186,21 @@ CREATE INDEX IF NOT EXISTS idx_package_documents_notice
     ON package_documents (notice_id);
 CREATE INDEX IF NOT EXISTS idx_package_documents_client
     ON package_documents (client_slug, notice_id);
+
+CREATE TABLE IF NOT EXISTS incumbent_detection_log (
+    id            SERIAL PRIMARY KEY,
+    notice_id     TEXT        NOT NULL,
+    agency        TEXT,
+    title         TEXT,
+    firm_found    TEXT,
+    stored        BOOLEAN     NOT NULL DEFAULT FALSE,
+    error_message TEXT,
+    run_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_incumbent_log_notice
+    ON incumbent_detection_log (notice_id, run_at DESC);
+CREATE INDEX IF NOT EXISTS idx_incumbent_log_run_at
+    ON incumbent_detection_log (run_at DESC);
 """
 
 
