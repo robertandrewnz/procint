@@ -5943,7 +5943,7 @@ def admin_pipeline():
     if request.method == "POST":
         stage = request.form.get("stage", "")
         _demo_force = request.form.get("force") == "1"
-        if stage in ("layer1", "layer2", "ach_enriched", "ach_unprocessed", "watch_brief", "demo_content"):
+        if stage in ("layer1", "layer2", "ach_enriched", "ach_unprocessed", "incumbent_all", "watch_brief", "demo_content"):
             import threading as _thr
 
             def _run_stage(s):
@@ -5983,6 +5983,14 @@ def admin_pipeline():
                         from bidder_intelligence import run_ach_for_unprocessed
                         counts = run_ach_for_unprocessed()
                         summary = (f"processed={counts.get('processed',0)} "
+                                   f"failed={counts.get('failed',0)}")
+                        status = "complete"
+                    elif s == "incumbent_all":
+                        from bidder_intelligence import run_incumbent_detection_all
+                        counts = run_incumbent_detection_all()
+                        summary = (f"run={counts.get('run',0)} "
+                                   f"stored={counts.get('stored',0)} "
+                                   f"skipped={counts.get('skipped',0)} "
                                    f"failed={counts.get('failed',0)}")
                         status = "complete"
                     elif s == "watch_brief":
@@ -6040,6 +6048,7 @@ def admin_pipeline():
             labels = {
                 "layer1": "Layer 1", "layer2": "Layer 2",
                 "ach_enriched": "ACH (refresh stale)", "ach_unprocessed": "ACH (catch up new)",
+                "incumbent_all": "Incumbent Detection — All Notices",
                 "watch_brief": "Watch Briefs", "demo_content": "Demo Content",
             }
             msg = (f'<div class="al al-ok" id="pipeline-msg">'
@@ -6152,11 +6161,15 @@ def admin_pipeline():
         f'<div class="cb" style="display:flex;gap:1rem;flex-wrap:wrap;padding-bottom:.5rem;">'
         f'{_trigger_btn("ach_enriched", "🔍 ACH — Refresh stale", "bg-out")}'
         f'{_trigger_btn("ach_unprocessed", "🔍 ACH — Catch up new notices", "bg-out")}'
+        f'{_trigger_btn("incumbent_all", "🏷 Incumbent Detection — All Notices", "bg-out")}'
         f'</div>'
         f'<div style="padding:.25rem 1.25rem .75rem;font-size:.78rem;color:var(--muted);">'
         f'<strong>Refresh stale</strong> — Re-runs ACH for all enriched notices where results are outdated. '
-        f'Also runs incumbent detection per notice and stores result in bidder_pool.<br>'
-        f'<strong>Catch up new</strong> — Runs ACH only for notices that have zero ach_analysis rows yet.'
+        f'Also runs incumbent detection per notice.<br>'
+        f'<strong>Catch up new</strong> — Runs ACH only for notices that have zero ach_analysis rows yet.<br>'
+        f'<strong>Incumbent Detection — All Notices</strong> — Runs incumbent web search independently '
+        f'of ACH for every notice in the watchlist. Skips notices that already have an '
+        f'incumbent_identified row. Use this when ACH has already run but incumbents are missing.'
         f'</div></div>'
         f'<div class="card" style="margin-bottom:1.5rem;">'
         f'<div class="ch"><span class="ct">Watch Briefs &amp; Demo Content</span></div>'

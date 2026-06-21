@@ -1216,6 +1216,95 @@ def run_ach_for_unprocessed(batch_size: int = 5, delay: float = 15.0) -> dict:
     return counts
 
 
+def run_incumbent_detection_all(force: bool = False) -> dict:
+    """
+    Run incumbent web search for every notice in the watchlist, independent
+    of ACH status.  Existing incumbent_identified rows are skipped unless
+    force=True (which deletes them first so the search re-runs).
+
+    Returns: {"run": int, "skipped": int, "stored": int, "failed": int}
+    """
+    import time as _time
+
+    rows = db.fetchall(
+        """
+        SELECT e.notice_id, r.title, r.agency, r.description,
+               r.overview_text, p.sector_tag
+          FROM enriched_notices e
+          JOIN raw_notices   r ON r.notice_id = e.notice_id
+          JOIN parsed_notices p ON p.notice_id = e.notice_id
+         ORDER BY e.enriched_at DESC
+        """
+    )
+
+    total = len(rows)
+    logger.info("INCUMBENT ALL: %d notices to check", total)
+
+    counts = {"run": 0, "skipped": 0, "stored": 0, "failed": 0}
+
+    for row in rows:
+        nid = row["notice_id"]
+
+        if force:
+            try:
+                db.execute(
+                    "DELETE FROM bidder_pool "
+                    "WHERE notice_id = %s AND match_type = 'incumbent_identified'",
+                    (nid,),
+                )
+            except Exception as exc:
+                logger.warning("INCUMBENT ALL: delete failed for %s: %s", nid, exc)
+
+        # Check before calling the inner function so we can track skipped count
+        try:
+            existing = db.fetchone(
+                "SELECT firm_name FROM bidder_pool "
+                "WHERE notice_id = %s AND match_type = 'incumbent_identified' LIMIT 1",
+                (nid,),
+            )
+            if existing:
+                counts["skipped"] += 1
+                continue
+        except Exception as exc:
+            logger.warning("INCUMBENT ALL: staleness check failed for %s: %s", nid, exc)
+            counts["failed"] += 1
+            continue
+
+        notice = {
+            "notice_id":     nid,
+            "title":         row.get("title") or "",
+            "agency":        row.get("agency") or "",
+            "description":   row.get("description") or "",
+            "overview_text": row.get("overview_text") or "",
+            "sector_tag":    row.get("sector_tag") or "other",
+        }
+
+        pre_count = counts["stored"]
+        _run_incumbent_detection_for_notice(notice)
+        counts["run"] += 1
+
+        # Check if a row was actually stored
+        try:
+            stored = db.fetchone(
+                "SELECT firm_name FROM bidder_pool "
+                "WHERE notice_id = %s AND match_type = 'incumbent_identified' LIMIT 1",
+                (nid,),
+            )
+            if stored:
+                counts["stored"] += 1
+        except Exception:
+            pass
+
+        # Throttle slightly to avoid hammering the web search API
+        _time.sleep(2)
+
+    logger.info(
+        "INCUMBENT ALL complete — run=%d skipped=%d stored=%d failed=%d total=%d",
+        counts["run"], counts["skipped"], counts["stored"], counts["failed"], total,
+    )
+    return counts
+
+
 # ── Rendering ──────────────────────────────────────────────────────────────────
 
 def _parse_conf_str(conf_str: str) -> tuple[str, int]:
