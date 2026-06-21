@@ -5947,28 +5947,16 @@ def admin_pipeline():
         stage = request.form.get("stage", "")
         _demo_force = request.form.get("force") == "1"
 
-        # ── Diagnostic probe: verify DB write + Recent Runs display ──────────
-        # When the Incumbent Detection button is clicked, write a test row
-        # and redirect. If the row appears in Recent Runs the DB and display
-        # work and the problem is thread-timing. Remove this block once confirmed.
+        # ── Diagnostic probe: bare INSERT, no try/except, surfaces 500 on failure ─
         if stage == "incumbent_all":
-            _diag_err = None
-            try:
-                db.execute(
-                    "INSERT INTO pipeline_runs "
-                    "    (stage, triggered_by, status, finished_at, summary) "
-                    "VALUES ('incumbent_all', 'admin_test', 'complete', NOW(), "
-                    "        'diagnostic test row — DB write probe')"
-                )
-            except Exception as _de:
-                _diag_err = str(_de)
-                logger.error("pipeline_runs diagnostic INSERT failed: %s", _de)
-            if _diag_err:
-                msg = (f'<div class="al al-er">Diagnostic INSERT failed: {_diag_err}</div>')
-            else:
-                msg = (f'<div class="al al-ok">Diagnostic test row written — '
-                       f'check Recent Runs below for an admin_test row.</div>')
-            # Fall through to page render (no redirect) so Recent Runs reloads.
+            db.execute(
+                "INSERT INTO pipeline_runs "
+                "    (stage, triggered_by, status, finished_at, summary) "
+                "VALUES ('incumbent_all', 'admin_test', 'complete', NOW(), "
+                "        'diagnostic test row — DB write probe')"
+            )
+            msg = (f'<div class="al al-ok">Diagnostic test row written — '
+                   f'check Recent Runs below for an admin_test row.</div>')
         # ── End diagnostic probe ─────────────────────────────────────────────
 
         elif stage in ("layer1", "layer2", "ach_enriched", "ach_unprocessed", "watch_brief", "demo_content"):
