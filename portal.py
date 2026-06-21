@@ -5949,19 +5949,30 @@ def admin_pipeline():
         if stage in ("layer1", "layer2", "ach_enriched", "ach_unprocessed", "incumbent_all", "watch_brief", "demo_content"):
             import threading as _thr
 
-            def _run_stage(s):
-                run_id = None
+            labels = {
+                "layer1": "Layer 1", "layer2": "Layer 2",
+                "ach_enriched": "ACH (refresh stale)", "ach_unprocessed": "ACH (catch up new)",
+                "incumbent_all": "Incumbent Detection — All Notices",
+                "watch_brief": "Watch Briefs", "demo_content": "Demo Content",
+            }
+
+            # Insert the run record in the main thread BEFORE starting the
+            # background thread so it exists in the DB when the page renders.
+            # This ensures _has_running is True and auto-refresh activates.
+            _run_id = None
+            try:
+                _row = db.fetchone(
+                    "INSERT INTO pipeline_runs (stage, triggered_by, status) "
+                    "VALUES (%s, 'admin', 'running') RETURNING id",
+                    (stage,),
+                )
+                _run_id = _row["id"] if _row else None
+            except Exception as _e:
+                logger.warning("pipeline_runs INSERT failed: %s", _e)
+
+            def _run_stage(s, run_id):
                 summary = ""
                 status = "failed"
-                try:
-                    row = db.fetchone(
-                        "INSERT INTO pipeline_runs (stage, triggered_by, status) "
-                        "VALUES (%s, 'admin', 'running') RETURNING id",
-                        (s,),
-                    )
-                    run_id = row["id"] if row else None
-                except Exception as _e:
-                    logger.warning("pipeline_runs INSERT failed: %s", _e)
                 try:
                     if s == "layer1":
                         from scheduler_railway import _run_layer1
@@ -6046,14 +6057,8 @@ def admin_pipeline():
                         except Exception as _e:
                             logger.warning("pipeline_runs UPDATE failed: %s", _e)
 
-            t = _thr.Thread(target=_run_stage, args=(stage,), daemon=True)
+            t = _thr.Thread(target=_run_stage, args=(stage, _run_id), daemon=True)
             t.start()
-            labels = {
-                "layer1": "Layer 1", "layer2": "Layer 2",
-                "ach_enriched": "ACH (refresh stale)", "ach_unprocessed": "ACH (catch up new)",
-                "incumbent_all": "Incumbent Detection — All Notices",
-                "watch_brief": "Watch Briefs", "demo_content": "Demo Content",
-            }
             msg = (f'<div class="al al-ok" id="pipeline-msg">'
                    f'<strong>{labels.get(stage, stage)} started</strong> — running in background. '
                    f'This page will refresh automatically every 15 seconds until complete.</div>')
@@ -6075,13 +6080,22 @@ def admin_pipeline():
 
     run_rows = ""
     for r in runs:
-        sc = STATUS_CSS.get(r.get("status",""), "")
-        ts = str(r.get("started_at") or "")[:16]
-        ft = str(r.get("finished_at") or "")[:16] or "—"
+        sc  = STATUS_CSS.get(r.get("status",""), "")
+        ts  = str(r.get("started_at") or "")[:16]
+        ft  = str(r.get("finished_at") or "")[:16] or "—"
+        is_admin = r.get("triggered_by") == "admin"
+        row_bg   = "background:rgba(42,157,143,.06);" if is_admin else ""
+        src_badge = (
+            '<span style="font-size:.6rem;font-weight:700;letter-spacing:.05em;'
+            'padding:.1rem .4rem;border-radius:3px;background:rgba(42,157,143,.2);'
+            'color:#2a9d8f;white-space:nowrap;">ADMIN</span>'
+            if is_admin else
+            '<span style="font-size:.6rem;color:var(--muted);">sched</span>'
+        )
         run_rows += (
-            f'<tr>'
+            f'<tr style="{row_bg}">'
             f'<td style="font-size:.78rem;">{r.get("stage","")}</td>'
-            f'<td style="font-size:.72rem;color:var(--muted);">{r.get("triggered_by","")}</td>'
+            f'<td style="font-size:.72rem;">{src_badge}</td>'
             f'<td style="font-size:.72rem;color:var(--muted);white-space:nowrap;">{ts}</td>'
             f'<td style="font-size:.72rem;color:var(--muted);white-space:nowrap;">{ft}</td>'
             f'<td style="font-size:.75rem;{sc}">{(r.get("status") or "").title()}</td>'
