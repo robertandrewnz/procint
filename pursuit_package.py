@@ -823,12 +823,15 @@ def _web_search_incumbent(
 
 
 def _extract_incumbent_firm_name(incumbent_research: str) -> Optional[str]:
-    if "Named incumbent:" not in incumbent_research:
+    if not incumbent_research:
         return None
-    m = re.search(r"Named incumbent:\s*([^—\-\n|]+)", incumbent_research)
-    if not m:
-        return None
-    return m.group(1).strip() or None
+    for line in incumbent_research.splitlines():
+        if "Named incumbent:" in line:
+            part = line.split("Named incumbent:", 1)[1]
+            name = part.split("—")[0].split("–")[0].split("-")[0].split("|")[0].split("(")[0].strip()
+            if name and len(name) > 1:
+                return name
+    return None
 
 
 def _store_incumbent_in_bidder_pool(notice_id: str, firm_name: str, evidence: str, sector: str) -> None:
