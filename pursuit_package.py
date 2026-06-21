@@ -823,9 +823,9 @@ def _web_search_incumbent(
 
 
 def _extract_incumbent_firm_name(incumbent_research: str) -> Optional[str]:
-    if not incumbent_research.startswith("Named incumbent:"):
+    if "Named incumbent:" not in incumbent_research:
         return None
-    m = re.match(r"Named incumbent:\s*([^—\-]+)", incumbent_research)
+    m = re.search(r"Named incumbent:\s*([^—\-\n|]+)", incumbent_research)
     if not m:
         return None
     return m.group(1).strip() or None
