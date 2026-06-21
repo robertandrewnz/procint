@@ -5943,11 +5943,13 @@ def admin_pipeline():
     if request.method == "POST":
         stage = request.form.get("stage", "")
         _demo_force = request.form.get("force") == "1"
-        if stage in ("layer1", "layer2", "watch_brief", "demo_content"):
+        if stage in ("layer1", "layer2", "ach_enriched", "ach_unprocessed", "watch_brief", "demo_content"):
             import threading as _thr
 
             def _run_stage(s):
                 run_id = None
+                summary = ""
+                status = "failed"
                 try:
                     row = db.fetchone(
                         "INSERT INTO pipeline_runs (stage, triggered_by, status) "
@@ -5958,26 +5960,35 @@ def admin_pipeline():
                 except Exception as _e:
                     logger.warning("pipeline_runs INSERT failed: %s", _e)
                 try:
-                    if s == "demo_content":
-                        from generate_demo_content import main as _gen_demo
-                        stats = _gen_demo(force=_demo_force)
-                        total = stats.get("total", 0)
-                        by_sec = stats.get("by_sector", {})
-                        detail = " | ".join(
-                            f"{k}:{v}" for k, v in by_sec.items()
-                        )
-                        summary = f"{total} artefacts across {stats.get('sectors',0)} sectors — {detail}"
-                        status = "complete" if total > 0 else "failed"
-                        if total == 0:
-                            logger.error(
-                                "demo_content run produced 0 artefacts — check individual sector logs above"
-                            )
-                    else:
-                        from scheduler_railway import _run_layer1, _run_layer2, _run_watch_brief
-                        result = {"layer1": _run_layer1, "layer2": _run_layer2,
-                                  "watch_brief": _run_watch_brief}[s]()
-                        # For watch_brief, result is a stats dict — build a meaningful summary
-                        if s == "watch_brief" and isinstance(result, dict):
+                    if s == "layer1":
+                        from scheduler_railway import _run_layer1
+                        _run_layer1()
+                        summary = "layer1 completed"
+                        status = "complete"
+                    elif s == "layer2":
+                        # Call layer2_pipeline.main() directly so exceptions propagate
+                        # (scheduler wrapper absorbs them, masking failures as complete)
+                        import layer2_pipeline
+                        layer2_pipeline.main()
+                        summary = "layer2 completed"
+                        status = "complete"
+                    elif s == "ach_enriched":
+                        from bidder_intelligence import run_ach_for_enriched
+                        counts = run_ach_for_enriched()
+                        summary = (f"processed={counts.get('processed',0)} "
+                                   f"skipped={counts.get('skipped',0)} "
+                                   f"failed={counts.get('failed',0)}")
+                        status = "complete"
+                    elif s == "ach_unprocessed":
+                        from bidder_intelligence import run_ach_for_unprocessed
+                        counts = run_ach_for_unprocessed()
+                        summary = (f"processed={counts.get('processed',0)} "
+                                   f"failed={counts.get('failed',0)}")
+                        status = "complete"
+                    elif s == "watch_brief":
+                        from scheduler_railway import _run_watch_brief
+                        result = _run_watch_brief()
+                        if isinstance(result, dict):
                             if result.get("error"):
                                 summary = f"Error: {result['error'][:300]}"
                                 status = "failed"
@@ -5991,33 +6002,49 @@ def admin_pipeline():
                                            f"skipped={skipped}")
                                 if errs:
                                     summary += f" | {'; '.join(errs[:3])}"
-                                # Mark as failed if emails were attempted but all failed
                                 status = "complete" if sent > 0 else (
                                     "failed" if failed > 0 else "complete"
                                 )
                         else:
-                            summary = f"{s} completed successfully"
+                            summary = "watch_brief completed"
                             status = "complete"
+                    elif s == "demo_content":
+                        from generate_demo_content import main as _gen_demo
+                        stats = _gen_demo(force=_demo_force)
+                        total = stats.get("total", 0)
+                        by_sec = stats.get("by_sector", {})
+                        detail = " | ".join(f"{k}:{v}" for k, v in by_sec.items())
+                        summary = f"{total} artefacts across {stats.get('sectors',0)} sectors — {detail}"
+                        status = "complete" if total > 0 else "failed"
+                        if total == 0:
+                            logger.error(
+                                "demo_content run produced 0 artefacts — check individual sector logs above"
+                            )
                 except Exception as exc:
                     summary = str(exc)[:500]
                     status = "failed"
                     logger.exception("_run_stage %s failed: %s", s, exc)
-                if run_id:
-                    try:
-                        db.execute(
-                            "UPDATE pipeline_runs SET status=%s, summary=%s, finished_at=NOW() "
-                            "WHERE id=%s",
-                            (status, summary, run_id),
-                        )
-                    except Exception as _e:
-                        logger.warning("pipeline_runs UPDATE failed: %s", _e)
+                finally:
+                    if run_id:
+                        try:
+                            db.execute(
+                                "UPDATE pipeline_runs SET status=%s, summary=%s, finished_at=NOW() "
+                                "WHERE id=%s",
+                                (status, summary, run_id),
+                            )
+                        except Exception as _e:
+                            logger.warning("pipeline_runs UPDATE failed: %s", _e)
 
             t = _thr.Thread(target=_run_stage, args=(stage,), daemon=True)
             t.start()
-            labels = {"layer1": "Layer 1", "layer2": "Layer 2", "watch_brief": "Watch Briefs",
-                      "demo_content": "Demo Content"}
-            msg = (f'<div class="al al-ok">{labels[stage]} started in background — '
-                   f'check Railway logs or refresh this page in a minute.</div>')
+            labels = {
+                "layer1": "Layer 1", "layer2": "Layer 2",
+                "ach_enriched": "ACH (refresh stale)", "ach_unprocessed": "ACH (catch up new)",
+                "watch_brief": "Watch Briefs", "demo_content": "Demo Content",
+            }
+            msg = (f'<div class="al al-ok" id="pipeline-msg">'
+                   f'<strong>{labels.get(stage, stage)} started</strong> — running in background. '
+                   f'This page will refresh automatically every 15 seconds until complete.</div>')
 
     # Recent runs
     try:
@@ -6097,16 +6124,43 @@ def admin_pipeline():
             f'{label}</button></form>'
         )
 
+    _has_running = any(r.get("status") == "running" for r in runs)
+    _autorefresh = (
+        '<script>setTimeout(function(){location.reload();}, 15000);</script>'
+        if _has_running else ""
+    )
+
     body = (
+        f'{_autorefresh}'
         f'<div class="ptitle">Pipeline Control</div>'
-        f'<div class="psub">Trigger pipeline stages manually. Jobs run in a background thread.</div>'
+        f'<div class="psub">Trigger pipeline stages manually. Jobs run in a background thread. '
+        f'Page auto-refreshes every 15 s while a job is running.</div>'
         f'{_resend_warn}'
         f'{msg}'
         f'<div class="card" style="margin-bottom:1.5rem;">'
-        f'<div class="ch"><span class="ct">Manual Triggers</span></div>'
-        f'<div class="cb" style="display:flex;gap:1rem;flex-wrap:wrap;">'
+        f'<div class="ch"><span class="ct">Layer 1 &amp; Layer 2</span></div>'
+        f'<div class="cb" style="display:flex;gap:1rem;flex-wrap:wrap;padding-bottom:.5rem;">'
         f'{_trigger_btn("layer1", "⚙ Run Layer 1 now")}'
         f'{_trigger_btn("layer2", "🛰 Run Layer 2 now", "bg-out")}'
+        f'</div>'
+        f'<div style="padding:.25rem 1.25rem .75rem;font-size:.78rem;color:var(--muted);">'
+        f'<strong>Layer 1</strong> — GETS ingest → parse → score → enrich → output<br>'
+        f'<strong>Layer 2</strong> — Awards ingestion → org profiles → pattern detection → MI'
+        f'</div></div>'
+        f'<div class="card" style="margin-bottom:1.5rem;">'
+        f'<div class="ch"><span class="ct">ACH Bidder Intelligence</span></div>'
+        f'<div class="cb" style="display:flex;gap:1rem;flex-wrap:wrap;padding-bottom:.5rem;">'
+        f'{_trigger_btn("ach_enriched", "🔍 ACH — Refresh stale", "bg-out")}'
+        f'{_trigger_btn("ach_unprocessed", "🔍 ACH — Catch up new notices", "bg-out")}'
+        f'</div>'
+        f'<div style="padding:.25rem 1.25rem .75rem;font-size:.78rem;color:var(--muted);">'
+        f'<strong>Refresh stale</strong> — Re-runs ACH for all enriched notices where results are outdated. '
+        f'Also runs incumbent detection per notice and stores result in bidder_pool.<br>'
+        f'<strong>Catch up new</strong> — Runs ACH only for notices that have zero ach_analysis rows yet.'
+        f'</div></div>'
+        f'<div class="card" style="margin-bottom:1.5rem;">'
+        f'<div class="ch"><span class="ct">Watch Briefs &amp; Demo Content</span></div>'
+        f'<div class="cb" style="display:flex;gap:1rem;flex-wrap:wrap;padding-bottom:.5rem;">'
         f'{_trigger_btn("watch_brief", "📬 Generate Watch Briefs now", "bg-out")}'
         f'<form method="POST" style="display:inline;">'
         f'<input type="hidden" name="stage" value="demo_content">'
@@ -6116,10 +6170,7 @@ def admin_pipeline():
         f'this.textContent=\'Starting…\';this.disabled=true;">'
         f'🎬 Regenerate Demo Content</button></form>'
         f'</div>'
-        f'<div style="padding:.75rem 1.25rem 1rem;font-size:.78rem;color:var(--muted);'
-        f'line-height:1.6;">'
-        f'<strong>Layer 1</strong> — GETS ingest → parse → score → enrich → bidders → output<br>'
-        f'<strong>Layer 2</strong> — Awards ingestion → org profiles → pattern detection → MI<br>'
+        f'<div style="padding:.25rem 1.25rem .75rem;font-size:.78rem;color:var(--muted);">'
         f'<strong>Watch Briefs</strong> — Generate and email brief to all active clients<br>'
         f'<strong>Demo Content</strong> — Generate 3 artefacts × 7 sectors for the public /demo page'
         f'</div></div>'
@@ -6129,7 +6180,9 @@ def admin_pipeline():
         f'{_demo_db_info}'
         f'</div></div>'
         f'<div class="card">'
-        f'<div class="ch"><span class="ct">Recent Runs</span></div>'
+        f'<div class="ch"><span class="ct">Recent Runs</span>'
+        f'{"<span style=color:#60a5fa;font-size:.75rem;margin-left:.75rem;>● Running — page refreshing every 15 s</span>" if _has_running else ""}'
+        f'</div>'
         f'<div style="overflow-x:auto;">'
         f'<table class="dt"><thead><tr>'
         f'<th>Stage</th><th>Triggered by</th><th>Started</th><th>Finished</th>'
