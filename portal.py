@@ -5946,9 +5946,11 @@ def admin_pipeline():
     if request.method == "POST":
         stage = request.form.get("stage", "")
         _demo_force = request.form.get("force") == "1"
+        print("DEBUG admin_pipeline POST received, stage =", stage, flush=True)
 
         # ── Diagnostic probe: bare INSERT, no try/except, surfaces 500 on failure ─
         if stage == "incumbent_all":
+            print("DEBUG incumbent_all branch reached", flush=True)
             db.execute(
                 "INSERT INTO pipeline_runs "
                 "    (stage, triggered_by, status, finished_at, summary) "
