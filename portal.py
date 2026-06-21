@@ -3920,9 +3920,9 @@ function wlClearSearch(){
                  WHERE b.notice_id IN ({placeholders})
                  ORDER BY b.notice_id,
                           CASE b.match_type
-                               WHEN 'ach_analysis' THEN 0
                                WHEN 'incumbent_identified' THEN 0
-                               ELSE 1 END,
+                               WHEN 'ach_analysis' THEN 1
+                               ELSE 2 END,
                           b.relevance_score DESC NULLS LAST
                 """,
                 tuple(notice_ids),
@@ -3943,12 +3943,15 @@ function wlClearSearch(){
                 grouped[row["notice_id"]].append(dict(row))
             from bidder_intelligence import _ach_relevance_gate
             for nid, rows in grouped.items():
+                # Separate incumbent rows — always shown first regardless of path
+                incumbent_rows = [r for r in rows if r.get("match_type") == "incumbent_identified"]
                 # If this notice has ACH rows, gate them before use
                 ach_rows = [r for r in rows if r.get("match_type") == "ach_analysis"]
                 if ach_rows:
                     notice_title_for_gate = (notice_ctx_map.get(nid) or {}).get("title") or ""
                     if _ach_relevance_gate(ach_rows, notice_title_for_gate):
-                        bidders_by_notice[nid] = ach_rows[:3]
+                        combined = incumbent_rows + ach_rows
+                        bidders_by_notice[nid] = combined[:config.TOP_N_BIDDERS_PER_NOTICE]
                         continue
                     # Gate failed — strip ACH rows (stored with empty sector, bypass
                     # exclusion logic) and fall through to Pipeline A rows only
