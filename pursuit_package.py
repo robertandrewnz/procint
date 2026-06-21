@@ -826,8 +826,9 @@ def _extract_incumbent_firm_name(incumbent_research: str) -> Optional[str]:
     if not incumbent_research:
         return None
     for line in incumbent_research.splitlines():
-        if "Named incumbent:" in line:
-            part = line.split("Named incumbent:", 1)[1]
+        if "named incumbent:" in line.lower():
+            idx = line.lower().index("named incumbent:")
+            part = line[idx + len("named incumbent:"):]
             name = part.split("—")[0].split("–")[0].split("-")[0].split("|")[0].split("(")[0].strip()
             if name and len(name) > 1:
                 return name
