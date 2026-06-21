@@ -6138,7 +6138,7 @@ def admin_pipeline():
             f'<input type="hidden" name="stage" value="{stage}">'
             f'<button class="btn {colour}" type="submit" '
             f'onclick="if(!confirm(\'Run {label}?\')){{return false;}}'
-            f'this.textContent=\'Starting…\';this.disabled=true;">'
+            f'var b=this;setTimeout(function(){{b.textContent=\'Starting…\';b.disabled=true;}},10);">'
             f'{label}</button></form>'
         )
 
@@ -6189,7 +6189,7 @@ def admin_pipeline():
         f'<input type="hidden" name="force" value="1">'
         f'<button class="btn bg-out" type="submit" '
         f'onclick="if(!confirm(\'Regenerate ALL demo content for all 7 sectors? Overwrites existing artefacts. Takes 5–10 mins.\')){{return false;}}'
-        f'this.textContent=\'Starting…\';this.disabled=true;">'
+        f'var b=this;setTimeout(function(){{b.textContent=\'Starting…\';b.disabled=true;}},10);">'
         f'🎬 Regenerate Demo Content</button></form>'
         f'</div>'
         f'<div style="padding:.25rem 1.25rem .75rem;font-size:.78rem;color:var(--muted);">'
