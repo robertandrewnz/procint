@@ -44,7 +44,7 @@ print("Cleared all ach_analysis rows for notice — ready for fresh run.")
 notice_row = db.fetchone(
     """
     SELECT r.notice_id, r.title, r.agency, r.description,
-           e.overview_text, p.sector_tag
+           r.overview_text, p.sector_tag
       FROM raw_notices r
       JOIN enriched_notices e ON e.notice_id = r.notice_id
       JOIN parsed_notices   p ON p.notice_id = r.notice_id
