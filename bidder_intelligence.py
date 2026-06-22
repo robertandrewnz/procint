@@ -129,12 +129,20 @@ def _format_requirements_summary(reqs: dict) -> str:
 # ── Shared utilities ───────────────────────────────────────────────────────────
 
 _GARBAGE_NAME_FRAGMENTS = (
+    # Claude error/refusal phrases
     "unable to rank",
     "analysis_status",
     "cannot identify",
     "no specific firm",
     "error:",
     "insufficient data for",
+    # Service-description phrases that should never appear in a company name
+    "core service:",
+    "service:",
+    "services:",
+    "operations and maintenance",
+    "procurement",
+    "contract",
 )
 
 _AGENCY_STOP_WORDS = frozenset({
@@ -214,6 +222,18 @@ def _extract_json_from_response(raw: str) -> dict:
 
 
 def _is_garbage_name(name: str) -> bool:
+    """Return True if *name* looks like a service description rather than a firm name."""
+    if not name:
+        return True
+    # Firm names are short — sentences are not firm names
+    if len(name) > 60:
+        return True
+    # Firm names start with a capital letter
+    if not name[0].isupper():
+        return True
+    # Markdown/formatting characters have no place in a firm name
+    if any(c in name for c in ("*", "#", "_", "`", ">")):
+        return True
     name_lower = name.lower()
     return any(frag in name_lower for frag in _GARBAGE_NAME_FRAGMENTS)
 
@@ -265,10 +285,17 @@ def _identify_candidates_live(notice: dict) -> list[dict]:
         overview_text=notice.get("overview_text") or notice.get("description") or "",
     )
     for r in web_rows:
-        if _is_government_entity(r.get("firm_name", "")):
-            logger.debug("Stage 1: skipping government entity %r", r.get("firm_name"))
+        raw_name = r.get("firm_name", "")
+        if _is_government_entity(raw_name):
+            logger.debug("Stage 1: skipping government entity %r", raw_name)
             continue
-        cn = canonical_name(r.get("firm_name", ""))
+        if _is_garbage_name(raw_name):
+            logger.info("Stage 1: rejecting non-firm name %r for notice %s", raw_name, notice_id)
+            continue
+        cn = canonical_name(raw_name)
+        if _is_garbage_name(cn):
+            logger.info("Stage 1: rejecting canonical name %r for notice %s", cn, notice_id)
+            continue
         r["canonical_name"] = cn
         candidates.append(r)
 
@@ -945,6 +972,13 @@ def store_ach_results(notice_id: str, bidders: list[dict]) -> None:
         )
 
         for rank, b in enumerate(bidders, 1):
+            firm_name_raw = str(b.get("name") or "").strip()
+            if _is_garbage_name(firm_name_raw):
+                logger.warning(
+                    "store_ach_results: rejecting non-firm name %r for notice %s",
+                    firm_name_raw, notice_id,
+                )
+                continue
             cap_match = b.get("capability_match", "unknown")
             evidence_parts = b.get("evidence") or []
             discriminator  = b.get("discriminator") or ""
