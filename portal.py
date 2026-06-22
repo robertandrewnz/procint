@@ -3921,8 +3921,9 @@ function wlClearSearch(){
                  ORDER BY b.notice_id,
                           CASE b.match_type
                                WHEN 'incumbent_identified' THEN 0
-                               WHEN 'ach_analysis' THEN 1
-                               ELSE 2 END,
+                               WHEN 'incumbent_possible'   THEN 1
+                               WHEN 'ach_analysis'         THEN 2
+                               ELSE 3 END,
                           b.relevance_score DESC NULLS LAST
                 """,
                 tuple(notice_ids),
@@ -3944,7 +3945,7 @@ function wlClearSearch(){
             from bidder_intelligence import _ach_relevance_gate
             for nid, rows in grouped.items():
                 # Separate incumbent rows — always shown first regardless of path
-                incumbent_rows = [r for r in rows if r.get("match_type") == "incumbent_identified"]
+                incumbent_rows = [r for r in rows if r.get("match_type") in ("incumbent_identified", "incumbent_possible")]
                 # If this notice has ACH rows, gate them before use
                 ach_rows = [r for r in rows if r.get("match_type") == "ach_analysis"]
                 if ach_rows:

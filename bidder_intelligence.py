@@ -1035,7 +1035,7 @@ def _run_incumbent_detection_for_notice(notice: dict) -> None:
     try:
         existing = db.fetchone(
             "SELECT firm_name FROM bidder_pool "
-            "WHERE notice_id = %s AND match_type = 'incumbent_identified' LIMIT 1",
+            "WHERE notice_id = %s AND match_type IN ('incumbent_identified','incumbent_possible') LIMIT 1",
             (notice_id,),
         )
         if existing:
@@ -1064,7 +1064,7 @@ def _run_incumbent_detection_for_notice(notice: dict) -> None:
     try:
         from pursuit_package import (
             _web_search_incumbent,
-            _extract_incumbent_firm_name,
+            _parse_incumbent_result,
             _store_incumbent_in_bidder_pool,
         )
         incumbent_research = _web_search_incumbent(agency, sector, title, notice_text)
@@ -1072,18 +1072,18 @@ def _run_incumbent_detection_for_notice(notice: dict) -> None:
             "INCUMBENT raw result notice %s: %r",
             notice_id, (incumbent_research or "")[:200],
         )
-        firm_name = _extract_incumbent_firm_name(incumbent_research or "")
-        if firm_name:
+        firm_name, confidence = _parse_incumbent_result(incumbent_research or "")
+        if firm_name and confidence != "low":
             logger.info(
-                "INCUMBENT extracted for notice %s: %r — writing to bidder_pool",
-                notice_id, firm_name,
+                "INCUMBENT extracted for notice %s: %r (confidence=%s) — writing to bidder_pool",
+                notice_id, firm_name, confidence,
             )
-            _store_incumbent_in_bidder_pool(notice_id, firm_name, incumbent_research, sector)
+            _store_incumbent_in_bidder_pool(notice_id, firm_name, incumbent_research, sector, confidence)
             # Confirm the row actually landed
             try:
                 verified = db.fetchone(
                     "SELECT firm_name FROM bidder_pool "
-                    "WHERE notice_id = %s AND match_type = 'incumbent_identified' LIMIT 1",
+                    "WHERE notice_id = %s AND match_type IN ('incumbent_identified','incumbent_possible') LIMIT 1",
                     (notice_id,),
                 )
                 if verified:
@@ -1316,7 +1316,7 @@ def run_incumbent_detection_all(force: bool = False) -> dict:
             try:
                 db.execute(
                     "DELETE FROM bidder_pool "
-                    "WHERE notice_id = %s AND match_type = 'incumbent_identified'",
+                    "WHERE notice_id = %s AND match_type IN ('incumbent_identified','incumbent_possible')",
                     (nid,),
                 )
             except Exception as exc:
@@ -1326,7 +1326,7 @@ def run_incumbent_detection_all(force: bool = False) -> dict:
         try:
             existing = db.fetchone(
                 "SELECT firm_name FROM bidder_pool "
-                "WHERE notice_id = %s AND match_type = 'incumbent_identified' LIMIT 1",
+                "WHERE notice_id = %s AND match_type IN ('incumbent_identified','incumbent_possible') LIMIT 1",
                 (nid,),
             )
             if existing:
@@ -1354,7 +1354,7 @@ def run_incumbent_detection_all(force: bool = False) -> dict:
         try:
             stored = db.fetchone(
                 "SELECT firm_name FROM bidder_pool "
-                "WHERE notice_id = %s AND match_type = 'incumbent_identified' LIMIT 1",
+                "WHERE notice_id = %s AND match_type IN ('incumbent_identified','incumbent_possible') LIMIT 1",
                 (nid,),
             )
             if stored:

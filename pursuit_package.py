@@ -822,38 +822,84 @@ def _web_search_incumbent(
         )
 
 
-def _extract_incumbent_firm_name(incumbent_research: str) -> Optional[str]:
+def _parse_incumbent_result(incumbent_research: str) -> "tuple[Optional[str], str]":
+    """
+    Parse web search result into (firm_name, confidence).
+    confidence is 'high', 'medium', or 'none'.
+    Returns (None, 'none') when no named incumbent found.
+    """
     if not incumbent_research:
-        return None
+        return (None, "none")
+    firm_name = None
     for line in incumbent_research.splitlines():
         if "named incumbent:" in line.lower():
             idx = line.lower().index("named incumbent:")
             part = line[idx + len("named incumbent:"):]
             name = part.split("—")[0].split("–")[0].split("-")[0].split("|")[0].split("(")[0].strip()
             if name and len(name) > 1:
-                return name
-    return None
+                firm_name = name
+                break
+    if not firm_name:
+        return (None, "none")
+    result_lower = incumbent_research.lower()
+    if "confidence: high" in result_lower:
+        confidence = "high"
+    elif "confidence: medium" in result_lower:
+        confidence = "medium"
+    else:
+        confidence = "medium"  # named but unstated — treat as medium
+    return (firm_name, confidence)
 
 
-def _store_incumbent_in_bidder_pool(notice_id: str, firm_name: str, evidence: str, sector: str) -> None:
+def _extract_incumbent_firm_name(incumbent_research: str) -> Optional[str]:
+    """Backward-compat wrapper — returns firm name only, ignoring confidence."""
+    firm_name, _ = _parse_incumbent_result(incumbent_research)
+    return firm_name
+
+
+def _store_incumbent_in_bidder_pool(
+    notice_id: str,
+    firm_name: str,
+    evidence: str,
+    sector: str,
+    confidence: str = "high",
+) -> None:
+    """
+    Store identified incumbent in bidder_pool.
+    confidence='high'   → match_type='incumbent_identified'  (INCUMBENT badge)
+    confidence='medium' → match_type='incumbent_possible'    (Possible incumbent — verify)
+    confidence='low'    → not stored (caller should skip)
+    """
+    if confidence == "low":
+        logger.info(
+            "INCUMBENT low-confidence: not storing %r for notice %s", firm_name, notice_id
+        )
+        return
+    match_type = "incumbent_identified" if confidence == "high" else "incumbent_possible"
+    relevance  = 0.95 if confidence == "high" else 0.70
+    maturity   = "strong" if confidence == "high" else "moderate"
     try:
         db.execute(
             """
             INSERT INTO bidder_pool
                 (notice_id, firm_name, match_type, relevance_score, strategic_importance,
                  intelligence_maturity, reasoning, company_context, sector)
-            VALUES (%s, %s, 'incumbent_identified', 0.95, 'high', 'strong', %s, %s, %s)
+            VALUES (%s, %s, %s, %s, 'high', %s, %s, %s, %s)
             ON CONFLICT (notice_id, firm_name) DO UPDATE SET
-                match_type = 'incumbent_identified',
-                relevance_score = 0.95,
-                strategic_importance = 'high',
-                intelligence_maturity = 'strong',
-                reasoning = EXCLUDED.reasoning,
-                company_context = EXCLUDED.company_context
+                match_type            = EXCLUDED.match_type,
+                relevance_score       = EXCLUDED.relevance_score,
+                strategic_importance  = 'high',
+                intelligence_maturity = EXCLUDED.intelligence_maturity,
+                reasoning             = EXCLUDED.reasoning,
+                company_context       = EXCLUDED.company_context
             """,
-            (notice_id, firm_name, evidence[:200], evidence[:500], sector),
+            (notice_id, firm_name, match_type, relevance, maturity,
+             evidence[:200], evidence[:500], sector),
         )
-        logger.info("INCUMBENT stored in bidder_pool: notice=%s firm=%s", notice_id, firm_name)
+        logger.info(
+            "INCUMBENT stored: notice=%s firm=%s match_type=%s",
+            notice_id, firm_name, match_type,
+        )
     except Exception as exc:
         logger.warning("_store_incumbent_in_bidder_pool failed: %s", exc)
 
@@ -1993,9 +2039,11 @@ def generate_pursuit_package(
                 incumbent_from_docs,
                 (incumbent_research or "")[:120])
     # Store named incumbent in bidder_pool so watchlist displays it
-    _incumbent_firm = _extract_incumbent_firm_name(incumbent_research or "")
-    if _incumbent_firm:
-        _store_incumbent_in_bidder_pool(notice_id, _incumbent_firm, incumbent_research, sector)
+    _incumbent_firm, _incumbent_confidence = _parse_incumbent_result(incumbent_research or "")
+    if _incumbent_firm and _incumbent_confidence != "low":
+        _store_incumbent_in_bidder_pool(
+            notice_id, _incumbent_firm, incumbent_research, sector, _incumbent_confidence
+        )
     # Detect client-is-incumbent (re-tender of own contract).
     # Fast path: first-word name overlap in the incumbent research string.
     client_is_incumbent = bool(

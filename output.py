@@ -553,6 +553,13 @@ def _bidder_card(b: dict) -> str:
             'font-size:.62rem;font-weight:700;padding:.12rem .45rem;'
             'border-radius:4px;letter-spacing:.04em;">INCUMBENT</span>'
         )
+    elif match_type == "incumbent_possible":
+        src_badge = (
+            '<span class="bidder-src-badge" '
+            'style="background:#fff3cd;color:#7a5000;border:1px solid #d4a017;'
+            'font-size:.62rem;font-weight:700;padding:.12rem .45rem;'
+            'border-radius:4px;letter-spacing:.04em;">Possible incumbent — verify</span>'
+        )
     elif match_type == "mbie_evidence":
         src_badge = ('<span class="bidder-src-badge bidder-src-mbie">'
                      '&#10003; MBIE historical</span>')
