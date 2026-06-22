@@ -131,19 +131,29 @@ _SYSTEM_PROMPT = (
     "sector pattern from the data. Generic observations are not acceptable."
 )
 
-_SIGNAL_SCHEMA = {
-    "type": "array",
-    "items": {
+_SIGNAL_TOOL = {
+    "name": "report_market_signals",
+    "description": "Report exactly 3 market intelligence signals for the firm.",
+    "input_schema": {
         "type": "object",
         "properties": {
-            "signal":   {"type": "string"},
-            "priority": {"type": "string", "enum": ["high", "medium", "low"]},
-            "action":   {"type": "string"},
+            "signals": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "signal":   {"type": "string"},
+                        "priority": {"type": "string", "enum": ["high", "medium", "low"]},
+                        "action":   {"type": "string"},
+                    },
+                    "required": ["signal", "priority", "action"],
+                },
+                "minItems": 3,
+                "maxItems": 3,
+            }
         },
-        "required": ["signal", "priority", "action"],
+        "required": ["signals"],
     },
-    "minItems": 3,
-    "maxItems": 3,
 }
 
 
@@ -214,22 +224,23 @@ def generate_market_intelligence(user_id: str) -> list[dict]:
             max_tokens=800,
             system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
+            tools=[_SIGNAL_TOOL],
+            tool_choice={"type": "tool", "name": "report_market_signals"},
         )
-        raw = resp.content[0].text.strip()
-        # Strip markdown fences if present
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        signals: list[dict] = json.loads(raw)
+        tool_block = next(
+            (b for b in resp.content if getattr(b, "type", None) == "tool_use"), None
+        )
+        if not tool_block:
+            raise ValueError(
+                f"Claude returned no tool_use block; stop_reason={resp.stop_reason}"
+            )
+        signals: list[dict] = tool_block.input.get("signals", [])
     except Exception as exc:
-        logger.error("generate_market_intelligence(%s) Claude error: %s", user_id, exc)
-        # Fallback: generic signals so the dashboard doesn't break
-        signals = [
-            {"signal": "Market intelligence unavailable — pipeline error.",
-             "priority": "low",
-             "action": "Re-run the intelligence pipeline to refresh signals."},
-        ]
+        logger.error(
+            "generate_market_intelligence(%s) failed: %s: %s",
+            user_id, exc.__class__.__name__, exc,
+        )
+        return []
 
     # Validate and cap to 3
     valid_signals = []
@@ -284,7 +295,13 @@ def get_stored_signals(user_id: str) -> list[dict]:
             (user_id,),
         )
         if rows:
-            return [dict(r) for r in rows]
+            signals = [dict(r) for r in rows]
+            # Discard stale error-fallback signals stored by an older code path
+            if not any("pipeline error" in (s.get("signal") or "").lower() for s in signals):
+                return signals
+            # Clear the stale fallback so regeneration can store fresh signals
+            logger.info("get_stored_signals(%s): stale error fallback found — clearing", user_id)
+            _store_signals(user_id, [])
     except Exception as exc:
         logger.warning("get_stored_signals(%s): %s", user_id, exc)
 
